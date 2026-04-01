@@ -1,112 +1,163 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { FlatList, StyleSheet, View, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { TText } from '@/components/ui/TText';
+import { TChip } from '@/components/ui/TChip';
+import { ArtistCard } from '@/components/ArtistCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useAppStore } from '@/store/app-store';
+import { ARTISTS, STYLES } from '@/constants/mock-data';
+import type { Artist } from '@/constants/mock-data';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+export default function ExploreScreen() {
+  const insets = useSafeAreaInsets();
+  const { savedArtistIds, toggleSaveArtist } = useAppStore();
+  const [query, setQuery] = useState('');
+  const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
+  const [selectedAvailability, setSelectedAvailability] = useState<boolean>(false);
 
-export default function TabTwoScreen() {
+  const filtered = useMemo(() => {
+    return ARTISTS.filter((a) => {
+      const matchQuery =
+        !query ||
+        a.blaze.toLowerCase().includes(query.toLowerCase()) ||
+        a.city.toLowerCase().includes(query.toLowerCase());
+      const matchStyle = !selectedStyle || a.styles.includes(selectedStyle);
+      const matchAvail = !selectedAvailability || a.bookingStatus === 'open';
+      return matchQuery && matchStyle && matchAvail;
+    });
+  }, [query, selectedStyle, selectedAvailability]);
+
+  const renderArtist = ({ item }: { item: Artist }) => (
+    <ArtistCard
+      artist={item}
+      isSaved={savedArtistIds.has(item.id)}
+      onSave={toggleSaveArtist}
+    />
+  );
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TText variant="title1" weight="bold">Explorer</TText>
+      </View>
+
+      {/* Search */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchInput}>
+          <Ionicons name="search" size={18} color={Colors.textTertiary} />
+          <TextInput
+            style={styles.searchField}
+            placeholder="Recherche artiste, ville..."
+            placeholderTextColor={Colors.textTertiary}
+            value={query}
+            onChangeText={setQuery}
+          />
+          {query ? (
+            <Ionicons
+              name="close-circle"
+              size={18}
+              color={Colors.textTertiary}
+              onPress={() => setQuery('')}
+            />
+          ) : null}
+        </View>
+      </View>
+
+      {/* Filters */}
+      <View style={styles.filtersRow}>
+        <TChip
+          label="Disponible"
+          selected={selectedAvailability}
+          onPress={() => setSelectedAvailability((v) => !v)}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+        {STYLES.slice(0, 6).map((s) => (
+          <TChip
+            key={s.id}
+            label={s.name}
+            selected={selectedStyle === s.slug}
+            onPress={() => setSelectedStyle(selectedStyle === s.slug ? null : s.slug)}
+          />
+        ))}
+      </View>
+
+      {/* Results */}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.id}
+        renderItem={renderArtist}
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 80 }]}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <TText variant="caption" color="tertiary" style={styles.count}>
+            {filtered.length} artiste{filtered.length > 1 ? 's' : ''}
+          </TText>
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="search-outline"
+            title="Aucun résultat."
+            description="Essaie d'autres filtres ou une autre ville."
+            ctaLabel="Effacer les filtres"
+            onCta={() => {
+              setQuery('');
+              setSelectedStyle(null);
+              setSelectedAvailability(false);
+            }}
+            style={{ marginTop: 40 }}
+          />
+        }
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: Colors.bgPrimary,
   },
-  titleContainer: {
+  header: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing['2xs'],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderSubtle,
+  },
+  searchRow: {
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.sm,
+  },
+  searchInput: {
     flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    paddingHorizontal: Spacing.sm,
+    height: 48,
     gap: 8,
+  },
+  searchField: {
+    flex: 1,
+    color: Colors.textPrimary,
+    fontSize: FontSize.body,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing['2xs'],
+    paddingBottom: Spacing['2xs'],
+    flexWrap: 'wrap',
+  },
+  list: {
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing['2xs'],
+  },
+  count: {
+    marginBottom: Spacing['2xs'],
   },
 });
