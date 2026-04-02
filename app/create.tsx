@@ -3,27 +3,62 @@ import { View, StyleSheet, TouchableOpacity, ScrollView, KeyboardAvoidingView, P
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeInUp, ZoomIn } from 'react-native-reanimated';
+import { Image } from 'expo-image';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { TChip } from '@/components/ui/TChip';
+import { TProgressBar } from '@/components/ui/TProgressBar';
+import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
+import { pickImage, uploadPostMedia } from '@/lib/storage';
+import { Toast } from '@/components/ui/TToast';
 import { STYLES } from '@/constants/mock-data';
 
-export default function CreatePostScreen() {
+export default function CreateScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuthStore();
+
+  const [mediaUri, setMediaUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
-  const [mediaSelected, setMediaSelected] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isPublishing, setIsPublishing] = useState(false);
 
-  const toggleStyle = (slug: string) =>
+  const handlePickMedia = async () => {
+    const uris = await pickImage({ aspect: [4, 5] });
+    if (uris?.[0]) setMediaUri(uris[0]);
+  };
+
+  const toggleStyle = (slug: string) => {
     setSelectedStyles((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug].slice(0, 3)
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : prev.length < 3 ? [...prev, slug] : prev
     );
+  };
 
-  const handlePublish = () => {
-    router.back();
+  const handlePublish = async () => {
+    if (!mediaUri || !user?.artistId) return;
+    setIsPublishing(true);
+    try {
+      const { url } = await uploadPostMedia(mediaUri, user.artistId, setUploadProgress);
+      const { error } = await supabase.from('posts').insert({
+        artist_id: user.artistId,
+        media_url: url,
+        caption: caption.trim() || null,
+        styles: selectedStyles,
+        is_published: true,
+      });
+      if (error) throw error;
+      Toast.success('Post publié !');
+      router.back();
+    } catch (e: any) {
+      Toast.error(e.message ?? 'Erreur lors de la publication.');
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   return (
@@ -33,82 +68,86 @@ export default function CreatePostScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
         <TText variant="title2">Nouveau post</TText>
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 20 }}
-      >
-        {/* Media picker */}
-        <TouchableOpacity
-          style={[styles.mediaPicker, mediaSelected && styles.mediaSelected]}
-          onPress={() => setMediaSelected(true)}
-          activeOpacity={0.85}
-        >
-          {mediaSelected ? (
-            <View style={styles.mediaPreview}>
-              <Ionicons name="image" size={48} color={Colors.textTertiary} />
-              <TText variant="bodySmall" color="tertiary" style={{ marginTop: 8 }}>
-                Photo sélectionnée ✓
-              </TText>
-              <TText variant="caption" color="tertiary">
-                Appuie pour changer
-              </TText>
-            </View>
-          ) : (
-            <View style={styles.mediaPlaceholder}>
-              <Ionicons name="camera-outline" size={48} color={Colors.textTertiary} />
-              <TText variant="bodySmall" color="secondary" style={{ marginTop: 8 }}>
-                Ajouter une photo ou vidéo
-              </TText>
-              <TText variant="caption" color="tertiary" style={{ marginTop: 4 }}>
-                JPEG, PNG · Vidéo max 60s
-              </TText>
-            </View>
-          )}
-        </TouchableOpacity>
+      {isPublishing && (
+        <View style={{ paddingHorizontal: Spacing.sm }}>
+          <TProgressBar progress={uploadProgress} />
+        </View>
+      )}
 
-        <View style={styles.form}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
+        {/* Media picker */}
+        <Animated.View entering={FadeIn.delay(100)}>
+          <TouchableOpacity
+            style={[styles.mediaPicker, mediaUri && styles.mediaPickerFilled]}
+            onPress={handlePickMedia}
+            activeOpacity={0.8}
+          >
+            {mediaUri ? (
+              <Animated.View entering={ZoomIn.springify()} style={StyleSheet.absoluteFill}>
+                <Image source={{ uri: mediaUri }} style={styles.mediaPreview} contentFit="cover" />
+                <View style={styles.changeMediaBtn}>
+                  <Ionicons name="camera" size={18} color="#fff" />
+                  <TText variant="caption" style={{ color: '#fff', marginLeft: 4 }}>Changer</TText>
+                </View>
+              </Animated.View>
+            ) : (
+              <View style={styles.mediaPlaceholder}>
+                <Ionicons name="add-circle-outline" size={48} color={Colors.textTertiary} />
+                <TText variant="bodySmall" color="tertiary" style={{ marginTop: 10, textAlign: 'center' }}>
+                  Touche pour sélectionner{'\n'}une photo (4:5)
+                </TText>
+              </View>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Caption */}
+        <Animated.View entering={FadeInUp.delay(200).springify()}>
           <TInput
             label="Légende"
             value={caption}
             onChangeText={setCaption}
-            placeholder="Quelques mots sur cette pièce..."
+            placeholder="Décris ton travail…"
             multiline
             numberOfLines={3}
-            inputStyle={{ height: 80, textAlignVertical: 'top', paddingTop: 8 }}
-            optional
+            style={styles.captionInput}
           />
+        </Animated.View>
 
+        {/* Style tags */}
+        <Animated.View entering={FadeInUp.delay(300).springify()}>
           <TText variant="caption" color="secondary" style={styles.sectionLabel}>
-            TAGS DE STYLE (max 3)
+            STYLES (max 3)
           </TText>
           <View style={styles.stylesGrid}>
-            {STYLES.map((s) => (
+            {STYLES.map((style) => (
               <TChip
-                key={s.id}
-                label={s.name}
-                selected={selectedStyles.includes(s.slug)}
-                onPress={() => toggleStyle(s.slug)}
+                key={style.id}
+                label={`${style.emoji}  ${style.name}`}
+                selected={selectedStyles.includes(style.slug)}
+                onPress={() => toggleStyle(style.slug)}
+                disabled={!selectedStyles.includes(style.slug) && selectedStyles.length >= 3}
               />
             ))}
           </View>
-        </View>
-      </ScrollView>
+        </Animated.View>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
-        <TButton
-          title="Publier"
-          onPress={handlePublish}
-          disabled={!mediaSelected}
-        />
-      </View>
+        <Animated.View entering={FadeInUp.delay(400).springify()}>
+          <TButton
+            title="Publier"
+            onPress={handlePublish}
+            loading={isPublishing}
+            disabled={!mediaUri}
+          />
+        </Animated.View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -119,36 +158,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
+    paddingHorizontal: Spacing['2xs'],
     paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderSubtle,
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  content: { padding: Spacing.sm, gap: Spacing.sm },
   mediaPicker: {
-    margin: Spacing.sm,
     height: 280,
     borderRadius: Radius.lg,
     borderWidth: 1.5,
-    borderColor: Colors.borderDefault,
     borderStyle: 'dashed',
-    backgroundColor: Colors.bgSurface,
+    borderColor: Colors.borderSubtle,
+    backgroundColor: Colors.bgElevated,
     overflow: 'hidden',
   },
-  mediaSelected: {
-    borderStyle: 'solid',
-    borderColor: Colors.accent,
-  },
+  mediaPickerFilled: { borderStyle: 'solid', borderColor: 'transparent' },
+  mediaPreview: { width: '100%', height: '100%' },
   mediaPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mediaPreview: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  form: { paddingHorizontal: Spacing.sm },
-  sectionLabel: { marginBottom: Spacing['2xs'], letterSpacing: 0.5 },
-  stylesGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  footer: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-    backgroundColor: Colors.bgPrimary,
+  changeMediaBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: Radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
+  captionInput: { minHeight: 80 },
+  sectionLabel: { marginBottom: 8 },
+  stylesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.sm },
 });

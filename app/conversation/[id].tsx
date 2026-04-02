@@ -1,92 +1,128 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  TextInput,
+  View, StyleSheet, TextInput, TouchableOpacity, FlatList,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring, FadeInUp, FadeIn,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { TAvatar } from '@/components/ui/TAvatar';
-import { TDivider } from '@/components/ui/TDivider';
-import { MESSAGES_BY_REQUEST, REQUESTS, ARTISTS } from '@/constants/mock-data';
-import type { Message } from '@/constants/mock-data';
+import { useMessageStore, Message } from '@/store/message-store';
+import { useRequestStore } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
+import { Image } from 'expo-image';
+import { pickImage, uploadFile } from '@/lib/storage';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+
+const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-  const isArtist = user?.role === 'artist';
+  const { fetchMessages, subscribeToRequest, unsubscribeFromRequest, sendMessage, markAsRead, messagesByRequest } = useMessageStore();
+  const { getRequest } = useRequestStore();
 
-  const request = REQUESTS.find((r) => r.id === id) ?? REQUESTS[1];
-  const artist = ARTISTS.find((a) => a.id === request.artistId) ?? ARTISTS[0];
+  const [text, setText] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
 
-  const [messages, setMessages] = useState<Message[]>(
-    MESSAGES_BY_REQUEST[id] ?? MESSAGES_BY_REQUEST['r2'] ?? []
-  );
-  const [inputText, setInputText] = useState('');
-  const listRef = useRef<FlatList>(null);
+  const messages = messagesByRequest[id] ?? [];
+  const request = getRequest(id);
+  const sendScale = useSharedValue(0);
 
-  const sendMessage = () => {
-    if (!inputText.trim()) return;
-    const newMsg: Message = {
-      id: `msg_${Date.now()}`,
-      senderId: isArtist ? 'a1' : 'client',
-      senderName: isArtist ? artist.blaze : request.clientName,
-      content: inputText.trim(),
-      messageType: 'text',
-      createdAt: new Date().toISOString(),
-      isRead: false,
-    };
-    setMessages((prev) => [...prev, newMsg]);
-    setInputText('');
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+  useEffect(() => {
+    if (!id) return;
+    fetchMessages(id);
+    subscribeToRequest(id);
+    if (user?.id) markAsRead(id, user.id);
+    return () => unsubscribeFromRequest();
+  }, [id]);
+
+  useEffect(() => {
+    sendScale.value = withSpring(text.trim().length > 0 ? 1 : 0, { damping: 15, stiffness: 200 });
+  }, [text]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length]);
+
+  const handleSend = useCallback(async () => {
+    if (!text.trim() || !user?.id || isSending) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIsSending(true);
+    const content = text.trim();
+    setText('');
+    await sendMessage(id, user.id, content);
+    setIsSending(false);
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }, [text, user?.id, id, isSending]);
+
+  const handleImageSend = async () => {
+    const uris = await pickImage();
+    if (!uris?.[0] || !user?.id) return;
+    setIsUploading(true);
+    try {
+      const { url } = await uploadFile(uris[0], 'posts-media', `conv/${id}/${Date.now()}.jpg`);
+      await sendMessage(id, user.id, url, 'image');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isSystem = item.messageType === 'system' || item.messageType === 'appointment_confirmed';
-    const isMe = (isArtist && item.senderId === 'a1') || (!isArtist && item.senderId === 'client');
+  const sendBtnStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendScale.value }],
+    opacity: sendScale.value,
+  }));
+
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const isMe = item.senderId === user?.id;
+    const isSystem = item.messageType === 'system';
 
     if (isSystem) {
       return (
-        <View style={msgStyles.systemMsg}>
-          <TText variant="caption" color="tertiary" style={{ textAlign: 'center' }}>
-            {item.content}
-          </TText>
-        </View>
+        <Animated.View entering={FadeIn} style={styles.systemMsg}>
+          <TText variant="caption" color="tertiary" style={{ textAlign: 'center' }}>{item.content}</TText>
+        </Animated.View>
       );
     }
 
     return (
-      <View style={[msgStyles.bubble, isMe ? msgStyles.bubbleMe : msgStyles.bubbleThem]}>
-        <TText
-          variant="bodySmall"
-          style={{
-            color: isMe ? Colors.textInverse : Colors.textPrimary,
-            lineHeight: 22,
-          }}
-        >
-          {item.content}
+      <Animated.View
+        entering={FadeInUp.delay(Math.min(index * 30, 200)).springify()}
+        style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}
+      >
+        {item.messageType === 'image' ? (
+          <TouchableOpacity activeOpacity={0.9}>
+            <Image
+              source={{ uri: item.content }}
+              style={[styles.imageBubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
+              contentFit="cover"
+              transition={300}
+            />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem, item.pending && styles.bubblePending]}>
+            <TText variant="bodySmall" style={isMe ? styles.textMe : styles.textThem}>
+              {item.content}
+            </TText>
+          </View>
+        )}
+        <TText variant="caption" color="tertiary" style={[styles.timestamp, isMe ? styles.timestampMe : styles.timestampThem]}>
+          {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
+          {item.failed && ' ✗'}
         </TText>
-        <TText
-          variant="label"
-          style={{
-            color: isMe ? 'rgba(10,10,10,0.5)' : Colors.textTertiary,
-            marginTop: 3,
-            alignSelf: 'flex-end',
-          }}
-        >
-          {new Date(item.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-        </TText>
-      </View>
+      </Animated.View>
     );
   };
 
@@ -94,112 +130,79 @@ export default function ConversationScreen() {
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <TAvatar uri={isArtist ? request.clientAvatar : artist.avatarUrl} name={isArtist ? request.clientName : artist.blaze} size="sm" />
-          <View style={{ marginLeft: 8 }}>
-            <TText variant="bodySmall" weight="semibold">
-              {isArtist ? request.clientName : artist.blaze}
+          <TText variant="bodySmall" weight="semibold" numberOfLines={1}>
+            {request?.artistName ?? request?.clientName ?? 'Conversation'}
+          </TText>
+          {request && (
+            <TText variant="caption" color="tertiary" numberOfLines={1}>
+              {request.bodyZone}
             </TText>
-            <TText variant="caption" color="tertiary">
-              {request.bodyZone} · {request.projectType === 'new' ? 'Nouveau' : request.projectType}
-            </TText>
-          </View>
+          )}
         </View>
-        <TouchableOpacity
-          onPress={() => router.push(`/request/${request.id}`)}
-          style={styles.headerBtn}
-        >
-          <Ionicons name="document-text-outline" size={22} color={Colors.textSecondary} />
+        <TouchableOpacity style={styles.headerBtn} onPress={() => router.push(`/request/${id}`)}>
+          <Ionicons name="information-circle-outline" size={22} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       {/* Context banner */}
-      <TouchableOpacity
-        style={styles.contextBanner}
-        onPress={() => router.push(`/request/${request.id}`)}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="information-circle-outline" size={16} color={Colors.textTertiary} />
-        <TText variant="caption" color="tertiary" style={{ marginLeft: 6, flex: 1 }}>
-          {request.bodyZone} · {request.sizeCategory.toUpperCase()} · {request.budgetMin}–{request.budgetMax}€
-        </TText>
-        <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
-      </TouchableOpacity>
-
-      <TDivider />
+      {request && (
+        <View style={styles.contextBanner}>
+          <Ionicons name="document-text-outline" size={14} color={Colors.textTertiary} />
+          <TText variant="caption" color="tertiary" style={{ marginLeft: 6, flex: 1 }}>
+            {request.sizeCategory?.toUpperCase()} · {request.budgetMin ? `${request.budgetMin}–${request.budgetMax}€` : 'Budget flexible'}
+          </TText>
+        </View>
+      )}
 
       {/* Messages */}
       <FlatList
-        ref={listRef}
+        ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
         renderItem={renderMessage}
-        contentContainerStyle={[styles.messageList, { paddingBottom: 16 }]}
+        contentContainerStyle={[styles.list, { paddingBottom: 12 }]}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
       />
 
-      {/* Input */}
+      {/* Input bar */}
       <View style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.textInput}
-            placeholder="Message..."
-            placeholderTextColor={Colors.textTertiary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={1000}
-          />
-          <TouchableOpacity
-            onPress={sendMessage}
-            style={[styles.sendBtn, inputText.trim() ? styles.sendBtnActive : undefined]}
-            disabled={!inputText.trim()}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={inputText.trim() ? Colors.textInverse : Colors.textTertiary}
-            />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.attachBtn} onPress={handleImageSend} disabled={isUploading}>
+          {isUploading
+            ? <ActivityIndicator size="small" color={Colors.textTertiary} />
+            : <Ionicons name="image-outline" size={22} color={Colors.textSecondary} />}
+        </TouchableOpacity>
+
+        <TextInput
+          style={styles.input}
+          value={text}
+          onChangeText={setText}
+          placeholder="Message…"
+          placeholderTextColor={Colors.textTertiary}
+          multiline
+          maxLength={1000}
+        />
+
+        <AnimatedTouchable
+          style={[styles.sendBtn, sendBtnStyle]}
+          onPress={handleSend}
+          disabled={!text.trim() || isSending}
+        >
+          {isSending
+            ? <ActivityIndicator size="small" color={Colors.bgPrimary} />
+            : <Ionicons name="arrow-up" size={18} color={Colors.bgPrimary} />}
+        </AnimatedTouchable>
       </View>
     </KeyboardAvoidingView>
   );
 }
-
-const msgStyles = StyleSheet.create({
-  systemMsg: {
-    paddingVertical: Spacing['2xs'],
-    paddingHorizontal: Spacing.xl,
-    marginVertical: 4,
-    alignItems: 'center',
-  },
-  bubble: {
-    maxWidth: '75%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    marginVertical: 2,
-  },
-  bubbleMe: {
-    alignSelf: 'flex-end',
-    backgroundColor: Colors.accentAction,
-    borderBottomRightRadius: 4,
-  },
-  bubbleThem: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.bgElevated,
-    borderBottomLeftRadius: 4,
-  },
-});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
@@ -211,54 +214,63 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderSubtle,
   },
+  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerCenter: { flex: 1, alignItems: 'center' },
   headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 4 },
   contextBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing['3xs'],
-    backgroundColor: Colors.bgSurface,
+    paddingVertical: 6,
+    backgroundColor: Colors.bgElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderSubtle,
   },
-  messageList: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.sm,
-  },
+  list: { paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm },
+  systemMsg: { alignItems: 'center', marginVertical: 8 },
+  bubbleRow: { marginBottom: 4 },
+  bubbleRowMe: { alignItems: 'flex-end' },
+  bubbleRowThem: { alignItems: 'flex-start' },
+  bubble: { maxWidth: '80%', borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10 },
+  bubbleMe: { backgroundColor: Colors.accent, borderBottomRightRadius: 4 },
+  bubbleThem: { backgroundColor: Colors.bgSurface, borderBottomLeftRadius: 4 },
+  bubblePending: { opacity: 0.6 },
+  imageBubble: { width: 200, height: 200, borderRadius: Radius.md },
+  textMe: { color: Colors.bgPrimary },
+  textThem: { color: Colors.textPrimary },
+  timestamp: { fontSize: 10, marginTop: 2 },
+  timestampMe: { marginRight: 4 },
+  timestampThem: { marginLeft: 4 },
   inputBar: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
-    backgroundColor: Colors.bgPrimary,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-  },
-  inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    paddingLeft: Spacing.sm,
-    paddingRight: 6,
-    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderSubtle,
+    backgroundColor: Colors.bgPrimary,
     gap: 8,
   },
-  textInput: {
+  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  input: {
     flex: 1,
+    minHeight: 36,
+    maxHeight: 120,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     color: Colors.textPrimary,
     fontSize: FontSize.body,
-    maxHeight: 100,
-    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
   },
   sendBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.bgSubtle,
+    backgroundColor: Colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sendBtnActive: {
-    backgroundColor: Colors.accentAction,
   },
 });
