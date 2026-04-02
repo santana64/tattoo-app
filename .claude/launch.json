@@ -9,9 +9,10 @@
     },
     {
       "name": "Expo (web)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "web"],
-      "port": 8081
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web"],
+      "port": 19006,
+      "autoPort": true
     },
     {
       "name": "Expo (Android)",
