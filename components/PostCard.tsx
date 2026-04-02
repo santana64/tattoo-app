@@ -3,10 +3,12 @@ import { View, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming,
+  useSharedValue, useAnimatedStyle, withSpring, withSequence,
+  withTiming, FadeIn,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 
@@ -29,104 +31,135 @@ interface PostCardProps {
   onLike?: () => void;
   onPress?: () => void;
   onArtistPress?: () => void;
+  // Bento variants
+  variant?: 'full' | 'half' | 'wide';
 }
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const IMAGE_HEIGHT = SCREEN_WIDTH * (5 / 4);
+const CARD_PADDING = 12;
+
+const IMAGE_HEIGHTS = {
+  full: SCREEN_WIDTH * (5 / 4),
+  half: (SCREEN_WIDTH / 2 - CARD_PADDING * 1.5) * 1.3,
+  wide: SCREEN_WIDTH * 0.7,
+};
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
-export function PostCard({ post, onLike, onPress, onArtistPress }: PostCardProps) {
-  const heartScale = useSharedValue(1);
-  const heartOpacity = useSharedValue(post.isLiked ? 1 : 0);
-  const cardScale = useSharedValue(1);
+export function PostCard({ post, onLike, onPress, onArtistPress, variant = 'full' }: PostCardProps) {
+  const heartScale   = useSharedValue(1);
+  const cardScale    = useSharedValue(1);
+  const likeOpacity  = useSharedValue(post.isLiked ? 1 : 0);
+  const imageScale   = useSharedValue(1);
 
-  const heartStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: heartScale.value }],
-  }));
-
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: heartOpacity.value }));
+  const imageHeight = IMAGE_HEIGHTS[variant];
 
   const handleLike = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     heartScale.value = withSequence(
-      withSpring(1.5, { damping: 3, stiffness: 350 }),
-      withSpring(1, { damping: 6, stiffness: 400 })
+      withSpring(1.6, { damping: 3, stiffness: 400 }),
+      withSpring(1, { damping: 5, stiffness: 350 }),
     );
-    heartOpacity.value = withTiming(post.isLiked ? 0 : 1, { duration: 150 });
+    likeOpacity.value = withTiming(post.isLiked ? 0 : 1, { duration: 120 });
     onLike?.();
   }, [post.isLiked, onLike]);
 
-  const handlePressIn = () => { cardScale.value = withSpring(0.98); };
-  const handlePressOut = () => { cardScale.value = withSpring(1); };
-  const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: cardScale.value }] }));
+  const handlePressIn  = () => {
+    cardScale.value  = withSpring(0.975, { damping: 20, stiffness: 300 });
+    imageScale.value = withSpring(1.03,  { damping: 20, stiffness: 200 });
+  };
+  const handlePressOut = () => {
+    cardScale.value  = withSpring(1, { damping: 15 });
+    imageScale.value = withSpring(1, { damping: 15 });
+  };
+
+  const cardStyle   = useAnimatedStyle(() => ({ transform: [{ scale: cardScale.value }] }));
+  const heartStyle  = useAnimatedStyle(() => ({ transform: [{ scale: heartScale.value }] }));
+  const imageStyle  = useAnimatedStyle(() => ({ transform: [{ scale: imageScale.value }] }));
+  const overlayStyle= useAnimatedStyle(() => ({ opacity: likeOpacity.value }));
 
   return (
-    <Animated.View style={[styles.container, cardStyle]}>
-      {/* Media with shared element tag */}
+    <Animated.View entering={FadeIn.duration(400)} style={[styles.container, cardStyle]}>
+      {/* Image */}
       <TouchableOpacity
-        activeOpacity={0.97}
+        activeOpacity={1}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        style={[styles.imageWrap, { height: imageHeight }]}
       >
-        <Image
-          source={{ uri: post.mediaUrl }}
-          style={styles.image}
-          contentFit="cover"
-          transition={{ duration: 400, effect: 'cross-dissolve' }}
-          sharedTransitionTag={`post-image-${post.id}`}
-        />
-        {/* Double-tap heart overlay */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.heartOverlay, overlayStyle]} pointerEvents="none">
-          <Ionicons name="heart" size={80} color="rgba(255,255,255,0.9)" />
-        </Animated.View>
-      </TouchableOpacity>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.artistInfo} onPress={onArtistPress} activeOpacity={0.8}>
-          <TAvatar
-            uri={post.artistAvatarUrl}
-            name={post.artistName}
-            size="sm"
-            isPremium={post.artistIsPremium}
+        <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
+          <Image
+            source={{ uri: post.mediaUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={{ duration: 500, effect: 'cross-dissolve' }}
+            sharedTransitionTag={`post-image-${post.id}`}
           />
-          <View style={styles.artistText}>
-            <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{post.artistName}</TText>
-            <TText variant="caption" color="tertiary">{post.artistCity}</TText>
-          </View>
-        </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity onPress={handleLike} style={styles.likeButton} activeOpacity={0.8}>
+        {/* Gradient overlay bottom */}
+        <LinearGradient
+          colors={['transparent', 'rgba(5,5,8,0.85)']}
+          locations={[0.4, 1]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+
+        {/* Heart like overlay */}
+        <Animated.View style={[StyleSheet.absoluteFill, styles.heartOverlay, overlayStyle]} pointerEvents="none">
+          <Ionicons name="heart" size={72} color="rgba(255,255,255,0.95)" />
+        </Animated.View>
+
+        {/* Artist info overlay on image */}
+        {variant !== 'half' && (
+          <TouchableOpacity style={styles.artistOverlay} onPress={onArtistPress} activeOpacity={0.8}>
+            <TAvatar
+              uri={post.artistAvatarUrl}
+              name={post.artistName}
+              size="sm"
+              isPremium={post.artistIsPremium}
+            />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <TText variant="bodySmall" weight="semibold" style={styles.overlayText}>
+                {post.artistName}
+              </TText>
+              <TText variant="caption" style={styles.overlaySubText}>{post.artistCity}</TText>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Like button — bottom right */}
+        <TouchableOpacity onPress={handleLike} style={styles.likeBtn} activeOpacity={0.8}>
           <Animated.View style={heartStyle}>
             <Ionicons
               name={post.isLiked ? 'heart' : 'heart-outline'}
-              size={22}
-              color={post.isLiked ? Colors.error : Colors.textSecondary}
+              size={variant === 'half' ? 18 : 22}
+              color={post.isLiked ? '#F87171' : 'rgba(255,255,255,0.7)'}
             />
           </Animated.View>
-          <TText variant="caption" color="secondary" style={styles.likeCount}>
-            {post.likesCount}
-          </TText>
+          {variant !== 'half' && (
+            <TText variant="caption" style={styles.likeCount}>{post.likesCount}</TText>
+          )}
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
 
-      {/* Style tags */}
-      {post.styles.length > 0 && (
+      {/* Style tags — only on full */}
+      {variant === 'full' && post.styles.length > 0 && (
         <View style={styles.tagsRow}>
           {post.styles.slice(0, 3).map((s) => (
             <View key={s} style={styles.tag}>
-              <TText variant="caption" color="secondary">{s}</TText>
+              <TText variant="micro" color="secondary" uppercase>{s}</TText>
             </View>
           ))}
         </View>
       )}
 
-      {post.caption && (
-        <View style={styles.captionRow}>
-          <TText variant="caption" color="secondary" numberOfLines={2}>{post.caption}</TText>
-        </View>
+      {/* Half variant artist pill */}
+      {variant === 'half' && (
+        <TouchableOpacity style={styles.halfArtistRow} onPress={onArtistPress} activeOpacity={0.8}>
+          <TText variant="caption" weight="semibold" numberOfLines={1}>{post.artistName}</TText>
+        </TouchableOpacity>
       )}
     </Animated.View>
   );
@@ -134,42 +167,63 @@ export function PostCard({ post, onLike, onPress, onArtistPress }: PostCardProps
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
     backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderSubtle,
+    ...GlowShadow.white,
   },
-  image: {
-    width: '100%',
-    height: IMAGE_HEIGHT,
-    backgroundColor: Colors.bgSurface,
+  imageWrap: {
+    overflow: 'hidden',
+    borderRadius: Radius.xl,
   },
   heartOverlay: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.15)',
   },
-  footer: {
+  artistOverlay: {
+    position: 'absolute',
+    bottom: Spacing.sm,
+    left: Spacing.sm,
+    right: 60,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing['2xs'],
   },
-  artistInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  artistText: { marginLeft: Spacing['2xs'], flex: 1 },
-  likeButton: { flexDirection: 'row', alignItems: 'center', padding: 8 },
-  likeCount: { marginLeft: 4, minWidth: 20 },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingHorizontal: Spacing.sm, paddingBottom: 6 },
-  tag: {
-    backgroundColor: Colors.bgSurface,
+  overlayText:    { color: '#FFFFFF' },
+  overlaySubText: { color: 'rgba(255,255,255,0.6)' },
+  likeBtn: {
+    position: 'absolute',
+    bottom: Spacing.sm,
+    right: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  likeCount: { color: 'rgba(255,255,255,0.8)', marginLeft: 2 },
+  tagsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 10,
+  },
+  tag: {
+    backgroundColor: Colors.bgSubtle,
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderSubtle,
   },
-  captionRow: { paddingHorizontal: Spacing.sm, paddingBottom: Spacing['2xs'] },
+  halfArtistRow: {
+    paddingHorizontal: Spacing['2xs'],
+    paddingVertical: 8,
+  },
 });
