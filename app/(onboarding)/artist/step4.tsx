@@ -18,7 +18,7 @@ const BOOKING_STATUSES = [
   {
     value: 'open' as const,
     label: 'Disponible',
-    description: 'J'accepte de nouveaux projets',
+    description: "J'accepte de nouveaux projets",
     icon: 'checkmark-circle' as const,
     color: Colors.success,
     borderColor: 'rgba(16,185,129,0.4)',

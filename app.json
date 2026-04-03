@@ -1,23 +1,50 @@
 {
   "expo": {
-    "name": "tattoo-app",
-    "slug": "tattoo-app",
+    "name": "INKR",
+    "slug": "inkr",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tattooapp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "inkr",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#030305",
+    "primaryColor": "#D4A864",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.inkr.tattoo",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "INKR utilise la caméra pour ajouter des photos à ton profil et tes posts.",
+        "NSPhotoLibraryUsageDescription": "INKR accède à ta galerie pour importer des photos de tatouages.",
+        "NSPhotoLibraryAddUsageDescription": "INKR enregistre des photos dans ta galerie.",
+        "NSUserNotificationsUsageDescription": "Reçois des notifications pour tes demandes et messages.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.inkr.tattoo",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#030305",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -31,19 +58,31 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#030305",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#030305"
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "INKR accède à ta galerie pour importer des photos de tatouages.",
+          "cameraPermission": "INKR utilise la caméra pour prendre des photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "inkr-tattoo-app"
+      }
     }
   }
 }

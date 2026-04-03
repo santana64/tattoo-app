@@ -105,7 +105,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signInWithEmail: async (email) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: 'tattoo://auth/callback' },
+      options: { emailRedirectTo: 'inkr://auth/callback' },
     });
     return { error: error?.message ?? null };
   },
@@ -134,7 +134,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signInWithGoogle: async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'tattoo://auth/callback' },
+      options: { redirectTo: 'inkr://auth/callback' },
     });
     return { error: error?.message ?? null };
   },
