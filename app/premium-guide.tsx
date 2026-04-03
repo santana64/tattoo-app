@@ -3,10 +3,12 @@ import { ScrollView, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { TBadge } from '@/components/ui/TBadge';
-import { TDivider } from '@/components/ui/TDivider';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { Logo } from '@/components/ui/Logo';
 
 const CHAPTERS = [
   {
@@ -111,80 +113,163 @@ export default function PremiumGuideScreen() {
   const [openChapter, setOpenChapter] = useState<number | null>(1);
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-    >
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Aurora orbs */}
+      <View style={styles.auroraViolet} pointerEvents="none" />
+      <View style={styles.auroraAmber} pointerEvents="none" />
+
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
-        <TText variant="title2">Manuel Premium</TText>
-        <TBadge label="Premium" variant="premium" />
+        <TText variant="title2" weight="semibold">Guide Premium</TText>
+        <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.intro}>
-        <TText variant="body" color="secondary" style={{ lineHeight: 24 }}>
-          8 chapitres pour maximiser ta présence et tes revenus sur TATTOO.
-        </TText>
-      </View>
-
-      <TDivider style={styles.divider} />
-
-      {CHAPTERS.map((chapter, idx) => {
-        const isOpen = openChapter === chapter.id;
-        return (
-          <View key={chapter.id}>
-            <TouchableOpacity
-              style={styles.chapterHeader}
-              onPress={() => setOpenChapter(isOpen ? null : chapter.id)}
-              activeOpacity={0.8}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+      >
+        {/* ── Hero section ─────────────────────────────── */}
+        <Animated.View entering={FadeIn.delay(60).duration(600)} style={styles.heroSection}>
+          {/* Premium badge */}
+          <View style={styles.premiumBadgeWrap}>
+            <LinearGradient
+              colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.premiumBadge}
             >
-              <View style={styles.chapterIcon}>
-                <Ionicons name={chapter.icon} size={20} color={Colors.accentWarm} />
-              </View>
-              <View style={styles.chapterMeta}>
-                <TText variant="caption" color="tertiary">Chapitre {chapter.id}</TText>
-                <TText variant="bodySmall" weight="semibold">{chapter.title}</TText>
-                {!isOpen && (
-                  <TText variant="caption" color="tertiary" style={{ marginTop: 2 }} numberOfLines={1}>
-                    {chapter.summary}
-                  </TText>
-                )}
-              </View>
-              <Ionicons
-                name={isOpen ? 'chevron-up' : 'chevron-down'}
-                size={16}
-                color={Colors.textTertiary}
-              />
-            </TouchableOpacity>
-
-            {isOpen && (
-              <View style={styles.chapterBody}>
-                <TText variant="bodySmall" color="secondary" style={styles.chapterSummary}>
-                  {chapter.summary}
-                </TText>
-                {chapter.tips.map((tip, i) => (
-                  <View key={i} style={styles.tipRow}>
-                    <View style={styles.tipBullet} />
-                    <TText variant="bodySmall" color="secondary" style={styles.tipText}>
-                      {tip}
-                    </TText>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {idx < CHAPTERS.length - 1 && <TDivider style={styles.divider} />}
+              <TText variant="caption" weight="semibold" style={styles.premiumBadgeText}>
+                ARTISTE PRO
+              </TText>
+            </LinearGradient>
           </View>
-        );
-      })}
-    </ScrollView>
+
+          <Logo variant="mark" size="xl" animate />
+
+          <TText variant="displayL" weight="bold" style={styles.heroTitle}>
+            INKR Premium
+          </TText>
+          <TText variant="bodySmall" style={styles.heroSubtitle}>
+            8 chapitres pour maximiser ta présence et tes revenus sur INKR.
+          </TText>
+        </Animated.View>
+
+        {/* ── Chapters ─────────────────────────────────── */}
+        {CHAPTERS.map((chapter, idx) => {
+          const isOpen = openChapter === chapter.id;
+          return (
+            <Animated.View
+              key={chapter.id}
+              entering={FadeInDown.delay(100 + idx * 60).springify()}
+            >
+              <GlassCard variant="elevated" style={styles.chapterCard} padding={0}>
+                {/* Chapter number badge */}
+                <View style={styles.chapterNumBadge}>
+                  <TText variant="caption" style={{ color: Colors.textTertiary, fontSize: 10 }}>
+                    {String(chapter.id).padStart(2, '0')}
+                  </TText>
+                </View>
+
+                {/* Chapter header row */}
+                <TouchableOpacity
+                  style={styles.chapterHeader}
+                  onPress={() => setOpenChapter(isOpen ? null : chapter.id)}
+                  activeOpacity={0.8}
+                >
+                  {/* Icon */}
+                  <View style={styles.chapterIcon}>
+                    <Ionicons name={chapter.icon} size={22} color={Colors.accentWarm} />
+                  </View>
+
+                  {/* Title + summary */}
+                  <View style={styles.chapterMeta}>
+                    <TText variant="body" weight="semibold">{chapter.title}</TText>
+                    {!isOpen && (
+                      <TText
+                        variant="bodySmall"
+                        style={{ color: Colors.textSecondary, marginTop: 3 }}
+                        numberOfLines={1}
+                      >
+                        {chapter.summary}
+                      </TText>
+                    )}
+                  </View>
+
+                  <Ionicons
+                    name={isOpen ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={Colors.textTertiary}
+                    style={{ flexShrink: 0 }}
+                  />
+                </TouchableOpacity>
+
+                {/* Expanded tips */}
+                {isOpen && (
+                  <View style={styles.chapterBody}>
+                    <View style={styles.chapterBodyDivider} />
+                    <TText variant="bodySmall" style={styles.chapterSummary}>
+                      {chapter.summary}
+                    </TText>
+                    {chapter.tips.map((tip, i) => (
+                      <View key={i} style={styles.tipRow}>
+                        <View style={styles.tipBullet} />
+                        <TText variant="bodySmall" style={styles.tipText}>{tip}</TText>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </GlassCard>
+            </Animated.View>
+          );
+        })}
+
+        {/* ── Bottom CTA ────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.delay(600).springify()} style={styles.ctaSection}>
+          <TouchableOpacity activeOpacity={0.85} onPress={() => router.back()} style={styles.ctaBtn}>
+            <LinearGradient
+              colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFill, { borderRadius: Radius.xl }]}
+            />
+            <TText variant="body" weight="semibold" style={{ color: Colors.textInverse, letterSpacing: 0.5 }}>
+              Commencer à optimiser
+            </TText>
+          </TouchableOpacity>
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.bgPrimary,
+  },
+  auroraViolet: {
+    position: 'absolute',
+    top: -70,
+    right: -70,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: Colors.violet,
+    opacity: 0.055,
+  },
+  auroraAmber: {
+    position: 'absolute',
+    bottom: 80,
+    left: -80,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: Colors.accentWarm,
+    opacity: 0.045,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -194,39 +279,86 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderSubtle,
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  intro: {
-    padding: Spacing.sm,
-    paddingBottom: 0,
+  headerBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  divider: { marginHorizontal: Spacing.sm, marginVertical: Spacing['3xs'] },
+  scrollContent: {
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.lg,
+    gap: Spacing.xs,
+  },
+  heroSection: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  premiumBadgeWrap: {
+    marginBottom: Spacing['2xs'],
+  },
+  premiumBadge: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+  },
+  premiumBadgeText: {
+    color: Colors.textInverse,
+    letterSpacing: 2,
+    fontSize: 11,
+  },
+  heroTitle: {
+    color: Colors.textPrimary,
+    letterSpacing: -1,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+  },
+  heroSubtitle: {
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    maxWidth: 280,
+  },
+  chapterCard: {
+    marginBottom: Spacing['2xs'],
+    position: 'relative',
+  },
+  chapterNumBadge: {
+    position: 'absolute',
+    top: Spacing['2xs'],
+    right: Spacing.sm,
+  },
   chapterHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing['2xs'],
+    alignItems: 'center',
+    padding: Spacing.sm,
     gap: Spacing.sm,
   },
   chapterIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(200,168,130,0.1)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.glassAmber,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  chapterMeta: { flex: 1 },
+  chapterMeta: {
+    flex: 1,
+  },
   chapterBody: {
-    marginHorizontal: Spacing.sm,
-    marginBottom: Spacing['2xs'],
-    padding: Spacing.sm,
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    paddingHorizontal: Spacing.sm,
+    paddingBottom: Spacing.sm,
+  },
+  chapterBodyDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.borderSubtle,
+    marginBottom: Spacing.sm,
   },
   chapterSummary: {
+    color: Colors.textSecondary,
     marginBottom: Spacing['2xs'],
     lineHeight: 22,
     fontStyle: 'italic',
@@ -248,5 +380,17 @@ const styles = StyleSheet.create({
   tipText: {
     flex: 1,
     lineHeight: 20,
+    color: Colors.textSecondary,
+  },
+  ctaSection: {
+    marginTop: Spacing.md,
+  },
+  ctaBtn: {
+    height: 56,
+    borderRadius: Radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    ...GlowShadow.amberStrong,
   },
 });
