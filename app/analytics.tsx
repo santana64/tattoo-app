@@ -13,6 +13,7 @@ import { TBadge } from '@/components/ui/TBadge';
 import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 
 // ─── Animated bar chart
 function BarChart({ data, labels, color = Colors.accentWarm }: { data: number[]; labels: string[]; color?: string }) {
@@ -112,16 +113,96 @@ const metricStyles = StyleSheet.create({
   },
 });
 
+interface AnalyticsData {
+  profileViews: number;
+  requestsReceived: number;
+  responseRate: number;
+  confirmedAppointments: number;
+  viewsByDay: number[];
+  requestsByDay: number[];
+}
+
+const EMPTY_ANALYTICS: AnalyticsData = {
+  profileViews: 0,
+  requestsReceived: 0,
+  responseRate: 0,
+  confirmedAppointments: 0,
+  viewsByDay: [0, 0, 0, 0, 0, 0, 0],
+  requestsByDay: [0, 0, 0, 0, 0, 0, 0],
+};
+
 export default function AnalyticsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
   const isPremium = user?.artistTier === 'premium';
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
+  const [analytics, setAnalytics] = useState<AnalyticsData>(EMPTY_ANALYTICS);
 
-  const views7d  = [120, 95, 180, 220, 145, 310, 240];
-  const req7d    = [2, 1, 4, 3, 2, 5, 3];
   const dayLabels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+  useEffect(() => {
+    if (!user?.artistId) return;
+
+    const fetchAnalytics = async () => {
+      const days = period === '7d' ? 7 : 30;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      // Profile views
+      const { data: viewEvents } = await supabase
+        .from('artist_analytics_events')
+        .select('created_at')
+        .eq('artist_id', user.artistId!)
+        .eq('event_type', 'profile_view')
+        .gte('created_at', since.toISOString());
+
+      // Requests received
+      const { data: requests } = await supabase
+        .from('tattoo_requests')
+        .select('status, submitted_at')
+        .eq('artist_id', user.artistId!)
+        .gte('submitted_at', since.toISOString());
+
+      // Confirmed appointments
+      const { count: confirmedCount } = await supabase
+        .from('appointments')
+        .select('id', { count: 'exact', head: true })
+        .eq('artist_id', user.artistId!)
+        .eq('status', 'confirmed');
+
+      const totalReqs = requests?.length ?? 0;
+      const acceptedReqs = requests?.filter((r) => r.status === 'accepted' || r.status === 'confirmed' || r.status === 'completed').length ?? 0;
+
+      // Build per-day buckets (7 days)
+      const viewsByDay = Array(7).fill(0);
+      const reqsByDay = Array(7).fill(0);
+      const now = Date.now();
+
+      viewEvents?.forEach((e) => {
+        const daysAgo = Math.floor((now - new Date(e.created_at).getTime()) / (1000 * 60 * 60 * 24));
+        if (daysAgo < 7) viewsByDay[6 - daysAgo]++;
+      });
+      requests?.forEach((r) => {
+        const daysAgo = Math.floor((now - new Date(r.submitted_at).getTime()) / (1000 * 60 * 60 * 24));
+        if (daysAgo < 7) reqsByDay[6 - daysAgo]++;
+      });
+
+      setAnalytics({
+        profileViews: viewEvents?.length ?? 0,
+        requestsReceived: totalReqs,
+        responseRate: totalReqs > 0 ? Math.round((acceptedReqs / totalReqs) * 100) : 0,
+        confirmedAppointments: confirmedCount ?? 0,
+        viewsByDay,
+        requestsByDay: reqsByDay,
+      });
+    };
+
+    fetchAnalytics();
+  }, [user?.artistId, period]);
+
+  const views7d  = analytics.viewsByDay;
+  const req7d    = analytics.requestsByDay;
 
   return (
     <ScrollView
@@ -157,10 +238,10 @@ export default function AnalyticsScreen() {
 
       {/* Key metrics */}
       <Animated.View entering={FadeInDown.delay(120).springify()} style={styles.metricsGrid}>
-        <MetricCard label="Vues profil"        value="1 310" trend="+12%"  positive icon="eye-outline"         delay={0} />
-        <MetricCard label="Demandes reçues"    value="20"    trend="+5%"   positive icon="document-text-outline" delay={60} />
-        <MetricCard label="Taux de réponse"    value="85%"                          icon="checkmark-circle-outline" delay={120} />
-        <MetricCard label="RDV confirmés"      value="8"     trend="+2"    positive icon="calendar-outline"     delay={180} />
+        <MetricCard label="Vues profil"        value={analytics.profileViews.toLocaleString('fr-FR')}   icon="eye-outline"              delay={0} />
+        <MetricCard label="Demandes reçues"    value={String(analytics.requestsReceived)}               icon="document-text-outline"    delay={60} />
+        <MetricCard label="Taux de réponse"    value={`${analytics.responseRate}%`}                     icon="checkmark-circle-outline" delay={120} />
+        <MetricCard label="RDV confirmés"      value={String(analytics.confirmedAppointments)}          icon="calendar-outline"          delay={180} />
       </Animated.View>
 
       <TDivider style={styles.divider} />

@@ -23,6 +23,7 @@ import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAppStore } from '@/store/app-store';
 import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 import { ARTISTS, POSTS } from '@/constants/mock-data';
 import { Toast } from '@/components/ui/TToast';
 
@@ -107,6 +108,16 @@ export default function ArtistProfileScreen() {
 
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const saveScale = useSharedValue(1);
+
+  // Track profile view analytics
+  useEffect(() => {
+    // Only track for real artist IDs (not mock a1/a2 etc.)
+    if (!id || id.length < 20) return;
+    supabase.from('artist_analytics_events').insert({
+      artist_id: id,
+      event_type: 'profile_view',
+    }).then(() => {});
+  }, [id]);
   const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
 
   const scrollY = useRef(new RNAnimated.Value(0)).current;

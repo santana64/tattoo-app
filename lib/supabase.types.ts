@@ -99,6 +99,11 @@ export interface Database {
         Insert: { user_id: string; artist_id: string };
         Update: never;
       };
+      saved_posts: {
+        Row: { user_id: string; post_id: string; created_at: string };
+        Insert: { user_id: string; post_id: string };
+        Update: never;
+      };
       tattoo_requests: {
         Row: {
           id: string;

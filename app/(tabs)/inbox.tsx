@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   FlatList, StyleSheet, View, TouchableOpacity,
   ScrollView, RefreshControl,
@@ -18,7 +18,7 @@ import { TText } from '@/components/ui/TText';
 import { RequestCard } from '@/components/RequestCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
+import { useRequestStore } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import type { TattooRequest } from '@/constants/mock-data';
 
@@ -196,17 +196,28 @@ export default function InboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { requests } = useAppStore();
+  const { requests: realRequests, fetchRequests, isLoading } = useRequestStore();
   const isArtist = user?.role === 'artist';
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Decide which requests belong to this user
-  const myRequests = requests.filter((r) =>
-    isArtist
-      ? r.artistId === (user?.artistId ?? 'a1')
-      : r.clientName === 'Théo M.'
-  );
+  // Fetch real requests on mount
+  useEffect(() => {
+    if (user?.id) {
+      fetchRequests(user.id, user.role);
+    }
+  }, [user?.id]);
+
+  // Adapt real requests to mock type shape expected by RequestCard
+  const myRequests = realRequests.map((r) => ({
+    ...r,
+    clientAvatar: r.clientAvatarUrl ?? '',
+    budgetMin: r.budgetMin ?? 0,
+    budgetMax: r.budgetMax ?? 0,
+    colorPreference: r.colorPreference,
+    stylePreference: r.stylePreference ?? '',
+    references: r.references ?? [],
+  })) as unknown as TattooRequest[];
 
   const filtered = myRequests.filter(
     (r) => activeFilter === 'all' || r.status === activeFilter
@@ -225,8 +236,7 @@ export default function InboxScreen() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // In a real app this would re-fetch from the store/API
-    await new Promise((res) => setTimeout(res, 800));
+    if (user?.id) await fetchRequests(user.id, user.role);
     setIsRefreshing(false);
   };
 

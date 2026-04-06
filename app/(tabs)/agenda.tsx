@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ScrollView, StyleSheet, View, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,8 +15,21 @@ import { TBadge } from '@/components/ui/TBadge';
 import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useAppStore } from '@/store/app-store';
+import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 import { Toast } from '@/components/ui/TToast';
+
+interface RealAppointment {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: 'proposed' | 'confirmed' | 'completed' | 'canceled';
+  bodyZone: string | null;
+  notes: string | null;
+  clientName: string;
+  clientAvatar: string | null;
+  artistBlaze: string;
+}
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -139,9 +152,49 @@ function AppointmentCard({ apt, index }: { apt: any; index: number }) {
 export default function AgendaScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { appointments } = useAppStore();
+  const { user } = useAuthStore();
+  const [appointments, setAppointments] = useState<RealAppointment[]>([]);
   const [selectedDay, setSelectedDay] = useState(1);
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
+
+  // Fetch real appointments from Supabase
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchAppts = async () => {
+      let query;
+      if (user.role === 'artist' && user.artistId) {
+        query = supabase
+          .from('appointments')
+          .select(`*, profiles!client_id(display_name, avatar_url)`)
+          .eq('artist_id', user.artistId)
+          .order('starts_at');
+      } else {
+        query = supabase
+          .from('appointments')
+          .select(`*, artists!artist_id(blaze)`)
+          .eq('client_id', user.id)
+          .order('starts_at');
+      }
+
+      const { data } = await query;
+      if (!data) return;
+
+      setAppointments(data.map((a: any) => ({
+        id: a.id,
+        startsAt: a.starts_at,
+        endsAt: a.ends_at,
+        status: a.status,
+        bodyZone: a.body_zone ?? null,
+        notes: a.notes ?? null,
+        clientName: a.profiles?.display_name ?? a.client_id ?? 'Client',
+        clientAvatar: a.profiles?.avatar_url ?? null,
+        artistBlaze: a.artists?.blaze ?? 'Artiste',
+      })));
+    };
+
+    fetchAppts();
+  }, [user?.id, user?.artistId]);
 
   const weekDates = getWeekDates(weekStart);
 

@@ -103,19 +103,19 @@ const featureStyles = StyleSheet.create({
 export default function ArtistStep5() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { updateProfile } = useAuthStore();
+  const { completeOnboarding } = useAuthStore();
   const [selected, setSelected] = useState<'free' | 'premium'>('premium');
 
-  const handleFree = () => {
+  const handleFree = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    updateProfile({ plan: 'free' } as any);
+    await completeOnboarding();
     router.replace('/(tabs)');
   };
 
-  const handlePremium = () => {
+  const handlePremium = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    updateProfile({ plan: 'premium' } as any);
-    router.replace('/(tabs)');
+    await completeOnboarding();
+    router.replace('/settings/subscription');
   };
 
   return (

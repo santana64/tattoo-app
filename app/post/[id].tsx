@@ -19,6 +19,8 @@ import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAppStore } from '@/store/app-store';
+import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 import { POSTS, ARTISTS, STYLES } from '@/constants/mock-data';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -33,6 +35,7 @@ export default function PostDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { toggleLike, savedPostIds, toggleSavePost } = useAppStore();
+  const { user } = useAuthStore();
 
   const post = useAppStore((s) => s.posts.find((p) => p.id === id)) ?? POSTS[0];
   const artist = ARTISTS.find((a) => a.id === post.artistId);
@@ -69,9 +72,26 @@ export default function PostDetailScreen() {
   const handleReport = () => {
     Alert.alert(
       'Signaler ce contenu',
-      'Merci pour ton signalement. Notre équipe va examiner ce contenu.',
-      [{ text: 'OK' }]
+      'Pourquoi tu veux signaler ce post ?',
+      [
+        { text: 'Spam', onPress: () => submitReport('spam') },
+        { text: 'Contenu inapproprié', onPress: () => submitReport('inappropriate') },
+        { text: 'Faux contenu', onPress: () => submitReport('fake') },
+        { text: 'Annuler', style: 'cancel' },
+      ]
     );
+  };
+
+  const submitReport = async (reason: string) => {
+    if (user?.id && id && id.length > 10) {
+      await supabase.from('reports').insert({
+        reporter_id: user.id,
+        target_type: 'post',
+        target_id: id,
+        reason,
+      });
+    }
+    Alert.alert('Signalement envoyé', 'Merci. Notre équipe va examiner ce contenu.');
   };
 
   const handleOptions = () => {

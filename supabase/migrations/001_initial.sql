@@ -189,6 +189,19 @@ alter table public.saved_artists enable row level security;
 create policy "saved_artists_own" on public.saved_artists for all using (user_id = auth.uid());
 
 -- ============================================================
+-- TABLE: saved_posts
+-- ============================================================
+create table if not exists public.saved_posts (
+  user_id    uuid references public.profiles(id) on delete cascade not null,
+  post_id    uuid references public.posts(id) on delete cascade not null,
+  created_at timestamptz default now(),
+  primary key (user_id, post_id)
+);
+
+alter table public.saved_posts enable row level security;
+create policy "saved_posts_own" on public.saved_posts for all using (user_id = auth.uid());
+
+-- ============================================================
 -- TABLE: tattoo_requests
 -- ============================================================
 create table if not exists public.tattoo_requests (

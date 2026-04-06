@@ -17,10 +17,10 @@ import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
+import { useRequestStore } from '@/store/request-store';
+import type { SubmitPayload } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { ARTISTS, STYLES } from '@/constants/mock-data';
-import type { TattooRequest } from '@/constants/mock-data';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -166,7 +166,7 @@ export default function NewRequestScreen() {
   const { artistId } = useLocalSearchParams<{ artistId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { submitRequest } = useAppStore();
+  const { submitRequest } = useRequestStore();
   const { user } = useAuthStore();
 
   const artist = ARTISTS.find((a) => a.id === artistId) ?? ARTISTS[0];
@@ -202,27 +202,33 @@ export default function NewRequestScreen() {
     setStep((s) => s - 1);
   };
 
-  const handleSubmit = () => {
-    const newReq: TattooRequest = {
-      id: `r-${Date.now()}`,
-      artistId: artist.id,
-      clientName: user?.displayName ?? 'Moi',
-      clientAvatar: null,
-      projectType: projectType as any,
-      bodyZone,
-      sizeCategory: sizeCategory as any,
-      budgetMin: parseInt(budgetMin) || 0,
-      budgetMax: parseInt(budgetMax) || 0,
-      stylePrefs,
-      colorPref: colorPref as any,
-      isFlexible,
-      description,
-      references: [],
-      status: 'submitted',
-      submittedAt: new Date().toISOString(),
+  const handleSubmit = async () => {
+    if (!user?.id) return;
+
+    const colorMap: Record<string, SubmitPayload['colorPreference']> = {
+      black_grey: 'black_grey',
+      full_color: 'color',
+      mixed: 'color',
+      flexible: 'artist_choice',
     };
-    submitRequest(newReq);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    const payload: SubmitPayload = {
+      artistId: artistId ?? artist.id,
+      projectType: projectType as SubmitPayload['projectType'],
+      bodyZone,
+      sizeCategory: sizeCategory as SubmitPayload['sizeCategory'],
+      budgetMin: parseInt(budgetMin) || undefined,
+      budgetMax: parseInt(budgetMax) || undefined,
+      colorPreference: colorMap[colorPref] ?? 'artist_choice',
+      stylePreference: stylePrefs.join(', ') || undefined,
+      description,
+      flexibilityLevel: isFlexible ? 'open' : 'precise',
+    };
+
+    const { error } = await submitRequest(payload, user.id);
+    Haptics.notificationAsync(
+      error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success
+    );
     router.replace('/(tabs)/inbox');
   };
 

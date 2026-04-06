@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, TouchableOpacity, TextInput,
+  View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,8 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, GlowShadow, FontSize } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/store/auth-store';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -141,14 +143,16 @@ function SuccessView() {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ReviewScreen() {
-  const { appointmentId } = useLocalSearchParams<{ appointmentId: string }>();
+  const { appointmentId, artistId } = useLocalSearchParams<{ appointmentId: string; artistId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuthStore();
 
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleTag = (tag: string) => {
     const next = new Set(selectedTags);
@@ -157,8 +161,28 @@ export default function ReviewScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const handleSubmit = () => {
-    if (rating === 0) return;
+  const handleSubmit = async () => {
+    if (rating === 0 || isSubmitting) return;
+    setIsSubmitting(true);
+
+    // Persist to Supabase if we have real IDs
+    if (appointmentId && artistId && user?.id && appointmentId.length > 20) {
+      const comment = [review, ...(selectedTags.size > 0 ? [`Tags: ${[...selectedTags].join(', ')}`] : [])].filter(Boolean).join('\n');
+      const { error } = await supabase.from('reviews').insert({
+        appointment_id: appointmentId,
+        artist_id: artistId,
+        client_id: user.id,
+        rating,
+        comment: comment || null,
+        is_public: true,
+      });
+      if (error) {
+        setIsSubmitting(false);
+        Alert.alert('Erreur', error.message);
+        return;
+      }
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSubmitted(true);
     setTimeout(() => router.back(), 1500);

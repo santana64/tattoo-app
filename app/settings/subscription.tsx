@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View, TouchableOpacity } from 'react-native';
+import { ScrollView, StyleSheet, View, TouchableOpacity, Linking, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +11,7 @@ import { TText } from '@/components/ui/TText';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TDivider } from '@/components/ui/TDivider';
 import { useAuthStore } from '@/store/auth-store';
-import { ARTISTS } from '@/constants/mock-data';
+import { supabase } from '@/lib/supabase';
 
 const FREE_FEATURES = [
   { label: 'Profil de base', on: true },
@@ -49,10 +49,32 @@ function Feature({ label, on }: { label: string; on: boolean }) {
 export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuthStore();
-  const artist = ARTISTS[0];
-  const isPremium = artist?.tier === 'premium';
+  const { user, refreshProfile } = useAuthStore();
+  const isPremium = user?.artistTier === 'premium';
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+
+  const handleSubscribe = async () => {
+    if (isCheckingOut) return;
+    setIsCheckingOut(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { period },
+      });
+      if (error || !data?.url) {
+        Alert.alert('Erreur', error?.message ?? 'Impossible de démarrer le paiement. Réessaie.');
+        return;
+      }
+      await Linking.openURL(data.url);
+      // After returning from checkout, refresh profile to get updated tier
+      await refreshProfile();
+    } catch (e: any) {
+      Alert.alert('Erreur', e.message ?? 'Une erreur est survenue.');
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
 
   const monthlyPrice = 19;
   const yearlyTotal = 149;
@@ -172,18 +194,23 @@ export default function SubscriptionScreen() {
           {PRO_FEATURES.map((f) => <Feature key={f.label} label={f.label} on={f.on} />)}
           {!isPremium && (
             <TouchableOpacity
-              style={styles.premiumCTA}
-              onPress={() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)}
+              style={[styles.premiumCTA, isCheckingOut && { opacity: 0.7 }]}
+              onPress={handleSubscribe}
               activeOpacity={0.85}
+              disabled={isCheckingOut}
             >
               <LinearGradient
                 colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <TText variant="bodySmall" weight="bold" style={{ color: Colors.bgPrimary }}>
-                {period === 'yearly' ? `Commencer · ${yearlyTotal}€/an` : `Commencer · ${monthlyPrice}€/mois`}
-              </TText>
+              {isCheckingOut ? (
+                <ActivityIndicator size="small" color={Colors.bgPrimary} />
+              ) : (
+                <TText variant="bodySmall" weight="bold" style={{ color: Colors.bgPrimary }}>
+                  {period === 'yearly' ? `Commencer · ${yearlyTotal}€/an` : `Commencer · ${monthlyPrice}€/mois`}
+                </TText>
+              )}
             </TouchableOpacity>
           )}
         </Animated.View>
