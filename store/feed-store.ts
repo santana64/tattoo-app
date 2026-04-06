@@ -68,13 +68,13 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       if (userId) {
         const [{ data: likes }, { data: saves }] = await Promise.all([
           supabase.from('post_likes').select('post_id').eq('user_id', userId),
-          supabase.from('saved_artists').select('artist_id').eq('user_id', userId),
+          supabase.from('saved_posts').select('post_id').eq('user_id', userId),
         ]);
         likedSet = new Set((likes ?? []).map((l: any) => l.post_id));
-        savedSet = new Set((saves ?? []).map((s: any) => s.artist_id));
+        savedSet = new Set((saves ?? []).map((s: any) => s.post_id));
       }
 
-      const posts = (data ?? []).map(mapPost(likedSet));
+      const posts = (data ?? []).map(mapPost(likedSet, savedSet));
       set({
         posts,
         isLoading: false,
@@ -145,21 +145,24 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   },
 
   toggleSave: async (postId, userId) => {
-    const { savedPostIds } = get();
+    const { savedPostIds, posts } = get();
     const isSaved = savedPostIds.has(postId);
     const newSet = new Set(savedPostIds);
     if (isSaved) newSet.delete(postId); else newSet.add(postId);
-    set({ savedPostIds: newSet });
+    set({
+      savedPostIds: newSet,
+      posts: posts.map((p) => p.id === postId ? { ...p, isSaved: !isSaved } : p),
+    });
     if (isSaved) {
-      await supabase.from('saved_artists').delete().eq('user_id', userId).eq('artist_id', postId);
+      await supabase.from('saved_posts').delete().eq('user_id', userId).eq('post_id', postId);
     } else {
-      await supabase.from('saved_artists').insert({ user_id: userId, artist_id: postId });
+      await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
     }
   },
 }));
 
 // ─── Mapper ───────────────────────────────────────────────────────────────────
-function mapPost(likedSet: Set<string>) {
+function mapPost(likedSet: Set<string>, savedSet: Set<string> = new Set()) {
   return (raw: any): FeedPost => ({
     id: raw.id,
     artistId: raw.artist_id,
@@ -172,7 +175,7 @@ function mapPost(likedSet: Set<string>) {
     styles: raw.styles ?? [],
     likesCount: raw.likes_count ?? 0,
     isLiked: likedSet.has(raw.id),
-    isSaved: false,
+    isSaved: savedSet.has(raw.id),
     publishedAt: raw.published_at,
   });
 }

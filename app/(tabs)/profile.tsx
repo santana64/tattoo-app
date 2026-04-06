@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   ScrollView, StyleSheet, View, TouchableOpacity,
-  Animated as RNAnimated, Dimensions,
+  Animated as RNAnimated, Dimensions, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -107,7 +107,7 @@ function GalleryCell({ uri, onPress, index }: { uri: string; onPress: () => void
 }
 
 // ── Booking status row
-function BookingStatusRow({ status }: { status: 'open' | 'paused' | 'closed' }) {
+function BookingStatusRow({ status, onPress }: { status: 'open' | 'paused' | 'closed'; onPress?: () => void }) {
   const statusConf = {
     open:   { color: Colors.successLight,  label: 'Disponible', icon: 'checkmark-circle-outline' },
     paused: { color: Colors.warningLight,  label: 'En pause',   icon: 'pause-circle-outline' },
@@ -118,7 +118,11 @@ function BookingStatusRow({ status }: { status: 'open' | 'paused' | 'closed' }) 
     <View style={styles.bookingStatusRow}>
       <View style={[styles.bookingStatusDot, { backgroundColor: statusConf.color }]} />
       <TText variant="caption" style={{ color: statusConf.color, fontWeight: '600' }}>{statusConf.label}</TText>
-      <TText variant="caption" color="tertiary" style={{ marginLeft: 'auto' }}>Modifier →</TText>
+      {onPress && (
+        <TouchableOpacity onPress={onPress}>
+          <TText variant="caption" style={{ color: Colors.accentWarm, marginLeft: 'auto' }}>Modifier →</TText>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -126,9 +130,26 @@ function BookingStatusRow({ status }: { status: 'open' | 'paused' | 'closed' }) 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, signOut } = useAuthStore();
   const isArtist = user?.role === 'artist';
-  const artist = isArtist ? ARTISTS[0] : null;
+  const artist = isArtist ? {
+    id: user?.artistId ?? 'a1',
+    blaze: user?.artistBlaze ?? user?.displayName ?? 'Mon Blaze',
+    city: user?.city ?? '',
+    bio: '',
+    coverUrl: 'https://images.unsplash.com/photo-1590246814883-57c511e76523?w=800',
+    avatarUrl: user?.avatarUrl ?? '',
+    styles: user?.stylePreferences ?? [],
+    specialties: [] as string[],
+    bookingStatus: (user?.artistBookingStatus ?? 'open') as 'open' | 'paused' | 'closed',
+    minBudget: 0,
+    tier: user?.artistTier ?? 'normal',
+    isVerified: false,
+    stats: { posts: 0, profileViews: 0, requestsThisMonth: 0 },
+    exclusions: [] as string[],
+    faq: [] as {question: string; answer: string}[],
+    rules: '',
+  } : null;
   const artistPosts = artist ? POSTS.filter((p) => p.artistId === artist.id) : [];
 
   const scrollY = useRef(new RNAnimated.Value(0)).current;
@@ -183,8 +204,8 @@ export default function ProfileScreen() {
           <Animated.View entering={FadeInDown.delay(180).springify()} style={styles.clientQuickActions}>
             {[
               { icon: 'document-text-outline', label: 'Demandes', count: 2, onPress: () => router.push('/(tabs)/inbox') },
-              { icon: 'bookmark-outline', label: 'Sauvegardés', count: 0, onPress: () => {} },
-              { icon: 'heart-outline', label: 'Aimés', count: 0, onPress: () => {} },
+              { icon: 'bookmark-outline', label: 'Sauvegardés', count: 0, onPress: () => router.push('/saved') },
+              { icon: 'heart-outline', label: 'Aimés', count: 0, onPress: () => router.push('/saved?tab=liked') },
             ].map((item) => (
               <TouchableOpacity
                 key={item.label}
@@ -222,7 +243,10 @@ export default function ProfileScreen() {
               Support
             </TText>
             <MenuItem icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
-            <MenuItem icon="star-outline" label="Noter l'application" onPress={() => {}} accent />
+            <MenuItem icon="star-outline" label="Noter l'application" onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Linking.openURL('https://apps.apple.com/app/inkr/id000000000').catch(() => {});
+            }} accent />
           </Animated.View>
 
           {/* Artist CTA card */}
@@ -239,14 +263,17 @@ export default function ProfileScreen() {
               <TText variant="caption" color="secondary" style={{ marginBottom: Spacing.sm, lineHeight: 18 }}>
                 Rejoins plus de 2 400 artistes qui gèrent leurs clients avec INKR.
               </TText>
-              <TButton title="Créer un compte tatoueur →" variant="glow" size="sm" onPress={() => {}} />
+              <TButton title="Créer un compte tatoueur →" variant="glow" size="sm" onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push('/(auth)/role-select');
+              }} />
             </GlassCard>
           </Animated.View>
 
           {/* Logout */}
           <Animated.View entering={FadeIn.delay(600)} style={{ paddingHorizontal: Spacing.sm, paddingTop: Spacing.xl }}>
             <TouchableOpacity
-              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); logout(); }}
+              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); signOut(); }}
               style={styles.logoutBtn}
             >
               <Ionicons name="log-out-outline" size={18} color={Colors.errorLight} />
@@ -366,7 +393,10 @@ export default function ProfileScreen() {
         {/* Booking status */}
         <Animated.View entering={FadeInDown.delay(320).springify()} style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm }}>
           <GlassCard variant="default">
-            <BookingStatusRow status={artist!.bookingStatus} />
+            <BookingStatusRow
+              status={artist!.bookingStatus}
+              onPress={() => router.push('/(onboarding)/artist/step4')}
+            />
           </GlassCard>
         </Animated.View>
 
@@ -422,7 +452,7 @@ export default function ProfileScreen() {
         {/* Logout */}
         <Animated.View entering={FadeIn.delay(600)} style={{ paddingHorizontal: Spacing.sm, paddingTop: Spacing.xl }}>
           <TouchableOpacity
-            onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); logout(); }}
+            onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); signOut(); }}
             style={styles.logoutBtn}
           >
             <Ionicons name="log-out-outline" size={18} color={Colors.errorLight} />

@@ -5,7 +5,8 @@
       "name": "Expo (all platforms)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
-      "port": 8081
+      "port": 8081,
+      "autoPort": true
     },
     {
       "name": "Expo (web)",

@@ -10,6 +10,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight,
+  SlideInDown, SlideOutDown,
   useSharedValue, useAnimatedStyle, withSpring, withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -25,6 +26,12 @@ import type { Artist } from '@/constants/mock-data';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const AVAILABILITY_OPTIONS = ['Tous', 'Disponible', 'En pause', 'Fermé'];
+const BUDGET_OPTIONS: Array<{ label: string; value: number | null }> = [
+  { label: 'Tous', value: null },
+  { label: '300€', value: 300 },
+  { label: '500€', value: 500 },
+  { label: '800€+', value: 800 },
+];
 
 // ─── Style Category Pill V3
 function StylePill({ style, selected, onPress, index }: {
@@ -187,6 +194,12 @@ export default function ExploreScreen() {
   const [searchFocused, setSearchFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
+  // ── Filter sheet state
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterAvailability, setFilterAvailability] = useState<string>('Tous');
+  const [filterBudgetMax, setFilterBudgetMax] = useState<number | null>(null);
+  const filterSheetY = useSharedValue(300);
+
   const searchScale = useSharedValue(1);
 
   const searchFocusStyle = useAnimatedStyle(() => ({
@@ -202,6 +215,15 @@ export default function ExploreScreen() {
     setSearchFocused(false);
   };
 
+  // ── Reset filter sheet state
+  const resetFilters = () => {
+    setFilterAvailability('Tous');
+    setFilterBudgetMax(null);
+  };
+
+  // ── Badge: are any sheet filters active?
+  const hasActiveFilters = filterAvailability !== 'Tous' || filterBudgetMax !== null;
+
   const filtered = useMemo(() => {
     let result = ARTISTS.filter((a) => {
       const q = query.toLowerCase();
@@ -214,11 +236,25 @@ export default function ExploreScreen() {
         (selectedAvailability === 'Fermé'     && a.bookingStatus === 'closed');
       return matchQ && matchStyle && matchAvail;
     });
+
+    // Apply sheet filters
+    if (filterAvailability !== 'Tous') {
+      const statusMap: Record<string, string> = {
+        'Disponible': 'open',
+        'En pause': 'paused',
+        'Fermé': 'closed',
+      };
+      result = result.filter(a => a.bookingStatus === statusMap[filterAvailability]);
+    }
+    if (filterBudgetMax !== null) {
+      result = result.filter(a => a.minBudget <= filterBudgetMax);
+    }
+
     if (sortBy === 'premium') result = [...result].sort((a, b) => (a.tier === 'premium' ? -1 : 1));
     else if (sortBy === 'open') result = [...result].sort((a, b) => (a.bookingStatus === 'open' ? -1 : 1));
     else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => a.minBudget - b.minBudget);
     return result;
-  }, [query, selectedStyle, selectedAvailability, sortBy]);
+  }, [query, selectedStyle, selectedAvailability, sortBy, filterAvailability, filterBudgetMax]);
 
   const spotlightArtist = useMemo(
     () => ARTISTS.find((a) => a.tier === 'premium' && a.bookingStatus === 'open') ?? ARTISTS[0],
@@ -230,7 +266,7 @@ export default function ExploreScreen() {
     []
   );
 
-  const hasFilters = !!query || !!selectedStyle || selectedAvailability !== 'Tous';
+  const hasFilters = !!query || !!selectedStyle || selectedAvailability !== 'Tous' || hasActiveFilters;
 
   const renderArtist = useCallback(
     ({ item, index }: { item: Artist; index: number }) => (
@@ -292,12 +328,21 @@ export default function ExploreScreen() {
             {ARTISTS.length} artistes · {ARTISTS.filter(a => a.bookingStatus === 'open').length} disponibles
           </TText>
         </View>
+        {/* Filter icon button with active badge */}
         <TouchableOpacity
-          style={styles.filterIconBtn}
+          style={[styles.filterIconBtn, hasActiveFilters && styles.filterIconBtnActive]}
           activeOpacity={0.8}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setShowFilters(true);
+          }}
         >
-          <Ionicons name="options-outline" size={20} color={Colors.textSecondary} />
+          <Ionicons
+            name="options-outline"
+            size={20}
+            color={hasActiveFilters ? Colors.accentWarm : Colors.textSecondary}
+          />
+          {hasActiveFilters && <View style={styles.filterBadgeDot} />}
         </TouchableOpacity>
       </Animated.View>
 
@@ -408,11 +453,170 @@ export default function ExploreScreen() {
             title="Aucun résultat."
             description="Essaie d'autres filtres ou une autre ville."
             ctaLabel="Réinitialiser"
-            onCta={() => { setQuery(''); setSelectedStyle(null); setSelectedAvailability('Tous'); }}
+            onCta={() => { setQuery(''); setSelectedStyle(null); setSelectedAvailability('Tous'); resetFilters(); }}
             style={{ marginTop: 40 }}
           />
         }
       />
+
+      {/* ── Filter bottom sheet overlay ── */}
+      {showFilters && (
+        <>
+          {/* Backdrop */}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowFilters(false)}
+            activeOpacity={1}
+          >
+            <View style={styles.filterBackdrop} />
+          </TouchableOpacity>
+
+          {/* Sheet */}
+          <Animated.View
+            entering={SlideInDown.springify()}
+            exiting={SlideOutDown.springify()}
+            style={[styles.filterSheet, { paddingBottom: insets.bottom + Spacing.sm }]}
+          >
+            {/* Sheet background */}
+            <View style={StyleSheet.absoluteFill}>
+              <LinearGradient
+                colors={['rgba(18,18,26,0.98)', Colors.bgElevated]}
+                style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
+              />
+            </View>
+
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
+            {/* Header row */}
+            <View style={styles.sheetHeader}>
+              <TText variant="title2" weight="bold" style={{ color: Colors.textPrimary }}>
+                Filtres
+              </TText>
+              <View style={styles.sheetHeaderActions}>
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); resetFilters(); }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <TText variant="caption" weight="semibold" style={{ color: Colors.accentWarm }}>
+                    Réinitialiser
+                  </TText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFilters(false); }}
+                  style={styles.sheetCloseBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Section: Disponibilité */}
+            <View style={styles.sheetSection}>
+              <TText variant="label" color="tertiary" uppercase style={styles.sheetSectionLabel}>
+                Disponibilité
+              </TText>
+              <View style={styles.pillRow}>
+                {['Tous', 'Disponible', 'En pause', 'Fermé'].map((opt) => {
+                  const isSelected = filterAvailability === opt;
+                  return (
+                    <TouchableOpacity
+                      key={opt}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setFilterAvailability(opt);
+                      }}
+                      style={[styles.sheetPill, isSelected && styles.sheetPillActive]}
+                      activeOpacity={0.8}
+                    >
+                      {isSelected && (
+                        <LinearGradient
+                          colors={['rgba(212,168,100,0.18)', 'rgba(212,168,100,0.08)']}
+                          style={[StyleSheet.absoluteFill, { borderRadius: Radius.full }]}
+                        />
+                      )}
+                      {opt === 'Disponible' && (
+                        <View style={[styles.filterDot, { backgroundColor: Colors.successLight }]} />
+                      )}
+                      {opt === 'En pause' && (
+                        <View style={[styles.filterDot, { backgroundColor: Colors.warningLight }]} />
+                      )}
+                      {opt === 'Fermé' && (
+                        <View style={[styles.filterDot, { backgroundColor: Colors.errorLight }]} />
+                      )}
+                      <TText
+                        variant="caption"
+                        weight={isSelected ? 'semibold' : 'regular'}
+                        style={{ color: isSelected ? Colors.accentWarm : Colors.textSecondary }}
+                      >
+                        {opt}
+                      </TText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Section: Budget max */}
+            <View style={styles.sheetSection}>
+              <TText variant="label" color="tertiary" uppercase style={styles.sheetSectionLabel}>
+                Budget max
+              </TText>
+              <View style={styles.pillRow}>
+                {BUDGET_OPTIONS.map(({ label, value }) => {
+                  const isSelected = filterBudgetMax === value;
+                  return (
+                    <TouchableOpacity
+                      key={label}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setFilterBudgetMax(value);
+                      }}
+                      style={[styles.sheetPill, isSelected && styles.sheetPillActive]}
+                      activeOpacity={0.8}
+                    >
+                      {isSelected && (
+                        <LinearGradient
+                          colors={['rgba(212,168,100,0.18)', 'rgba(212,168,100,0.08)']}
+                          style={[StyleSheet.absoluteFill, { borderRadius: Radius.full }]}
+                        />
+                      )}
+                      <TText
+                        variant="caption"
+                        weight={isSelected ? 'semibold' : 'regular'}
+                        style={{ color: isSelected ? Colors.accentWarm : Colors.textSecondary }}
+                      >
+                        {label}
+                      </TText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* CTA: Appliquer */}
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setShowFilters(false);
+              }}
+              activeOpacity={0.88}
+              style={styles.sheetCTA}
+            >
+              <LinearGradient
+                colors={[Colors.accentGlow, Colors.accentWarm]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[StyleSheet.absoluteFill, { borderRadius: Radius.lg }]}
+              />
+              <TText variant="body" weight="bold" style={{ color: Colors.bgPrimary }}>
+                Appliquer les filtres
+              </TText>
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      )}
     </View>
   );
 }
@@ -429,6 +633,16 @@ const styles = StyleSheet.create({
     width: 42, height: 42, alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.bgSurface, borderRadius: Radius.md,
     borderWidth: 1, borderColor: Colors.borderDefault,
+  },
+  filterIconBtnActive: {
+    borderColor: Colors.accentWarm,
+    backgroundColor: Colors.glassAmber,
+  },
+  filterBadgeDot: {
+    position: 'absolute', top: 8, right: 8,
+    width: 7, height: 7, borderRadius: 4,
+    backgroundColor: Colors.accentGlow,
+    borderWidth: 1, borderColor: Colors.bgPrimary,
   },
 
   searchWrap: { paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'] },
@@ -524,4 +738,70 @@ const styles = StyleSheet.create({
   trendingLikes: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
 
   list: { paddingHorizontal: Spacing.sm, paddingTop: Spacing['2xs'] },
+
+  // ── Filter sheet
+  filterBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  filterSheet: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: Colors.bgElevated,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing['2xs'],
+    overflow: 'hidden',
+    // Elevation
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 32,
+    elevation: 24,
+  },
+  sheetHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: Colors.borderDefault,
+    alignSelf: 'center',
+    marginBottom: Spacing.sm,
+    marginTop: Spacing['3xs'],
+  },
+  sheetHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  sheetHeaderActions: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+  },
+  sheetCloseBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: Colors.bgSurface,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.borderDefault,
+  },
+  sheetSection: {
+    marginBottom: Spacing.md,
+  },
+  sheetSectionLabel: {
+    letterSpacing: 1.5,
+    marginBottom: Spacing.xs,
+  },
+  pillRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+  },
+  sheetPill: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.glassBg,
+    borderWidth: 1, borderColor: Colors.borderDefault,
+    gap: 5, overflow: 'hidden',
+  },
+  sheetPillActive: {
+    borderColor: Colors.accentWarm,
+  },
+  sheetCTA: {
+    height: 52, borderRadius: Radius.lg,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+    marginTop: Spacing['2xs'],
+  },
 });

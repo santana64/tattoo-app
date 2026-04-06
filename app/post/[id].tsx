@@ -1,6 +1,7 @@
 import React from 'react';
 import {
-  View, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Share,
+  View, StyleSheet, TouchableOpacity, ScrollView, Dimensions,
+  Share, ActionSheetIOS, Platform, Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -59,8 +60,37 @@ export default function PostDetailScreen() {
 
   const handleShare = async () => {
     try {
-      await Share.share({ message: `Découvre ce tatouage par ${artist?.blaze ?? 'un artiste'} sur TATTOO` });
+      await Share.share({
+        message: `Découvre ce tatouage sur INKR : ${post?.caption ?? ''}`,
+      });
     } catch {}
+  };
+
+  const handleReport = () => {
+    Alert.alert(
+      'Signaler ce contenu',
+      'Merci pour ton signalement. Notre équipe va examiner ce contenu.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleOptions = () => {
+    const options = ['Partager', 'Signaler', 'Annuler'];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 2, destructiveButtonIndex: 1 },
+        (idx) => {
+          if (idx === 0) handleShare();
+          if (idx === 1) handleReport();
+        }
+      );
+    } else {
+      Alert.alert('Options', '', [
+        { text: 'Partager', onPress: handleShare },
+        { text: 'Signaler', onPress: handleReport, style: 'destructive' },
+        { text: 'Annuler', style: 'cancel' },
+      ]);
+    }
   };
 
   return (
@@ -71,7 +101,7 @@ export default function PostDetailScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
         <TText variant="title2" weight="semibold">Post</TText>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => {}}>
+        <TouchableOpacity style={styles.headerBtn} onPress={handleOptions}>
           <Ionicons name="ellipsis-horizontal" size={22} color={Colors.textSecondary} />
         </TouchableOpacity>
       </Animated.View>
@@ -127,7 +157,7 @@ export default function PostDetailScreen() {
           <View style={{ flex: 1 }} />
 
           {/* Report */}
-          <TouchableOpacity style={styles.actionItem}>
+          <TouchableOpacity style={styles.actionItem} onPress={handleReport}>
             <Ionicons name="flag-outline" size={20} color={Colors.textTertiary} />
           </TouchableOpacity>
         </Animated.View>

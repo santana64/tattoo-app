@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { ScrollView, StyleSheet, View, TouchableOpacity, Dimensions } from 'react-native';
+import { ScrollView, StyleSheet, View, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,10 +16,29 @@ import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAppStore } from '@/store/app-store';
+import { Toast } from '@/components/ui/TToast';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-const WEEK_DATES = [7, 8, 9, 10, 11, 12, 13];
+const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+// Get the Monday of the week containing `baseDate`
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun,1=Mon...6=Sat
+  const diff = day === 0 ? -6 : 1 - day; // adjust to Monday
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekDates(weekStart: Date): Date[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+}
 
 const STATUS_CONFIG = {
   proposed:  { label: 'Proposé',  variant: 'accent'   as const, color: '#60A5FA' },
@@ -29,7 +48,7 @@ const STATUS_CONFIG = {
 };
 
 function DayPill({ day, date, selected, hasAppt, onPress, index }: {
-  day: string; date: number; selected: boolean; hasAppt: boolean; onPress: () => void; index: number;
+  day: string; date: Date; selected: boolean; hasAppt: boolean; onPress: () => void; index: number;
 }) {
   const scale = useSharedValue(1);
   const s = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -53,7 +72,7 @@ function DayPill({ day, date, selected, hasAppt, onPress, index }: {
           weight="bold"
           style={{ color: selected ? '#fff' : Colors.textPrimary, marginTop: 2 }}
         >
-          {date}
+          {date.getDate()}
         </TText>
         {hasAppt && !selected && (
           <View style={styles.dayDot} />
@@ -82,7 +101,7 @@ function AppointmentCard({ apt, index }: { apt: any; index: number }) {
         onPress={() => {
           scale.value = withSpring(0.97, { damping: 10 }, () => { scale.value = withSpring(1); });
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.push(`/conversation/${apt.requestId}`);
+          router.push(`/appointment/${apt.id}`);
         }}
         activeOpacity={1}
         style={[styles.aptCard, { borderLeftColor: status.color }]}
@@ -122,17 +141,44 @@ export default function AgendaScreen() {
   const router = useRouter();
   const { appointments } = useAppStore();
   const [selectedDay, setSelectedDay] = useState(1);
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
 
-  const selectedDate = WEEK_DATES[selectedDay];
+  const weekDates = getWeekDates(weekStart);
+
+  const goToPrevWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 7);
+      return d;
+    });
+  };
+  const goToNextWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 7);
+      return d;
+    });
+  };
+
+  const monthLabel = `${MONTHS_FR[weekDates[3].getMonth()]} ${weekDates[3].getFullYear()}`;
+
+  const selectedDate = weekDates[selectedDay];
   const dayAppointments = appointments.filter((a) => {
     const d = new Date(a.startsAt);
-    return d.getDate() === selectedDate && d.getMonth() === 3;
+    return d.getFullYear() === selectedDate.getFullYear() &&
+           d.getMonth() === selectedDate.getMonth() &&
+           d.getDate() === selectedDate.getDate();
   });
 
   const weekStats = {
     total: appointments.length,
     confirmed: appointments.filter((a) => a.status === 'confirmed').length,
-    revenue: appointments.filter((a) => a.status === 'confirmed').length * 220,
+    revenue: appointments
+      .filter((a) => a.status === 'confirmed')
+      .reduce((sum, a) => {
+        const hours = Math.round((new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / (1000 * 60 * 60));
+        return sum + hours * 150; // 150€/h estimate
+      }, 0),
   };
 
   return (
@@ -140,7 +186,20 @@ export default function AgendaScreen() {
       {/* Header */}
       <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
         <TText variant="displayM" weight="black" style={styles.headerTitle}>Agenda</TText>
-        <TouchableOpacity style={styles.addBtn}>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            Alert.alert(
+              'Nouveau rendez-vous',
+              'Fonctionnalité disponible depuis la réception d\'une demande acceptée.',
+              [
+                { text: 'Voir les demandes', onPress: () => router.push('/(tabs)/inbox') },
+                { text: 'Fermer', style: 'cancel' },
+              ]
+            );
+          }}
+        >
           <Ionicons name="add" size={22} color={Colors.accentWarm} />
         </TouchableOpacity>
       </Animated.View>
@@ -169,11 +228,11 @@ export default function AgendaScreen() {
 
       {/* Month nav */}
       <View style={styles.monthNav}>
-        <TouchableOpacity style={styles.monthNavBtn}>
+        <TouchableOpacity style={styles.monthNavBtn} onPress={goToPrevWeek}>
           <Ionicons name="chevron-back" size={18} color={Colors.textSecondary} />
         </TouchableOpacity>
-        <TText variant="bodySmall" weight="semibold">Avril 2026</TText>
-        <TouchableOpacity style={styles.monthNavBtn}>
+        <TText variant="bodySmall" weight="semibold">{monthLabel}</TText>
+        <TouchableOpacity style={styles.monthNavBtn} onPress={goToNextWeek}>
           <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
@@ -181,10 +240,13 @@ export default function AgendaScreen() {
       {/* Day strip */}
       <View style={styles.dayStrip}>
         {DAYS.map((day, i) => {
-          const date = WEEK_DATES[i];
-          const hasAppt = appointments.some(
-            (a) => new Date(a.startsAt).getDate() === date && new Date(a.startsAt).getMonth() === 3
-          );
+          const date = weekDates[i];
+          const hasAppt = appointments.some((a) => {
+            const d = new Date(a.startsAt);
+            return d.getFullYear() === date.getFullYear() &&
+                   d.getMonth() === date.getMonth() &&
+                   d.getDate() === date.getDate();
+          });
           return (
             <DayPill
               key={day}
@@ -208,7 +270,7 @@ export default function AgendaScreen() {
         showsVerticalScrollIndicator={false}
       >
         <TText variant="label" color="tertiary" uppercase style={styles.dateLabel}>
-          {DAYS[selectedDay]} {selectedDate} Avril 2026
+          {`${DAYS[selectedDay]} ${selectedDate.getDate()} ${MONTHS_FR[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`}
         </TText>
 
         {dayAppointments.length === 0 ? (
@@ -217,7 +279,20 @@ export default function AgendaScreen() {
             <TText variant="bodySmall" color="tertiary" style={{ marginTop: 10 }}>
               Aucun rendez-vous ce jour
             </TText>
-            <TouchableOpacity style={styles.blockSlotBtn}>
+            <TouchableOpacity
+              style={styles.blockSlotBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Alert.alert(
+                  'Bloquer un créneau',
+                  'Marquer cette plage comme indisponible ?',
+                  [
+                    { text: 'Bloquer', style: 'destructive', onPress: () => Toast.success('Créneau bloqué') },
+                    { text: 'Annuler', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
               <Ionicons name="add-circle-outline" size={15} color={Colors.textTertiary} />
               <TText variant="caption" color="tertiary" style={{ marginLeft: 5 }}>Bloquer un créneau</TText>
             </TouchableOpacity>

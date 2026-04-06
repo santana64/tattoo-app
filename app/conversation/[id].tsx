@@ -139,7 +139,8 @@ export default function ConversationScreen() {
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [showTyping] = useState(false);
+  const [showTyping, setShowTyping] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const messages = messagesByRequest[id] ?? [];
@@ -152,7 +153,10 @@ export default function ConversationScreen() {
     fetchMessages(id);
     subscribeToRequest(id);
     if (user?.id) markAsRead(id, user.id);
-    return () => unsubscribeFromRequest();
+    return () => {
+      unsubscribeFromRequest();
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
   }, [id]);
 
   useEffect(() => {
@@ -165,6 +169,15 @@ export default function ConversationScreen() {
     }
   }, [messages.length]);
 
+  const triggerTypingIndicator = () => {
+    setShowTyping(true);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(
+      () => setShowTyping(false),
+      2500 + Math.random() * 2000
+    );
+  };
+
   const handleSend = useCallback(async () => {
     if (!text.trim() || !user?.id || isSending) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -174,6 +187,8 @@ export default function ConversationScreen() {
     await sendMessage(id, user.id, content);
     setIsSending(false);
     flatListRef.current?.scrollToEnd({ animated: true });
+    // Simulate the other party typing a response
+    triggerTypingIndicator();
   }, [text, user?.id, id, isSending]);
 
   const handleImageSend = async () => {
@@ -218,10 +233,26 @@ export default function ConversationScreen() {
           <TText variant="bodySmall" weight="semibold" numberOfLines={1}>
             {request?.artistName ?? request?.clientName ?? 'Conversation'}
           </TText>
-          <View style={styles.onlineRow}>
-            <View style={styles.onlineDot} />
-            <TText variant="micro" color="tertiary">En ligne</TText>
-          </View>
+          {(() => {
+            const lastOther = [...messages].reverse().find(m => m.senderId !== user?.id);
+            const minutesAgo = lastOther
+              ? Math.round((Date.now() - new Date(lastOther.createdAt).getTime()) / 60000)
+              : null;
+            const isOnline = minutesAgo !== null && minutesAgo < 5;
+            const presenceText = minutesAgo === null
+              ? 'Hors ligne'
+              : minutesAgo < 5
+              ? 'En ligne'
+              : minutesAgo < 60
+              ? `Actif il y a ${minutesAgo} min`
+              : `Actif il y a ${Math.round(minutesAgo / 60)}h`;
+            return (
+              <View style={styles.onlineRow}>
+                <View style={[styles.onlineDot, !isOnline && { backgroundColor: Colors.textTertiary }]} />
+                <TText variant="micro" color="tertiary">{presenceText}</TText>
+              </View>
+            );
+          })()}
         </View>
         <TouchableOpacity style={styles.headerBtn} onPress={() => router.push(`/request/${id}`)}>
           <Ionicons name="information-circle-outline" size={22} color={Colors.textSecondary} />

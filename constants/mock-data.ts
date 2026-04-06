@@ -418,7 +418,7 @@ export const MESSAGES_BY_REQUEST: Record<string, Message[]> = {
     {
       id: 'm1',
       senderId: 'system',
-      senderName: 'TATTOO',
+      senderName: 'INKR',
       content: 'Ta demande a été acceptée. La conversation est ouverte.',
       messageType: 'system',
       createdAt: '2026-03-29T08:00:00Z',
@@ -454,7 +454,7 @@ export const MESSAGES_BY_REQUEST: Record<string, Message[]> = {
     {
       id: 'm5',
       senderId: 'system',
-      senderName: 'TATTOO',
+      senderName: 'INKR',
       content: 'Rendez-vous confirmé · Mardi 8 avril · 10h00 → 15h00',
       messageType: 'appointment_confirmed',
       createdAt: '2026-03-30T14:00:00Z',
@@ -465,7 +465,7 @@ export const MESSAGES_BY_REQUEST: Record<string, Message[]> = {
     {
       id: 'm10',
       senderId: 'system',
-      senderName: 'TATTOO',
+      senderName: 'INKR',
       content: 'Marco Ink a besoin d\'un peu plus d\'information.',
       messageType: 'system',
       createdAt: '2026-04-02T09:00:00Z',

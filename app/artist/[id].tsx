@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   ScrollView, StyleSheet, View, TouchableOpacity,
   Dimensions, Animated as RNAnimated,
@@ -24,6 +24,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { useAppStore } from '@/store/app-store';
 import { useAuthStore } from '@/store/auth-store';
 import { ARTISTS, POSTS } from '@/constants/mock-data';
+import { Toast } from '@/components/ui/TToast';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const COVER_H = 320;
@@ -104,6 +105,7 @@ export default function ArtistProfileScreen() {
   const isSaved = savedArtistIds.has(artist.id);
   const booking = STATUS_CONFIG[artist.bookingStatus];
 
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
   const saveScale = useSharedValue(1);
   const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
 
@@ -346,7 +348,21 @@ export default function ArtistProfileScreen() {
                   : 'Ce tatoueur a fermé son carnet'}
               </TText>
             </View>
-            <TButton title="Me notifier" variant="glass" size="md" fullWidth={false} onPress={() => {}} />
+            <TButton
+              title={notifyEnabled ? 'Notifié ✓' : 'Me notifier'}
+              variant={notifyEnabled ? 'glow' : 'glass'}
+              size="md"
+              fullWidth={false}
+              onPress={() => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setNotifyEnabled(prev => !prev);
+                if (!notifyEnabled) {
+                  Toast.success('Tu seras notifié quand cet artiste rouvre !');
+                } else {
+                  Toast.success('Notification désactivée.');
+                }
+              }}
+            />
           </View>
         )}
       </Animated.View>
