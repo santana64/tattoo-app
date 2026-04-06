@@ -7,8 +7,7 @@ export async function trackProfileView(artistId: string, sourceUserId?: string) 
       event_type: 'profile_view',
       source_user: sourceUserId ?? null,
     });
-    // Also bump denormalized counter
-    await supabase.rpc('increment_profile_views', { artist_id: artistId }).maybeSingle();
+    // stat_profile_views is updated via DB trigger on artist_analytics_events insert
   } catch { /* fire and forget */ }
 }
 

@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   FlatList, StyleSheet, View, TextInput, TouchableOpacity,
-  ScrollView, Dimensions, Animated as RNAnimated,
+  ScrollView, Dimensions, Animated as RNAnimated, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,11 +21,46 @@ import { TAvatar } from '@/components/ui/TAvatar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAppStore } from '@/store/app-store';
-import { ARTISTS, STYLES, POSTS } from '@/constants/mock-data';
+import { STYLES } from '@/constants/mock-data';
 import type { Artist } from '@/constants/mock-data';
+import { supabase } from '@/lib/supabase';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const AVAILABILITY_OPTIONS = ['Tous', 'Disponible', 'En pause', 'Fermé'];
+
+// ─── Supabase → Artist shape ──────────────────────────────────────────────────
+function mapSupabaseArtist(row: any): Artist {
+  return {
+    id: row.id,
+    blaze: row.blaze,
+    city: row.city,
+    bio: row.bio ?? '',
+    coverUrl: row.cover_url ?? '',
+    avatarUrl: row.avatar_url ?? '',
+    styles: row.styles ?? [],
+    specialties: row.specialties ?? [],
+    bookingStatus: row.booking_status,
+    minBudget: row.min_budget ?? 0,
+    tier: row.tier,
+    isVerified: row.is_verified ?? false,
+    stats: {
+      posts: row.stat_posts ?? 0,
+      profileViews: row.stat_profile_views ?? 0,
+      requestsThisMonth: row.stat_requests_month ?? 0,
+    },
+    exclusions: row.exclusions ?? [],
+    faq: [],
+    rules: row.rules ?? '',
+    process: row.process ?? undefined,
+  };
+}
+
+interface ExploreTrendingPost {
+  id: string;
+  mediaUrl: string;
+  artistName: string;
+  likesCount: number;
+}
 const BUDGET_OPTIONS: Array<{ label: string; value: number | null }> = [
   { label: 'Tous', value: null },
   { label: '300€', value: 300 },
@@ -155,7 +190,7 @@ function SpotlightCard({ artist }: { artist: Artist }) {
 }
 
 // ─── Trending Post Mini card
-function TrendingPostCard({ post, index }: { post: typeof POSTS[0]; index: number }) {
+function TrendingPostCard({ post, index }: { post: ExploreTrendingPost; index: number }) {
   const router = useRouter();
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -186,6 +221,14 @@ export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { savedArtistIds, toggleSaveArtist } = useAppStore();
+
+  // ── Real data state
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [trendingPosts, setTrendingPosts] = useState<ExploreTrendingPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const [query, setQuery] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [selectedAvailability, setSelectedAvailability] = useState('Tous');
@@ -201,6 +244,51 @@ export default function ExploreScreen() {
   const filterSheetY = useSharedValue(300);
 
   const searchScale = useSharedValue(1);
+
+  // ── Fetch real data from Supabase
+  const fetchData = useCallback(async () => {
+    setFetchError(null);
+    try {
+      const [artistsRes, postsRes] = await Promise.all([
+        supabase
+          .from('artists')
+          .select('id, blaze, city, bio, cover_url, avatar_url, styles, specialties, booking_status, min_budget, tier, is_verified, exclusions, rules, process, stat_posts, stat_profile_views, stat_requests_month')
+          .order('tier', { ascending: false })
+          .order('stat_profile_views', { ascending: false })
+          .limit(60),
+        supabase
+          .from('posts')
+          .select('id, media_url, likes_count, artists!inner(blaze)')
+          .eq('is_published', true)
+          .order('likes_count', { ascending: false })
+          .limit(8),
+      ]);
+
+      if (artistsRes.error) throw artistsRes.error;
+      setArtists((artistsRes.data ?? []).map(mapSupabaseArtist));
+
+      if (!postsRes.error && postsRes.data) {
+        setTrendingPosts(postsRes.data.map((p: any) => ({
+          id: p.id,
+          mediaUrl: p.media_url,
+          artistName: (p.artists as any)?.blaze ?? '',
+          likesCount: p.likes_count ?? 0,
+        })));
+      }
+    } catch (e: any) {
+      setFetchError(e.message ?? 'Erreur de chargement');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    fetchData();
+  }, [fetchData]);
 
   const searchFocusStyle = useAnimatedStyle(() => ({
     transform: [{ scale: searchScale.value }],
@@ -225,45 +313,28 @@ export default function ExploreScreen() {
   const hasActiveFilters = filterAvailability !== 'Tous' || filterBudgetMax !== null;
 
   const filtered = useMemo(() => {
-    let result = ARTISTS.filter((a) => {
+    const statusMap: Record<string, string> = {
+      'Disponible': 'open', 'En pause': 'paused', 'Fermé': 'closed',
+    };
+    let result = artists.filter((a) => {
       const q = query.toLowerCase();
       const matchQ = !query || a.blaze.toLowerCase().includes(q) || a.city.toLowerCase().includes(q) || a.styles.some((s) => s.toLowerCase().includes(q));
       const matchStyle = !selectedStyle || a.styles.some((s) => s.toLowerCase().replace(/ /g, '-') === selectedStyle);
-      const matchAvail =
-        selectedAvailability === 'Tous' ||
-        (selectedAvailability === 'Disponible' && a.bookingStatus === 'open') ||
-        (selectedAvailability === 'En pause'  && a.bookingStatus === 'paused') ||
-        (selectedAvailability === 'Fermé'     && a.bookingStatus === 'closed');
-      return matchQ && matchStyle && matchAvail;
+      const matchAvail = selectedAvailability === 'Tous' || a.bookingStatus === statusMap[selectedAvailability];
+      const matchSheetAvail = filterAvailability === 'Tous' || a.bookingStatus === statusMap[filterAvailability];
+      const matchBudget = filterBudgetMax === null || a.minBudget <= filterBudgetMax;
+      return matchQ && matchStyle && matchAvail && matchSheetAvail && matchBudget;
     });
-
-    // Apply sheet filters
-    if (filterAvailability !== 'Tous') {
-      const statusMap: Record<string, string> = {
-        'Disponible': 'open',
-        'En pause': 'paused',
-        'Fermé': 'closed',
-      };
-      result = result.filter(a => a.bookingStatus === statusMap[filterAvailability]);
-    }
-    if (filterBudgetMax !== null) {
-      result = result.filter(a => a.minBudget <= filterBudgetMax);
-    }
 
     if (sortBy === 'premium') result = [...result].sort((a, b) => (a.tier === 'premium' ? -1 : 1));
     else if (sortBy === 'open') result = [...result].sort((a, b) => (a.bookingStatus === 'open' ? -1 : 1));
     else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => a.minBudget - b.minBudget);
     return result;
-  }, [query, selectedStyle, selectedAvailability, sortBy, filterAvailability, filterBudgetMax]);
+  }, [artists, query, selectedStyle, selectedAvailability, sortBy, filterAvailability, filterBudgetMax]);
 
   const spotlightArtist = useMemo(
-    () => ARTISTS.find((a) => a.tier === 'premium' && a.bookingStatus === 'open') ?? ARTISTS[0],
-    []
-  );
-
-  const trendingPosts = useMemo(
-    () => [...POSTS].sort((a, b) => b.likesCount - a.likesCount).slice(0, 8),
-    []
+    () => artists.find((a) => a.tier === 'premium' && a.bookingStatus === 'open') ?? artists[0],
+    [artists]
   );
 
   const hasFilters = !!query || !!selectedStyle || selectedAvailability !== 'Tous' || hasActiveFilters;
@@ -325,7 +396,7 @@ export default function ExploreScreen() {
         <View>
           <TText variant="displayM" weight="black" style={styles.headerTitle}>Explorer</TText>
           <TText variant="caption" color="tertiary" style={{ letterSpacing: 0.3, marginTop: 2 }}>
-            {ARTISTS.length} artistes · {ARTISTS.filter(a => a.bookingStatus === 'open').length} disponibles
+            {isLoading ? '…' : `${artists.length} artiste${artists.length !== 1 ? 's' : ''} · ${artists.filter(a => a.bookingStatus === 'open').length} disponibles`}
           </TText>
         </View>
         {/* Filter icon button with active badge */}
@@ -439,7 +510,7 @@ export default function ExploreScreen() {
 
       {/* Artist list */}
       <FlatList
-        data={filtered}
+        data={isLoading ? [] : filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderArtist}
         key={viewMode}
@@ -447,15 +518,40 @@ export default function ExploreScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
-        ListEmptyComponent={
-          <EmptyState
-            icon="search-outline"
-            title="Aucun résultat."
-            description="Essaie d'autres filtres ou une autre ville."
-            ctaLabel="Réinitialiser"
-            onCta={() => { setQuery(''); setSelectedStyle(null); setSelectedAvailability('Tous'); resetFilters(); }}
-            style={{ marginTop: 40 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.accentWarm}
+            colors={[Colors.accentWarm]}
           />
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <View style={{ paddingHorizontal: Spacing.sm, gap: Spacing.sm, marginTop: Spacing.sm }}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.skeletonCard} />
+              ))}
+            </View>
+          ) : fetchError ? (
+            <EmptyState
+              icon="wifi-outline"
+              title="Impossible de charger."
+              description={fetchError}
+              ctaLabel="Réessayer"
+              onCta={() => { setIsLoading(true); fetchData(); }}
+              style={{ marginTop: 40 }}
+            />
+          ) : (
+            <EmptyState
+              icon="search-outline"
+              title="Aucun résultat."
+              description="Essaie d'autres filtres ou une autre ville."
+              ctaLabel="Réinitialiser"
+              onCta={() => { setQuery(''); setSelectedStyle(null); setSelectedAvailability('Tous'); resetFilters(); }}
+              style={{ marginTop: 40 }}
+            />
+          )
         }
       />
 
@@ -623,6 +719,12 @@ export default function ExploreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  skeletonCard: {
+    height: 100,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bgSurface,
+    opacity: 0.5,
+  },
 
   header: {
     flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',

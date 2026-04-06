@@ -184,7 +184,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setLoading: (isLoading) => set({ isLoading }),
 
-  _devSignIn: (role) =>
+  _devSignIn: (role) => {
+    if (!__DEV__) return; // No-op in production builds
     set({
       isAuthenticated: true,
       isLoading: false,
@@ -200,5 +201,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         artistBlaze: role === 'artist' ? 'Marco Ink' : undefined,
         artistBookingStatus: role === 'artist' ? 'open' : undefined,
       },
-    }),
+    });
+  },
 }));

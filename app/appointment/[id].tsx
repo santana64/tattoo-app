@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, StyleSheet, ScrollView, TouchableOpacity,
+  View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,9 +18,8 @@ import { TText } from '@/components/ui/TText';
 import { TBadge } from '@/components/ui/TBadge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { useAppStore } from '@/store/app-store';
 import { useAuthStore } from '@/store/auth-store';
-import { ARTISTS } from '@/constants/mock-data';
+import { supabase } from '@/lib/supabase';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -139,23 +138,127 @@ function ActionButton({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
+interface AppointmentData {
+  id: string;
+  requestId: string | null;
+  status: keyof typeof STATUS_CONFIG;
+  startsAt: string;
+  endsAt: string;
+  bodyZone: string | null;
+  notes: string | null;
+  clientName: string;
+  clientAvatarUrl: string | null;
+  artistBlaze: string;
+  artistCity: string;
+  artistAvatarUrl: string | null;
+  artistId: string | null;
+  artistTier: 'normal' | 'premium';
+}
+
 export default function AppointmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-  const { appointments } = useAppStore();
 
-  const appointment = appointments.find((a) => a.id === id) ?? appointments[0];
-  if (!appointment) return null;
+  const [appointment, setAppointment] = useState<AppointmentData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  // Derive artist — fall back to first in list
-  const artist = ARTISTS[0];
+  useEffect(() => {
+    if (!id) return;
+    const fetch = async () => {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select(`
+          id, status, starts_at, ends_at, body_zone, notes,
+          request_id,
+          profiles!client_id(display_name, avatar_url),
+          artists!artist_id(id, blaze, city, avatar_url, tier)
+        `)
+        .eq('id', id)
+        .single();
 
-  const statusConf =
-    STATUS_CONFIG[appointment.status as keyof typeof STATUS_CONFIG] ??
-    STATUS_CONFIG.proposed;
+      if (error || !data) { setNotFound(true); setIsLoading(false); return; }
 
+      setAppointment({
+        id: data.id,
+        requestId: data.request_id ?? null,
+        status: (data.status as keyof typeof STATUS_CONFIG) ?? 'proposed',
+        startsAt: data.starts_at,
+        endsAt: data.ends_at,
+        bodyZone: data.body_zone ?? null,
+        notes: data.notes ?? null,
+        clientName: (data.profiles as any)?.display_name ?? 'Client',
+        clientAvatarUrl: (data.profiles as any)?.avatar_url ?? null,
+        artistBlaze: (data.artists as any)?.blaze ?? 'Artiste',
+        artistCity: (data.artists as any)?.city ?? '',
+        artistAvatarUrl: (data.artists as any)?.avatar_url ?? null,
+        artistId: (data.artists as any)?.id ?? null,
+        artistTier: (data.artists as any)?.tier ?? 'normal',
+      });
+      setIsLoading(false);
+    };
+    fetch();
+  }, [id]);
+
+  const handleConfirm = async () => {
+    if (!appointment) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: 'confirmed' })
+      .eq('id', appointment.id);
+    if (!error) setAppointment((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
+  };
+
+  const handleCancel = () => {
+    Alert.alert('Annuler ce rendez-vous ?', 'Cette action est irréversible.', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Confirmer',
+        style: 'destructive',
+        onPress: async () => {
+          if (!appointment) return;
+          await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointment.id);
+          setAppointment((prev) => prev ? { ...prev, status: 'canceled' } : prev);
+        },
+      },
+    ]);
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.accentWarm} />
+      </View>
+    );
+  }
+
+  if (notFound || !appointment) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.header]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+            <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+          </TouchableOpacity>
+          <TText variant="title2" weight="bold">Rendez-vous</TText>
+          <View style={{ width: 44 }} />
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }}>
+          <Ionicons name="calendar-outline" size={48} color={Colors.textTertiary} />
+          <TText variant="title2" weight="semibold" style={{ marginTop: Spacing.md, textAlign: 'center' }}>
+            Rendez-vous introuvable
+          </TText>
+          <TText variant="body" color="tertiary" style={{ marginTop: Spacing.xs, textAlign: 'center' }}>
+            Ce rendez-vous n'existe pas ou tu n'y as pas accès.
+          </TText>
+        </View>
+      </View>
+    );
+  }
+
+  const statusConf = STATUS_CONFIG[appointment.status] ?? STATUS_CONFIG.proposed;
   const isArtist = user?.role === 'artist';
 
   // Format date range from startsAt / endsAt
@@ -246,35 +349,29 @@ export default function AppointmentScreen() {
         >
           <GlassCard variant="elevated" style={styles.artistCard}>
             <TAvatar
-              uri={artist.avatarUrl}
-              name={artist.blaze}
+              uri={appointment.artistAvatarUrl}
+              name={appointment.artistBlaze}
               size="lg"
-              isPremium={artist.tier === 'premium'}
+              isPremium={appointment.artistTier === 'premium'}
             />
             <View style={{ flex: 1, marginLeft: Spacing.sm }}>
               <TText variant="title2" weight="bold">
-                {artist.blaze}
+                {appointment.artistBlaze}
               </TText>
               <TText variant="caption" color="tertiary">
-                {artist.city}
+                {appointment.artistCity}
               </TText>
-              {artist.bookingStatus === 'open' && (
-                <View style={styles.availPill}>
-                  <View style={styles.availDot} />
-                  <TText variant="micro" style={{ color: Colors.successLight }}>
-                    Disponible
-                  </TText>
-                </View>
-              )}
             </View>
-            <TouchableOpacity
-              onPress={() => router.push(`/artist/${artist.id}` as any)}
-              style={styles.viewProfileBtn}
-            >
-              <TText variant="micro" style={{ color: Colors.accentWarm }}>
-                Voir →
-              </TText>
-            </TouchableOpacity>
+            {appointment.artistId && (
+              <TouchableOpacity
+                onPress={() => router.push(`/artist/${appointment.artistId}` as any)}
+                style={styles.viewProfileBtn}
+              >
+                <TText variant="micro" style={{ color: Colors.accentWarm }}>
+                  Voir →
+                </TText>
+              </TouchableOpacity>
+            )}
           </GlassCard>
         </Animated.View>
 
@@ -308,11 +405,13 @@ export default function AppointmentScreen() {
               </>
             )}
             <View style={styles.rowDivider} />
-            <InfoRow
-              icon="person-outline"
-              label="Client"
-              value={appointment.clientName}
-            />
+            {isArtist && (
+              <><View style={styles.rowDivider} /><InfoRow
+                icon="person-outline"
+                label="Client"
+                value={appointment.clientName}
+              /></>
+            )}
           </GlassCard>
         </Animated.View>
 
@@ -375,11 +474,7 @@ export default function AppointmentScreen() {
                     icon="checkmark-circle-outline"
                     color={Colors.successLight}
                     bg="rgba(16,185,129,0.10)"
-                    onPress={() =>
-                      Haptics.notificationAsync(
-                        Haptics.NotificationFeedbackType.Success,
-                      )
-                    }
+                    onPress={handleConfirm}
                   />
                 )}
                 <ActionButton
@@ -387,11 +482,7 @@ export default function AppointmentScreen() {
                   icon="close-circle-outline"
                   color={Colors.errorLight}
                   bg="rgba(239,68,68,0.10)"
-                  onPress={() =>
-                    Haptics.notificationAsync(
-                      Haptics.NotificationFeedbackType.Warning,
-                    )
-                  }
+                  onPress={handleCancel}
                 />
               </View>
             </Animated.View>
@@ -405,7 +496,7 @@ export default function AppointmentScreen() {
           >
             <TouchableOpacity
               onPress={() =>
-                router.push(`/review/new?appointmentId=${id}` as any)
+                router.push(`/review/new?appointmentId=${id}&artistId=${appointment.artistId ?? ''}` as any)
               }
               style={styles.reviewCTA}
               activeOpacity={0.85}
