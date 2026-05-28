@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json.expo.io/eas-schema/eas.json",
+  "cli": {
+    "version": ">= 12.0.0",
+    "requireCommit": true
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium",
+        "simulator": true
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_ENV": "development"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_ENV": "preview"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_ENV": "production"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "YOUR_APPLE_ID@email.com",
+        "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
+        "appleTeamId": "YOUR_APPLE_TEAM_ID"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "production"
+      }
+    }
+  }
+}

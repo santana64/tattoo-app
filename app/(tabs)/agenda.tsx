@@ -1,0 +1,428 @@
+import React, { useState, useCallback, useEffect } from 'react';
+import { ScrollView, StyleSheet, View, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  FadeIn, FadeInDown, useSharedValue, useAnimatedStyle, withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { TText } from '@/components/ui/TText';
+import { TAvatar } from '@/components/ui/TAvatar';
+import { TBadge } from '@/components/ui/TBadge';
+import { TDivider } from '@/components/ui/TDivider';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
+import { Toast } from '@/components/ui/TToast';
+
+interface RealAppointment {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: 'proposed' | 'confirmed' | 'completed' | 'canceled';
+  bodyZone: string | null;
+  notes: string | null;
+  clientName: string;
+  clientAvatar: string | null;
+  artistBlaze: string;
+}
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+// Get the Monday of the week containing `baseDate`
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun,1=Mon...6=Sat
+  const diff = day === 0 ? -6 : 1 - day; // adjust to Monday
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekDates(weekStart: Date): Date[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+}
+
+const STATUS_CONFIG = {
+  proposed:  { label: 'Proposé',  variant: 'accent'   as const, color: '#60A5FA' },
+  confirmed: { label: 'Confirmé', variant: 'success'  as const, color: '#34D399' },
+  completed: { label: 'Terminé',  variant: 'default'  as const, color: Colors.textTertiary },
+  canceled:  { label: 'Annulé',   variant: 'error'    as const, color: '#F87171' },
+};
+
+function DayPill({ day, date, selected, hasAppt, onPress, index }: {
+  day: string; date: Date; selected: boolean; hasAppt: boolean; onPress: () => void; index: number;
+}) {
+  const scale = useSharedValue(1);
+  const s = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View entering={FadeIn.delay(index * 30).duration(300)} style={[s, styles.dayPillWrap]}>
+      <TouchableOpacity
+        onPress={() => {
+          scale.value = withSpring(0.9, { damping: 8 }, () => { scale.value = withSpring(1); });
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress();
+        }}
+        activeOpacity={1}
+        style={[styles.dayPill, selected && styles.dayPillSelected]}
+      >
+        <TText variant="micro" style={{ color: selected ? 'rgba(255,255,255,0.7)' : Colors.textTertiary }} uppercase>
+          {day}
+        </TText>
+        <TText
+          variant="bodySmall"
+          weight="bold"
+          style={{ color: selected ? '#fff' : Colors.textPrimary, marginTop: 2 }}
+        >
+          {date.getDate()}
+        </TText>
+        {hasAppt && !selected && (
+          <View style={styles.dayDot} />
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function AppointmentCard({ apt, index }: { apt: any; index: number }) {
+  const router = useRouter();
+  const status = STATUS_CONFIG[apt.status as keyof typeof STATUS_CONFIG];
+  const start = new Date(apt.startsAt);
+  const end = new Date(apt.endsAt);
+  const durationH = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60));
+
+  const scale = useSharedValue(1);
+  const s = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View
+      entering={FadeInDown.delay(index * 80).springify()}
+      style={s}
+    >
+      <TouchableOpacity
+        onPress={() => {
+          scale.value = withSpring(0.97, { damping: 10 }, () => { scale.value = withSpring(1); });
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push(`/appointment/${apt.id}`);
+        }}
+        activeOpacity={1}
+        style={[styles.aptCard, { borderLeftColor: status.color }]}
+      >
+        {/* Time column */}
+        <View style={styles.aptTime}>
+          <TText variant="bodySmall" weight="bold">
+            {String(start.getHours()).padStart(2, '0')}h{String(start.getMinutes()).padStart(2, '0')}
+          </TText>
+          <TText variant="micro" color="tertiary">{durationH}h</TText>
+        </View>
+
+        {/* Content */}
+        <View style={styles.aptBody}>
+          <View style={styles.aptHeader}>
+            <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={{ flex: 1 }}>
+              {apt.clientName}
+            </TText>
+            <TBadge label={status.label} variant={status.variant} />
+          </View>
+          <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>{apt.bodyZone}</TText>
+          {apt.notes && (
+            <TText variant="caption" color="tertiary" numberOfLines={1} style={{ marginTop: 2 }}>
+              {apt.notes}
+            </TText>
+          )}
+        </View>
+
+        <TAvatar uri={apt.clientAvatar} name={apt.clientName} size="md" />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+export default function AgendaScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const [appointments, setAppointments] = useState<RealAppointment[]>([]);
+  const [selectedDay, setSelectedDay] = useState(1);
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
+
+  // Fetch real appointments from Supabase
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchAppts = async () => {
+      let query;
+      if (user.role === 'artist' && user.artistId) {
+        query = supabase
+          .from('appointments')
+          .select(`*, profiles!client_id(display_name, avatar_url)`)
+          .eq('artist_id', user.artistId)
+          .order('starts_at');
+      } else {
+        query = supabase
+          .from('appointments')
+          .select(`*, artists!artist_id(blaze)`)
+          .eq('client_id', user.id)
+          .order('starts_at');
+      }
+
+      const { data } = await query;
+      if (!data) return;
+
+      setAppointments(data.map((a: any) => ({
+        id: a.id,
+        startsAt: a.starts_at,
+        endsAt: a.ends_at,
+        status: a.status,
+        bodyZone: a.body_zone ?? null,
+        notes: a.notes ?? null,
+        clientName: a.profiles?.display_name ?? a.client_id ?? 'Client',
+        clientAvatar: a.profiles?.avatar_url ?? null,
+        artistBlaze: a.artists?.blaze ?? 'Artiste',
+      })));
+    };
+
+    fetchAppts();
+  }, [user?.id, user?.artistId]);
+
+  const weekDates = getWeekDates(weekStart);
+
+  const goToPrevWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 7);
+      return d;
+    });
+  };
+  const goToNextWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 7);
+      return d;
+    });
+  };
+
+  const monthLabel = `${MONTHS_FR[weekDates[3].getMonth()]} ${weekDates[3].getFullYear()}`;
+
+  const selectedDate = weekDates[selectedDay];
+  const dayAppointments = appointments.filter((a) => {
+    const d = new Date(a.startsAt);
+    return d.getFullYear() === selectedDate.getFullYear() &&
+           d.getMonth() === selectedDate.getMonth() &&
+           d.getDate() === selectedDate.getDate();
+  });
+
+  const weekStats = {
+    total: appointments.length,
+    confirmed: appointments.filter((a) => a.status === 'confirmed').length,
+    revenue: appointments
+      .filter((a) => a.status === 'confirmed')
+      .reduce((sum, a) => {
+        const hours = Math.round((new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / (1000 * 60 * 60));
+        return sum + hours * 150; // 150€/h estimate
+      }, 0),
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
+        <TText variant="displayM" weight="black" style={styles.headerTitle}>Agenda</TText>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            Alert.alert(
+              'Nouveau rendez-vous',
+              'Fonctionnalité disponible depuis la réception d\'une demande acceptée.',
+              [
+                { text: 'Voir les demandes', onPress: () => router.push('/(tabs)/inbox') },
+                { text: 'Fermer', style: 'cancel' },
+              ]
+            );
+          }}
+        >
+          <Ionicons name="add" size={22} color={Colors.accentWarm} />
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Week summary */}
+      <Animated.View entering={FadeInDown.delay(80).springify()} style={styles.weekSummary}>
+        <GlassCard variant="elevated" style={styles.summaryCard}>
+          <View style={styles.summaryItem}>
+            <TText variant="title2" weight="bold">{weekStats.total}</TText>
+            <TText variant="micro" color="tertiary" uppercase>Total</TText>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <TText variant="title2" weight="bold" style={{ color: Colors.success }}>{weekStats.confirmed}</TText>
+            <TText variant="micro" color="tertiary" uppercase>Confirmés</TText>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <TText variant="title2" weight="bold" style={{ color: Colors.accentWarm }}>
+              {weekStats.revenue.toLocaleString('fr')}€
+            </TText>
+            <TText variant="micro" color="tertiary" uppercase>Estimé</TText>
+          </View>
+        </GlassCard>
+      </Animated.View>
+
+      {/* Month nav */}
+      <View style={styles.monthNav}>
+        <TouchableOpacity style={styles.monthNavBtn} onPress={goToPrevWeek}>
+          <Ionicons name="chevron-back" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
+        <TText variant="bodySmall" weight="semibold">{monthLabel}</TText>
+        <TouchableOpacity style={styles.monthNavBtn} onPress={goToNextWeek}>
+          <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Day strip */}
+      <View style={styles.dayStrip}>
+        {DAYS.map((day, i) => {
+          const date = weekDates[i];
+          const hasAppt = appointments.some((a) => {
+            const d = new Date(a.startsAt);
+            return d.getFullYear() === date.getFullYear() &&
+                   d.getMonth() === date.getMonth() &&
+                   d.getDate() === date.getDate();
+          });
+          return (
+            <DayPill
+              key={day}
+              day={day}
+              date={date}
+              selected={selectedDay === i}
+              hasAppt={hasAppt}
+              onPress={() => setSelectedDay(i)}
+              index={i}
+            />
+          );
+        })}
+      </View>
+
+      <TDivider style={{ marginBottom: Spacing.xs }} />
+
+      {/* Schedule */}
+      <ScrollView
+        style={styles.schedule}
+        contentContainerStyle={{ paddingHorizontal: Spacing.sm, paddingBottom: insets.bottom + 100 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <TText variant="label" color="tertiary" uppercase style={styles.dateLabel}>
+          {`${DAYS[selectedDay]} ${selectedDate.getDate()} ${MONTHS_FR[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`}
+        </TText>
+
+        {dayAppointments.length === 0 ? (
+          <View style={styles.emptyDay}>
+            <Ionicons name="calendar-outline" size={32} color={Colors.textTertiary} />
+            <TText variant="bodySmall" color="tertiary" style={{ marginTop: 10 }}>
+              Aucun rendez-vous ce jour
+            </TText>
+            <TouchableOpacity
+              style={styles.blockSlotBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Alert.alert(
+                  'Bloquer un créneau',
+                  'Marquer cette plage comme indisponible ?',
+                  [
+                    { text: 'Bloquer', style: 'destructive', onPress: () => Toast.success('Créneau bloqué') },
+                    { text: 'Annuler', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="add-circle-outline" size={15} color={Colors.textTertiary} />
+              <TText variant="caption" color="tertiary" style={{ marginLeft: 5 }}>Bloquer un créneau</TText>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          dayAppointments.map((apt, i) => (
+            <AppointmentCard key={apt.id} apt={apt} index={i} />
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.sm, paddingTop: Spacing.xs, paddingBottom: Spacing['2xs'],
+  },
+  headerTitle: { letterSpacing: -2, fontSize: 34 },
+  addBtn: {
+    width: 40, height: 40, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.bgSurface, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.borderSubtle,
+  },
+
+  // Summary
+  weekSummary: { paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm },
+  summaryCard: { flexDirection: 'row', paddingVertical: Spacing.sm },
+  summaryItem: { flex: 1, alignItems: 'center', gap: 3 },
+  summaryDivider: { width: 1, backgroundColor: Colors.borderSubtle, marginVertical: 4 },
+
+  // Month nav
+  monthNav: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.md, paddingBottom: Spacing['2xs'],
+  },
+  monthNavBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+
+  // Day strip
+  dayStrip: { flexDirection: 'row', paddingHorizontal: Spacing.sm, gap: 4, marginBottom: Spacing.xs },
+  dayPillWrap: { flex: 1 },
+  dayPill: {
+    flex: 1, alignItems: 'center', paddingVertical: 10,
+    borderRadius: Radius.lg, gap: 1,
+    backgroundColor: 'transparent',
+  },
+  dayPillSelected: {
+    backgroundColor: Colors.accentWarm,
+  },
+  dayDot: {
+    width: 4, height: 4, borderRadius: 2,
+    backgroundColor: Colors.accentWarm, marginTop: 2,
+  },
+
+  // Schedule
+  schedule: { flex: 1 },
+  dateLabel: { paddingVertical: Spacing.xs, letterSpacing: 0.5 },
+  emptyDay: { alignItems: 'center', paddingTop: Spacing.xl, gap: Spacing['2xs'] },
+  blockSlotBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: Spacing.xs, paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.borderSubtle,
+  },
+
+  // Appointment card
+  aptCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.lg, padding: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.borderSubtle,
+    borderLeftWidth: 3,
+    marginBottom: Spacing['2xs'],
+    gap: Spacing.sm,
+  },
+  aptTime: { width: 44, alignItems: 'center', gap: 2 },
+  aptBody: { flex: 1 },
+  aptHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+});
