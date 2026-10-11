@@ -1,111 +1,130 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import Animated, {
+  useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming,
+} from 'react-native-reanimated';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { Logo } from '@/components/ui/Logo';
+import { TButton } from '@/components/ui/TButton';
+import { TDivider } from '@/components/ui/TDivider';
+import { THeader } from '@/components/ui/THeader';
+import { EASE_OUT, PressableScale, enterUp, fadeIn } from '@/components/motion';
 
+// Practical advice only: no invented statistics or ranking promises.
 const CHAPTERS = [
   {
     id: 1,
-    icon: 'rocket-outline' as const,
-    title: 'Bien démarrer sur TATTOO',
-    summary: 'Configure ton profil pour maximiser ta visibilité dès le premier jour.',
+    title: 'Bien démarrer sur INKR',
+    summary: 'Un profil complet donne aux clients ce qu’il faut pour vous écrire.',
     tips: [
-      'Utilise une photo de couverture en 16:9 qui représente ton style.',
-      'Rédige une bio courte (2-3 phrases) qui te différencie.',
-      'Complète 100% des infos de profil : les profils complets reçoivent 3× plus de vues.',
+      'Choisissez une couverture qui montre une pièce représentative de votre style.',
+      'Écrivez une bio courte : votre approche, vos styles, votre ville.',
+      'Renseignez tout le profil : styles, budget minimum, conditions et exclusions.',
     ],
   },
   {
     id: 2,
-    icon: 'images-outline' as const,
-    title: 'Construire une galerie qui convertit',
-    summary: 'Les 9 premiers posts sont ton vitrine. Choisis-les avec soin.',
+    title: 'Une galerie qui donne envie d’écrire',
+    summary: 'Vos premières réalisations visibles sont votre vitrine.',
     tips: [
-      'Publie tes 9 meilleurs travaux avant tout contenu récent.',
-      'Varie les zones corporelles et formats pour montrer ta polyvalence.',
-      'Les photos en lumière naturelle obtiennent 40% de likes en plus.',
-      'Ajoute 2-3 tags de style par post — ça alimente l\'algo de recommandation.',
+      'Placez vos meilleures pièces en premier, avant les travaux plus anciens.',
+      'Variez les zones et les formats pour montrer l’étendue de votre pratique.',
+      'Photographiez en lumière naturelle, sans filtre qui modifie les couleurs de l’encre.',
+      'Indiquez deux ou trois styles par publication pour classer votre travail.',
     ],
   },
   {
     id: 3,
-    icon: 'funnel-outline' as const,
-    title: 'Gérer les demandes efficacement',
-    summary: 'Un bon taux de réponse booste ton classement dans l\'explore.',
+    title: 'Gérer les demandes',
+    summary: 'Une réponse claire, même négative, construit la confiance.',
     tips: [
-      'Réponds dans les 24h : ton taux de réponse est visible des clients.',
-      'Utilise "Demander une précision" plutôt que refuser prématurément.',
-      'Les demandes avec budget > 300€ sont 2× plus susceptibles d\'être converties.',
-      'Personnalise ton message d\'acceptation pour créer un lien dès le départ.',
+      'Répondez rapidement, y compris pour décliner une demande.',
+      'Demandez une précision plutôt que de refuser une demande incomplète.',
+      'Personnalisez votre message d’acceptation pour lancer l’échange.',
     ],
   },
   {
     id: 4,
-    icon: 'calendar-outline' as const,
-    title: 'Optimiser ton agenda',
-    summary: 'Gère ta disponibilité pour ne jamais manquer une opportunité.',
+    title: 'Tenir votre agenda',
+    summary: 'Votre disponibilité indique aux clients s’ils peuvent vous écrire.',
     tips: [
-      'Mets ton statut sur "Ouvert" uniquement quand tu peux vraiment prendre des projets.',
-      'Les artistes avec statut "Ouvert" apparaissent en priorité dans l\'explore.',
-      'Configure tes exclusions clairement — ça filtre les demandes non pertinentes.',
+      'Affichez « Prend des projets » uniquement quand vous pouvez en accepter.',
+      'Passez en liste d’attente plutôt qu’en complet pour garder le contact.',
+      'Précisez vos exclusions : elles évitent les demandes hors de votre pratique.',
     ],
   },
   {
     id: 5,
-    icon: 'trending-up-outline' as const,
-    title: 'Comprendre tes analytics',
-    summary: 'Les données pour prendre les bonnes décisions créatives et business.',
+    title: 'Lire vos statistiques',
+    summary: 'Les chiffres servent à décider, pas à se comparer.',
     tips: [
-      'Surveille le ratio Vues profil / Demandes : en dessous de 1%, retravaille ta bio.',
-      'Les pics de vues arrivent jeudi-samedi — publie en début de semaine pour capter l\'élan.',
-      'Le funnel de conversion te montre où tu perds les clients potentiels.',
-      'Compare tes posts les plus vus à ceux qui génèrent le plus de demandes — ce n\'est pas toujours les mêmes.',
+      'Suivez le rapport entre vues du profil et demandes reçues.',
+      'Beaucoup de vues et peu de demandes : retravaillez votre bio et vos conditions.',
+      'Comparez vos réalisations les plus vues avec celles qui suscitent des demandes.',
     ],
   },
   {
     id: 6,
-    icon: 'star-outline' as const,
-    title: 'Personnaliser son profil Premium',
-    summary: 'Tire parti des sections exclusives pour te démarquer.',
+    title: 'Personnaliser le profil',
+    summary: 'Les sections Premium répondent aux questions avant qu’elles arrivent.',
     tips: [
-      'La section "Mon process" rassure les primo-tattoo et réduit les questions répétitives.',
-      'Une FAQ personnalisée qualifie les clients en amont : moins de demandes hors-scope.',
-      'Le preset visuel "Warm" performe mieux pour les styles traditionnels et japonais.',
-      'Réorganise tes sections selon ton audience : bio en premier pour les nouveaux clients.',
+      'La section « Ma méthode » rassure les personnes qui se font tatouer pour la première fois.',
+      'Des questions fréquentes bien écrites évitent les échanges répétitifs.',
+      'Affichez les sections dans l’ordre qui compte pour votre clientèle.',
     ],
   },
   {
     id: 7,
-    icon: 'shield-checkmark-outline' as const,
     title: 'Confiance et réputation',
-    summary: 'Construire une réputation solide sur le long terme.',
+    summary: 'La régularité compte plus qu’un coup d’éclat.',
     tips: [
-      'Chaque RDV confirmé améliore ton score de confiance (visible en interne).',
-      'Évite les annulations de dernière minute : elles impactent ton classement.',
-      'Signale immédiatement tout comportement inapproprié via le menu ···.',
-      'La cohérence de ton style sur la durée renforce ta reconnaissance de marque.',
+      'Honorez vos rendez-vous confirmés et prévenez tôt en cas d’imprévu.',
+      'Signalez tout comportement inapproprié depuis le menu d’options.',
+      'Un style cohérent dans le temps rend votre travail reconnaissable.',
     ],
   },
   {
     id: 8,
-    icon: 'diamond-outline' as const,
-    title: 'Stratégie de croissance',
-    summary: 'Passer de tatoueur à référence dans ta ville.',
+    title: 'Faire grandir l’atelier',
+    summary: 'Quelques habitudes simples, tenues dans la durée.',
     tips: [
-      'Vise 1 post/semaine minimum pour rester visible dans l\'algo.',
-      'Engage tes abonnés : réponds aux commentaires dans les 2h post-publication.',
-      'Les artistes dans le top 10% de leur ville ont en moyenne 4,2 posts/mois.',
-      'Croise tes données analytics avec tes vraies réservations pour identifier les styles qui convertissent le mieux.',
+      'Publiez régulièrement plutôt que beaucoup d’un coup.',
+      'Répondez aux messages dans un délai que vous pouvez tenir.',
+      'Croisez vos statistiques avec vos réservations réelles pour repérer ce qui fonctionne.',
     ],
   },
 ];
+
+/** Rare, first-visit moment: a gold wash lights the hero, a rule draws in. */
+function GoldLight() {
+  const reduced = useReducedMotion();
+  const light = useSharedValue(0);
+  const rule = useSharedValue(reduced ? 1 : 0);
+  useEffect(() => {
+    light.set(withTiming(1, { duration: 1100, easing: EASE_OUT }));
+    if (!reduced) rule.set(withDelay(250, withTiming(1, { duration: 900, easing: EASE_OUT })));
+  }, [light, rule, reduced]);
+  const lightStyle = useAnimatedStyle(() => ({ opacity: light.get() }));
+  const ruleStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: rule.get() }] }));
+  return (
+    <>
+      <Animated.View style={[StyleSheet.absoluteFill, lightStyle]} pointerEvents="none">
+        <LinearGradient
+          colors={['rgba(221,187,130,0.20)', 'rgba(201,164,106,0.06)', 'rgba(11,10,9,0)']}
+          locations={[0, 0.45, 1]}
+          start={{ x: 0.15, y: 0 }}
+          end={{ x: 0.7, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <Animated.View style={[styles.goldRule, ruleStyle]} pointerEvents="none" />
+    </>
+  );
+}
 
 export default function PremiumGuideScreen() {
   const router = useRouter();
@@ -113,284 +132,114 @@ export default function PremiumGuideScreen() {
   const [openChapter, setOpenChapter] = useState<number | null>(1);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Aurora orbs */}
-      <View style={styles.auroraViolet} pointerEvents="none" />
-      <View style={styles.auroraAmber} pointerEvents="none" />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="semibold">Guide Premium</TText>
-        <View style={{ width: 44 }} />
-      </View>
-
+    <View style={styles.container}>
+      <THeader title="Guide Premium" showBack />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['2xl'] }}
       >
-        {/* ── Hero section ─────────────────────────────── */}
-        <Animated.View entering={FadeIn.delay(60).duration(600)} style={styles.heroSection}>
-          {/* Premium badge */}
-          <View style={styles.premiumBadgeWrap}>
-            <LinearGradient
-              colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.premiumBadge}
-            >
-              <TText variant="caption" weight="semibold" style={styles.premiumBadgeText}>
-                ARTISTE PRO
+        {/* Hero */}
+        <View style={styles.hero}>
+          <GoldLight />
+          <View style={styles.heroInner}>
+            <Animated.View entering={enterUp(0, 200)}>
+              <TText variant="label" color="accentWarm" uppercase>INKR Premium</TText>
+            </Animated.View>
+            <Animated.View entering={enterUp(1, 200)}>
+              <TText variant="displayL" style={styles.heroTitle} accessibilityRole="header">
+                Le guide <TText variant="displayL" italic color="accentGlow">de l’atelier</TText>
               </TText>
-            </LinearGradient>
+            </Animated.View>
+            <Animated.View entering={enterUp(2, 200)}>
+              <TText variant="body" color="secondary" style={styles.heroSubtitle}>
+                Huit chapitres pour présenter votre travail et traiter vos demandes sereinement.
+              </TText>
+            </Animated.View>
           </View>
+        </View>
 
-          <Logo variant="mark" size="xl" animate />
+        {/* Chapters */}
+        <View style={styles.body}>
+          <View style={styles.list}>
+            {CHAPTERS.map((chapter, idx) => {
+              const isOpen = openChapter === chapter.id;
+              return (
+                <React.Fragment key={chapter.id}>
+                  {idx > 0 && <TDivider tone="default" />}
+                  <PressableScale
+                    onPress={() => setOpenChapter(isOpen ? null : chapter.id)}
+                    pressedScale={0.985}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: isOpen }}
+                    accessibilityLabel={`Chapitre ${chapter.id} : ${chapter.title}`}
+                    style={styles.chapterHeader}
+                  >
+                    <TText variant="bodySmall" color="accentWarm" tabular style={styles.chapterNum}>
+                      {String(chapter.id).padStart(2, '0')}
+                    </TText>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <TText variant="title2" serif style={styles.chapterTitle}>{chapter.title}</TText>
+                      {!isOpen && (
+                        <TText variant="bodySmall" color="tertiary" numberOfLines={1} style={{ marginTop: 2 }}>
+                          {chapter.summary}
+                        </TText>
+                      )}
+                    </View>
+                    <Ionicons name={isOpen ? 'remove' : 'add'} size={18} color={Colors.textSecondary} />
+                  </PressableScale>
 
-          <TText variant="displayL" weight="bold" style={styles.heroTitle}>
-            INKR Premium
-          </TText>
-          <TText variant="bodySmall" style={styles.heroSubtitle}>
-            8 chapitres pour maximiser ta présence et tes revenus sur INKR.
-          </TText>
-        </Animated.View>
-
-        {/* ── Chapters ─────────────────────────────────── */}
-        {CHAPTERS.map((chapter, idx) => {
-          const isOpen = openChapter === chapter.id;
-          return (
-            <Animated.View
-              key={chapter.id}
-              entering={FadeInDown.delay(100 + idx * 60).springify()}
-            >
-              <GlassCard variant="elevated" style={styles.chapterCard} padding={0}>
-                {/* Chapter number badge */}
-                <View style={styles.chapterNumBadge}>
-                  <TText variant="caption" style={{ color: Colors.textTertiary, fontSize: 10 }}>
-                    {String(chapter.id).padStart(2, '0')}
-                  </TText>
-                </View>
-
-                {/* Chapter header row */}
-                <TouchableOpacity
-                  style={styles.chapterHeader}
-                  onPress={() => setOpenChapter(isOpen ? null : chapter.id)}
-                  activeOpacity={0.8}
-                >
-                  {/* Icon */}
-                  <View style={styles.chapterIcon}>
-                    <Ionicons name={chapter.icon} size={22} color={Colors.accentWarm} />
-                  </View>
-
-                  {/* Title + summary */}
-                  <View style={styles.chapterMeta}>
-                    <TText variant="body" weight="semibold">{chapter.title}</TText>
-                    {!isOpen && (
-                      <TText
-                        variant="bodySmall"
-                        style={{ color: Colors.textSecondary, marginTop: 3 }}
-                        numberOfLines={1}
-                      >
+                  {isOpen && (
+                    <Animated.View entering={fadeIn()} style={styles.chapterBody}>
+                      <TText variant="body" color="secondary" serif italic style={styles.chapterSummary}>
                         {chapter.summary}
                       </TText>
-                    )}
-                  </View>
+                      {chapter.tips.map((tip) => (
+                        <View key={tip} style={styles.tipRow}>
+                          <View style={styles.tipDash} />
+                          <TText variant="body" color="secondary" style={{ flex: 1 }}>{tip}</TText>
+                        </View>
+                      ))}
+                    </Animated.View>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </View>
 
-                  <Ionicons
-                    name={isOpen ? 'chevron-up' : 'chevron-down'}
-                    size={16}
-                    color={Colors.textTertiary}
-                    style={{ flexShrink: 0 }}
-                  />
-                </TouchableOpacity>
-
-                {/* Expanded tips */}
-                {isOpen && (
-                  <View style={styles.chapterBody}>
-                    <View style={styles.chapterBodyDivider} />
-                    <TText variant="bodySmall" style={styles.chapterSummary}>
-                      {chapter.summary}
-                    </TText>
-                    {chapter.tips.map((tip, i) => (
-                      <View key={i} style={styles.tipRow}>
-                        <View style={styles.tipBullet} />
-                        <TText variant="bodySmall" style={styles.tipText}>{tip}</TText>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </GlassCard>
-            </Animated.View>
-          );
-        })}
-
-        {/* ── Bottom CTA ────────────────────────────────── */}
-        <Animated.View entering={FadeInDown.delay(600).springify()} style={styles.ctaSection}>
-          <TouchableOpacity activeOpacity={0.85} onPress={() => router.back()} style={styles.ctaBtn}>
-            <LinearGradient
-              colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFill, { borderRadius: Radius.xl }]}
-            />
-            <TText variant="body" weight="semibold" style={{ color: Colors.textInverse, letterSpacing: 0.5 }}>
-              Commencer à optimiser
-            </TText>
-          </TouchableOpacity>
-        </Animated.View>
+          <View style={styles.cta}>
+            <TButton title="Revenir à mon espace" variant="secondary" onPress={() => router.back()} />
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  hero: { overflow: 'hidden' },
+  heroInner: {
+    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing['2xl'], paddingBottom: Spacing['2xl'],
   },
-  auroraViolet: {
-    position: 'absolute',
-    top: -70,
-    right: -70,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: Colors.violet,
-    opacity: 0.055,
+  heroTitle: { marginTop: Spacing.xs },
+  heroSubtitle: { marginTop: Spacing.sm, maxWidth: 460 },
+  goldRule: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: 1,
+    backgroundColor: Colors.borderGlow, transformOrigin: 'left',
   },
-  auroraAmber: {
-    position: 'absolute',
-    bottom: 80,
-    left: -80,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: Colors.accentWarm,
-    opacity: 0.045,
+
+  body: {
+    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
-  },
-  headerBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scrollContent: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.lg,
-    gap: Spacing.xs,
-  },
-  heroSection: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  premiumBadgeWrap: {
-    marginBottom: Spacing['2xs'],
-  },
-  premiumBadge: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-  },
-  premiumBadgeText: {
-    color: Colors.textInverse,
-    letterSpacing: 2,
-    fontSize: 11,
-  },
-  heroTitle: {
-    color: Colors.textPrimary,
-    letterSpacing: -1,
-    textAlign: 'center',
-    marginTop: Spacing.xs,
-  },
-  heroSubtitle: {
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    maxWidth: 280,
-  },
-  chapterCard: {
-    marginBottom: Spacing['2xs'],
-    position: 'relative',
-  },
-  chapterNumBadge: {
-    position: 'absolute',
-    top: Spacing['2xs'],
-    right: Spacing.sm,
-  },
-  chapterHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  chapterIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.glassAmber,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  chapterMeta: {
-    flex: 1,
-  },
-  chapterBody: {
-    paddingHorizontal: Spacing.sm,
-    paddingBottom: Spacing.sm,
-  },
-  chapterBodyDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
-    marginBottom: Spacing.sm,
-  },
-  chapterSummary: {
-    color: Colors.textSecondary,
-    marginBottom: Spacing['2xs'],
-    lineHeight: 22,
-    fontStyle: 'italic',
-  },
-  tipRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 4,
-    gap: 10,
-  },
-  tipBullet: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: Colors.accentWarm,
-    marginTop: 7,
-    flexShrink: 0,
-  },
-  tipText: {
-    flex: 1,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-  },
-  ctaSection: {
-    marginTop: Spacing.md,
-  },
-  ctaBtn: {
-    height: 56,
-    borderRadius: Radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    ...GlowShadow.amberStrong,
-  },
+  list: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault },
+  chapterHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, minHeight: 64 },
+  chapterNum: { width: 24 },
+  chapterTitle: { fontSize: 22, lineHeight: 26 },
+  chapterBody: { paddingLeft: 24 + Spacing.sm, paddingBottom: Spacing.md },
+  chapterSummary: { fontSize: 18, lineHeight: 24, marginBottom: Spacing.xs },
+  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 5 },
+  tipDash: { width: 12, height: 1, backgroundColor: Colors.accentWarm, marginTop: 12 },
+  cta: { marginTop: Spacing['2xl'] },
 });

@@ -174,21 +174,21 @@ export default function SavedScreen() {
               const status = BOOKING_STATUS[artist.bookingStatus] ?? BOOKING_STATUS.closed;
               return (
                 <Animated.View key={artist.id} entering={i <= 8 ? enterUp(i, 160) : undefined}>
-                <PressableScale
-                  onPress={() => router.push(`/artist/${artist.id}`)}
-                  accessibilityRole="link"
-                  accessibilityLabel={`${artist.blaze}, ${status.label}`}
-                  style={styles.artistChip}
-                >
-                  <View style={styles.avatarRing}>
-                    <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
-                  </View>
-                  <TText variant="caption" weight="medium" numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
-                  <View style={styles.statusRow}>
-                    <View style={[styles.dot, { backgroundColor: status.color }]} />
-                    <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
-                  </View>
-                </PressableScale>
+                  <PressableScale
+                    onPress={() => router.push(`/artist/${artist.id}`)}
+                    accessibilityRole="link"
+                    accessibilityLabel={`${artist.blaze}, ${status.label}`}
+                    style={styles.artistChip}
+                  >
+                    <View style={styles.avatarRing}>
+                      <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
+                    </View>
+                    <TText variant="caption" weight="medium" numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
+                    <View style={styles.statusRow}>
+                      <View style={[styles.dot, { backgroundColor: status.color }]} />
+                      <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
+                    </View>
+                  </PressableScale>
                 </Animated.View>
               );
             })}

@@ -291,7 +291,7 @@ export default function AgendaScreen() {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       'Nouveau rendez-vous',
-      'Fonctionnalité disponible depuis la réception d\'une demande acceptée.',
+      'Fonctionnalité disponible depuis la réception d’une demande acceptée.',
       [
         { text: 'Voir les demandes', onPress: () => router.push('/(tabs)/inbox') },
         { text: 'Fermer', style: 'cancel' },

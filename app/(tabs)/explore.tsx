@@ -186,7 +186,7 @@ export default function ExploreScreen() {
           .limit(60),
         supabase
           .from('posts')
-          .select('id, media_url, likes_count, artists!inner(blaze)')
+          .select('id, media_url, likes_count, artists!posts_artist_id_fkey!inner(blaze)')
           .eq('is_published', true)
           .eq('media_type', 'photo')
           .order('likes_count', { ascending: false })

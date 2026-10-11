@@ -82,36 +82,36 @@ function NotifItem({
       accessibilityLabel={`${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
       style={styles.item}
     >
-        <View style={[styles.icon, unread && styles.iconUnread]}>
-          <Ionicons name={conf.icon} size={17} color={conf.color} />
-        </View>
+      <View style={[styles.icon, unread && styles.iconUnread]}>
+        <Ionicons name={conf.icon} size={17} color={conf.color} />
+      </View>
 
-        <View style={styles.content}>
-          <View style={styles.titleRow}>
-            <TText
-              variant="bodySmall"
-              weight={unread ? 'semibold' : 'medium'}
-              color={unread ? 'primary' : 'secondary'}
-              style={{ flex: 1 }}
-              numberOfLines={2}
-            >
-              {item.title}
-            </TText>
-            <TText variant="caption" color="tertiary" tabular>
-              {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
-            </TText>
-          </View>
-          {!!item.body && (
-            <TText variant="caption" color="tertiary" numberOfLines={2} style={styles.body}>
-              {item.body}
-            </TText>
-          )}
+      <View style={styles.content}>
+        <View style={styles.titleRow}>
+          <TText
+            variant="bodySmall"
+            weight={unread ? 'semibold' : 'medium'}
+            color={unread ? 'primary' : 'secondary'}
+            style={{ flex: 1 }}
+            numberOfLines={2}
+          >
+            {item.title}
+          </TText>
+          <TText variant="caption" color="tertiary" tabular>
+            {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
+          </TText>
         </View>
+        {!!item.body && (
+          <TText variant="caption" color="tertiary" numberOfLines={2} style={styles.body}>
+            {item.body}
+          </TText>
+        )}
+      </View>
 
-        <View style={styles.trailing}>
-          {unread && <View style={styles.unreadDot} />}
-          {navigable && <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />}
-        </View>
+      <View style={styles.trailing}>
+        {unread && <View style={styles.unreadDot} />}
+        {navigable && <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />}
+      </View>
     </PressableScale>
   );
 }

@@ -1,25 +1,27 @@
 import React, { useState } from 'react';
 import {
-  View, StyleSheet, TouchableOpacity, ScrollView,
-  KeyboardAvoidingView, Platform,
+  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
+import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { TProgressBar } from '@/components/ui/TProgressBar';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { useAuthStore } from '@/store/auth-store';
+import { THeader } from '@/components/ui/THeader';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { useAuthStore, type AppUser } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 import { pickImage, uploadPostMedia } from '@/lib/storage';
 import { Toast } from '@/components/ui/TToast';
 import { STYLES } from '@/constants/mock-data';
+
+const MAX_STYLES = 3;
 
 export default function CreateScreen() {
   const router = useRouter();
@@ -29,17 +31,15 @@ export default function CreateScreen() {
   // Only artists can post
   if (!user || user.role !== 'artist') {
     return (
-      <View style={[styles.container, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center' }]}>
-        <Animated.View entering={FadeIn.duration(400)} style={styles.gateWrap}>
-          <Ionicons name="brush-outline" size={48} color={Colors.accentWarm} style={{ marginBottom: Spacing.md }} />
-          <TText variant="title2" weight="bold" style={{ textAlign: 'center', marginBottom: Spacing.xs }}>
-            Réservé aux tatoueurs
-          </TText>
-          <TText variant="body" color="secondary" style={{ textAlign: 'center', marginBottom: Spacing.xl, lineHeight: 22 }}>
-            Seuls les artistes peuvent publier du contenu sur le feed.
-          </TText>
-          <TButton title="Fermer" variant="glass" onPress={() => router.back()} />
-        </Animated.View>
+      <View style={styles.container}>
+        <THeader title="Nouvelle réalisation" showBack />
+        <EmptyState
+          icon="brush-outline"
+          title="Réservé aux tatoueurs"
+          description="Seuls les artistes peuvent publier des réalisations."
+          ctaLabel="Fermer"
+          onCta={() => router.back()}
+        />
       </View>
     );
   }
@@ -47,7 +47,11 @@ export default function CreateScreen() {
   return <CreateForm user={user} router={router} insets={insets} />;
 }
 
-function CreateForm({ user, router, insets }: any) {
+function CreateForm({ user, router, insets }: {
+  user: AppUser; router: ReturnType<typeof useRouter>; insets: EdgeInsets;
+}) {
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
   const [mediaUri, setMediaUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
@@ -63,7 +67,7 @@ function CreateForm({ user, router, insets }: any) {
     setSelectedStyles((prev) =>
       prev.includes(slug)
         ? prev.filter((s) => s !== slug)
-        : prev.length < 3
+        : prev.length < MAX_STYLES
         ? [...prev, slug]
         : prev
     );
@@ -82,7 +86,7 @@ function CreateForm({ user, router, insets }: any) {
         is_published: true,
       });
       if (error) throw error;
-      Toast.success('Post publié ! 🎉');
+      Toast.success('Réalisation publiée');
       router.back();
     } catch (e: any) {
       Toast.error(e.message ?? 'Erreur lors de la publication.');
@@ -91,125 +95,114 @@ function CreateForm({ user, router, insets }: any) {
     }
   };
 
-  return (
-    <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  const picker = (
+    <PressableScale
+      onPress={handlePickMedia}
+      disabled={isPublishing}
+      accessibilityRole="button"
+      accessibilityLabel={mediaUri ? 'Changer la photo' : 'Sélectionner une photo'}
+      style={[styles.mediaPicker, mediaUri ? styles.mediaPickerFilled : null]}
     >
-      {/* Header */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="close" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="semibold">Nouveau post</TText>
-        <View style={{ width: 44 }} />
-      </Animated.View>
-
-      {isPublishing && (
-        <View style={styles.progressWrap}>
-          <TProgressBar progress={uploadProgress} />
-          <TText variant="micro" color="tertiary" style={{ marginTop: 4, textAlign: 'center' }}>
-            Envoi en cours…
-          </TText>
+      {mediaUri ? (
+        <>
+          <RevealImage uri={mediaUri} style={StyleSheet.absoluteFill} accessibilityLabel="Aperçu de la réalisation" />
+          <LinearGradient colors={['rgba(11,10,9,0)', 'rgba(11,10,9,0.65)']} locations={[0.6, 1]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+          <View style={styles.changeMediaBtn}>
+            <Ionicons name="camera-outline" size={15} color={Colors.textPrimary} />
+            <TText variant="caption" weight="medium">Changer la photo</TText>
+          </View>
+        </>
+      ) : (
+        <View style={styles.mediaPlaceholder}>
+          <View style={styles.addIconRing}>
+            <Ionicons name="add" size={26} color={Colors.accentWarm} />
+          </View>
+          <TText variant="body" weight="medium" style={{ marginTop: Spacing.sm }}>Sélectionner une photo</TText>
+          <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>Format portrait 4:5 recommandé</TText>
         </View>
       )}
+    </PressableScale>
+  );
 
+  const form = (
+    <View>
+      <TInput
+        label="Légende"
+        optional
+        value={caption}
+        onChangeText={setCaption}
+        placeholder="L’idée, la zone, le processus…"
+        multiline
+        numberOfLines={3}
+        inputStyle={{ minHeight: 96, textAlignVertical: 'top', paddingTop: 14 }}
+      />
+
+      <View style={styles.tagsHeader}>
+        <TText variant="label" color="tertiary" uppercase>Styles</TText>
+        <TText variant="caption" color="tertiary" tabular accessibilityLiveRegion="polite">
+          {selectedStyles.length} / {MAX_STYLES}
+        </TText>
+      </View>
+      <View style={styles.stylesGrid}>
+        {STYLES.map((style) => {
+          const isSelected = selectedStyles.includes(style.slug);
+          const isDisabled = !isSelected && selectedStyles.length >= MAX_STYLES;
+          return (
+            <PressableScale
+              key={style.id}
+              onPress={() => !isDisabled && toggleStyle(style.slug)}
+              disabled={isDisabled}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected, disabled: isDisabled }}
+              accessibilityLabel={style.name}
+              style={[styles.chip, isSelected && styles.chipSelected, isDisabled && styles.chipDisabled]}
+            >
+              <TText variant="caption" weight="medium" style={{ fontSize: 13, color: isSelected ? Colors.textInverse : Colors.textSecondary }}>
+                {style.name}
+              </TText>
+            </PressableScale>
+          );
+        })}
+      </View>
+
+      {isPublishing && (
+        <Animated.View entering={fadeIn()} style={styles.progressWrap}>
+          <TProgressBar progress={uploadProgress} color={Colors.accentWarm} />
+          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
+            Envoi en cours… {Math.round(uploadProgress * 100)} %
+          </TText>
+        </Animated.View>
+      )}
+
+      <TButton
+        title={isPublishing ? 'Publication…' : 'Publier'}
+        onPress={handlePublish}
+        loading={isPublishing}
+        disabled={!mediaUri || isPublishing}
+      />
+      {!mediaUri && (
+        <TText variant="caption" color="tertiary" style={{ textAlign: 'center', marginTop: Spacing['2xs'] }}>
+          Ajoutez une photo pour publier.
+        </TText>
+      )}
+    </View>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <THeader title="Nouvelle réalisation" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 50 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Media picker */}
-        <Animated.View entering={FadeIn.delay(100).duration(400)}>
-          <TouchableOpacity
-            style={[styles.mediaPicker, mediaUri && styles.mediaPickerFilled]}
-            onPress={handlePickMedia}
-            activeOpacity={0.85}
-          >
-            {mediaUri ? (
-              <Animated.View entering={ZoomIn.springify()} style={StyleSheet.absoluteFill}>
-                <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                <LinearGradient
-                  colors={['transparent', 'rgba(5,5,8,0.6)']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={styles.changeMediaBtn}>
-                  <Ionicons name="camera" size={16} color="#fff" />
-                  <TText variant="caption" style={{ color: '#fff', marginLeft: 5 }}>Changer</TText>
-                </View>
-              </Animated.View>
-            ) : (
-              <View style={styles.mediaPlaceholder}>
-                <View style={styles.addIconCircle}>
-                  <Ionicons name="add" size={32} color={Colors.accentWarm} />
-                </View>
-                <TText variant="bodySmall" color="tertiary" style={{ marginTop: 12, textAlign: 'center' }}>
-                  Sélectionner une photo
-                </TText>
-                <TText variant="caption" color="tertiary" style={{ marginTop: 4 }}>
-                  Format 4:5 recommandé
-                </TText>
-              </View>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Caption */}
-        <Animated.View entering={FadeInDown.delay(180).springify()}>
-          <TInput
-            label="Légende"
-            value={caption}
-            onChangeText={setCaption}
-            placeholder="Décris ton travail, l'inspiration, le processus…"
-            multiline
-            numberOfLines={3}
-            style={{ minHeight: 88 }}
-          />
-        </Animated.View>
-
-        {/* Style tags */}
-        <Animated.View entering={FadeInDown.delay(250).springify()}>
-          <View style={styles.tagsSectionHeader}>
-            <TText variant="label" color="tertiary" uppercase>Styles</TText>
-            <TText variant="caption" color="tertiary">
-              {selectedStyles.length}/3
-            </TText>
-          </View>
-          <View style={styles.stylesGrid}>
-            {STYLES.map((style, i) => {
-              const isSelected = selectedStyles.includes(style.slug);
-              const isDisabled = !isSelected && selectedStyles.length >= 3;
-              return (
-                <Animated.View key={style.id} entering={FadeIn.delay(280 + i * 30)}>
-                  <TouchableOpacity
-                    onPress={() => !isDisabled && toggleStyle(style.slug)}
-                    activeOpacity={0.8}
-                    style={[styles.styleTag, isSelected && styles.styleTagSelected, isDisabled && styles.styleTagDisabled]}
-                  >
-                    <TText style={styles.styleEmoji}>{style.emoji}</TText>
-                    <TText
-                      variant="caption"
-                      style={{ color: isSelected ? Colors.accentWarm : isDisabled ? Colors.textTertiary : Colors.textSecondary }}
-                    >
-                      {style.name}
-                    </TText>
-                  </TouchableOpacity>
-                </Animated.View>
-              );
-            })}
-          </View>
-        </Animated.View>
-
-        {/* Publish button */}
-        <Animated.View entering={FadeInUp.delay(400).springify()}>
-          <TButton
-            title={isPublishing ? 'Publication…' : 'Publier sur le feed'}
-            onPress={handlePublish}
-            loading={isPublishing}
-            disabled={!mediaUri || isPublishing}
-            variant="primary"
-          />
-        </Animated.View>
+        <View style={[styles.columns, wide && styles.columnsWide]}>
+          <Animated.View entering={enterUp(0)} style={wide ? styles.colMedia : undefined}>{picker}</Animated.View>
+          <Animated.View entering={enterUp(1)} style={wide ? styles.colForm : styles.formStacked}>{form}</Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -217,65 +210,54 @@ function CreateForm({ user, router, insets }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  gateWrap: { paddingHorizontal: Spacing.xl, alignItems: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing['2xs'],
-    height: 56,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+  content: {
+    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  progressWrap: { paddingHorizontal: Spacing.sm, paddingTop: Spacing['2xs'] },
-  content: { padding: Spacing.sm, gap: Spacing.sm },
+  columns: {},
+  columnsWide: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
+  colMedia: { flex: 1, maxWidth: 520 },
+  colForm: { flex: 1, maxWidth: Layout.maxReading },
+  formStacked: { marginTop: Spacing.lg },
 
   // Media picker
   mediaPicker: {
-    height: 300,
+    aspectRatio: 4 / 5,
+    maxHeight: 560,
+    width: '100%',
     borderRadius: Radius.xl,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: Colors.borderSubtle,
+    borderColor: Colors.borderDefault,
     backgroundColor: Colors.bgElevated,
     overflow: 'hidden',
   },
-  mediaPickerFilled: { borderStyle: 'solid', borderColor: 'transparent' },
-  mediaPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  addIconCircle: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: 'rgba(200,168,130,0.10)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(200,168,130,0.25)',
+  mediaPickerFilled: { borderStyle: 'solid', borderColor: Colors.borderSubtle },
+  mediaPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
+  addIconRing: {
+    width: 56, height: 56, borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
     alignItems: 'center', justifyContent: 'center',
   },
   changeMediaBtn: {
     position: 'absolute', bottom: 12, right: 12,
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: Radius.sm,
-    paddingHorizontal: 10, paddingVertical: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(11,10,9,0.6)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
+    borderRadius: Radius.full,
+    paddingHorizontal: 12, height: 34,
   },
 
-  // Style tags
-  tagsSectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: Spacing.xs,
+  // Style chips
+  tagsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
+  stylesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.lg },
+  chip: {
+    height: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.borderDefault,
   },
-  stylesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.sm },
-  styleTag: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 8,
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.full,
-    borderWidth: 1, borderColor: Colors.borderSubtle,
-    gap: 6,
-  },
-  styleTagSelected: {
-    backgroundColor: 'rgba(200,168,130,0.10)',
-    borderColor: Colors.accentWarm,
-  },
-  styleTagDisabled: { opacity: 0.35 },
-  styleEmoji: { fontSize: 14 },
+  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  chipDisabled: { opacity: 0.38 },
+
+  progressWrap: { marginBottom: Spacing.md },
 });

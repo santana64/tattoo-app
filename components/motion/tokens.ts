@@ -20,12 +20,15 @@ export const Springs = {
   pop: { duration: 260, dampingRatio: 0.55 },
 } as const;
 
-/** Staggered entrance: rises 12px and fades in. Collapses to a plain fade under reduced motion. */
+/**
+ * Staggered entrance: rises and fades in. Collapses to a plain fade under reduced motion.
+ * Note: no `.withInitialValues()` — on web it turns the preset into a custom animation whose
+ * cleanup crashes in Reanimated 4.1 (setElementPosition on a missing snapshot).
+ */
 export function enterUp(index = 0, base = 0) {
   return FadeInDown.delay(base + Math.min(index, 8) * 55)
     .duration(MotionDuration.enter)
     .easing(EASE_OUT)
-    .withInitialValues({ opacity: 0, transform: [{ translateY: 12 }] })
     .reduceMotion(ReduceMotion.System);
 }
 

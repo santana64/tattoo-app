@@ -1,0 +1,1 @@
+- [Backend gaps behind account screens](project_backend_gaps.md) — delete-account only signs out, prefs not persisted, no billing portal

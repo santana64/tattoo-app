@@ -30,7 +30,6 @@ const GROUP_WINDOW_MIN = 5;
 // Short, quiet arrival for a freshly appended bubble only (never on history).
 const bubbleEnter = FadeInDown.duration(200)
   .easing(EASE_OUT)
-  .withInitialValues({ opacity: 0, transform: [{ translateY: 8 }] })
   .reduceMotion(ReduceMotion.System);
 const rowLayout = LinearTransition.duration(200).easing(EASE_IN_OUT).reduceMotion(ReduceMotion.System);
 
@@ -92,9 +91,10 @@ function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; max
     );
   }
 
+  // Sender-side corners tighten inside a group; the first bubble keeps a soft top corner.
   const corner = isMe
-    ? { borderTopRightRadius: firstInGroup ? 18 : 6, borderBottomRightRadius: lastInGroup ? 6 : 6 }
-    : { borderTopLeftRadius: firstInGroup ? 18 : 6, borderBottomLeftRadius: lastInGroup ? 6 : 6 };
+    ? { borderTopRightRadius: firstInGroup ? 18 : 6, borderBottomRightRadius: 6 }
+    : { borderTopLeftRadius: firstInGroup ? 18 : 6, borderBottomLeftRadius: 6 };
 
   return (
     <Animated.View

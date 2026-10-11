@@ -1,139 +1,82 @@
-import React, { useState } from 'react';
-import {
-  View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn, FadeInDown, FadeInUp,
-  useSharedValue, useAnimatedStyle, withSpring,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow, FontSize } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { TInput } from '@/components/ui/TInput';
+import { TButton } from '@/components/ui/TButton';
+import { THeader } from '@/components/ui/THeader';
+import { TAvatar } from '@/components/ui/TAvatar';
+import { PressableScale, GlassSurface, enterUp, EASE_OUT } from '@/components/motion';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth-store';
+import { useArtist } from '@/hooks/use-artist';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+const FORM_MAX = 720;
+const MAX_LENGTH = 500;
 
 const REVIEW_TAGS = [
-  '✨ Résultat parfait',
-  "👂 Super à l'écoute",
-  '🧼 Très propre',
-  '💸 Prix correct',
-  '🔁 Je recommande',
-  '⚡ Rapide',
+  'Résultat parfait',
+  'Très à l’écoute',
+  'Très propre',
+  'Prix juste',
+  'Je recommande',
+  'Rapide',
 ];
 
-const RATING_LABELS = [
-  '',
-  'Mauvais 😕',
-  'Pas terrible 😐',
-  'Correct 🙂',
-  'Très bien 😊',
-  'Excellent ! 🔥',
-];
+const RATING_LABELS = ['', 'Décevant', 'Moyen', 'Correct', 'Très bien', 'Excellent'];
 
-// ─── StarRating ───────────────────────────────────────────────────────────────
-
-function StarButton({
-  star,
-  filled,
-  onPress,
-}: {
-  star: number;
-  filled: boolean;
-  onPress: (star: number) => void;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
+// ─── Stars ────────────────────────────────────────────────────────────────────
+function StarRating({ rating, onChange }: { rating: number; onChange: (r: number) => void }) {
   return (
-    <Animated.View style={animStyle}>
-      <TouchableOpacity
-        onPress={() => {
-          scale.value = withSpring(1.45, { damping: 4, stiffness: 400 }, () => {
-            scale.value = withSpring(1, { damping: 8 });
-          });
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onPress(star);
-        }}
-        activeOpacity={1}
-        hitSlop={6}
-      >
-        <Ionicons
-          name={filled ? 'star' : 'star-outline'}
-          size={38}
-          color={filled ? Colors.accentGlow : Colors.textTertiary}
-        />
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-function StarRating({
-  rating,
-  onChange,
-}: {
-  rating: number;
-  onChange: (r: number) => void;
-}) {
-  return (
-    <View style={starStyles.row}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <StarButton
-          key={star}
-          star={star}
-          filled={star <= rating}
-          onPress={onChange}
-        />
-      ))}
+    <View style={styles.stars} accessibilityRole="radiogroup" accessibilityLabel="Note">
+      {[1, 2, 3, 4, 5].map((star) => {
+        const filled = star <= rating;
+        return (
+          <PressableScale
+            key={star}
+            pressedScale={0.92}
+            onPress={() => onChange(star)}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: rating === star, selected: rating === star }}
+            accessibilityLabel={`${star} étoile${star > 1 ? 's' : ''} sur 5, ${RATING_LABELS[star].toLowerCase()}`}
+            hitSlop={4}
+            style={styles.star}
+          >
+            <Ionicons name={filled ? 'star' : 'star-outline'} size={32} color={filled ? Colors.accentGlow : Colors.textTertiary} />
+          </PressableScale>
+        );
+      })}
     </View>
   );
 }
 
-const starStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-  },
-});
-
-// ─── SuccessView ──────────────────────────────────────────────────────────────
-
+// ─── Success (rare moment) ────────────────────────────────────────────────────
 function SuccessView() {
+  const reduced = useReducedMotion();
+  const ring = useSharedValue(0);
+  useEffect(() => {
+    ring.set(withDelay(reduced ? 0 : 80, withTiming(1, { duration: reduced ? 200 : 700, easing: EASE_OUT })));
+  }, [reduced, ring]);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ring.get(),
+    transform: [{ scale: reduced ? 1 : 0.86 + ring.get() * 0.14 }],
+  }));
   return (
-    <View style={[styles.container, styles.successContainer]}>
-      <Animated.View
-        entering={FadeIn.duration(400)}
-        style={{ alignItems: 'center' }}
-      >
-        <View style={styles.successIcon}>
-          <LinearGradient
-            colors={[Colors.accentGlow, Colors.accentWarm]}
-            style={StyleSheet.absoluteFill}
-          />
-          <Ionicons name="checkmark" size={40} color={Colors.bgPrimary} />
-        </View>
-        <TText
-          variant="title1"
-          weight="bold"
-          style={{ marginTop: Spacing.md, letterSpacing: -0.5 }}
-        >
-          Merci ! 🙏
+    <View style={[styles.container, styles.success]}>
+      <Animated.View style={[styles.successRing, ringStyle]}>
+        <Ionicons name="star" size={26} color={Colors.accentGlow} />
+      </Animated.View>
+      <Animated.View entering={enterUp(0, 220)} style={{ alignItems: 'center' }}>
+        <TText variant="displayM" style={{ textAlign: 'center' }} accessibilityRole="header" accessibilityLiveRegion="polite">
+          Merci pour <TText variant="displayM" italic color="accentGlow">votre avis</TText>
         </TText>
-        <TText
-          variant="body"
-          color="secondary"
-          style={{ marginTop: Spacing.xs, textAlign: 'center', maxWidth: 260 }}
-        >
-          Ton avis aide la communauté INKR.
+        <TText variant="body" color="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs, maxWidth: 360 }}>
+          Il aide d’autres clients à choisir leur artiste.
         </TText>
       </Animated.View>
     </View>
@@ -141,29 +84,30 @@ function SuccessView() {
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-
 export default function ReviewScreen() {
   const { appointmentId, artistId } = useLocalSearchParams<{ appointmentId: string; artistId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
+  const { artist } = useArtist(artistId ?? '');
 
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const toggleTag = (tag: string) => {
     const next = new Set(selectedTags);
-    next.has(tag) ? next.delete(tag) : next.add(tag);
+    if (next.has(tag)) next.delete(tag); else next.add(tag);
     setSelectedTags(next);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleSubmit = async () => {
     if (rating === 0 || isSubmitting) return;
     setIsSubmitting(true);
+    setSubmitError(null);
 
     // Persist to Supabase if we have real IDs
     if (appointmentId && artistId && user?.id && appointmentId.length > 20) {
@@ -178,12 +122,13 @@ export default function ReviewScreen() {
       });
       if (error) {
         setIsSubmitting(false);
-        Alert.alert('Erreur', error.message);
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setSubmitError('Votre avis n’a pas été publié. Vérifiez votre connexion puis réessayez.');
         return;
       }
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSubmitted(true);
     setTimeout(() => router.back(), 1500);
   };
@@ -193,253 +138,138 @@ export default function ReviewScreen() {
   const canSubmit = rating > 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ── Header ── */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backBtn}
-          hitSlop={8}
-        >
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="bold">
-          Laisser un avis
-        </TText>
-        <View style={{ width: 44 }} />
-      </Animated.View>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <THeader showBack title="Laisser un avis" />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        contentContainerStyle={[styles.body, { paddingBottom: Spacing['2xl'] }]}
       >
-        {/* ── Star rating ── */}
-        <Animated.View
-          entering={FadeInDown.delay(100).springify()}
-          style={styles.section}
-        >
-          <TText
-            variant="title2"
-            weight="bold"
-            style={styles.sectionTitle}
-          >
-            Ton expérience
-          </TText>
-          <StarRating rating={rating} onChange={setRating} />
-          {rating > 0 && (
-            <Animated.View entering={FadeIn.duration(200)}>
-              <TText
-                variant="body"
-                style={{
-                  textAlign: 'center',
-                  marginTop: Spacing.sm,
-                  color: Colors.accentWarm,
-                  fontWeight: '600',
-                }}
-              >
-                {RATING_LABELS[rating]}
-              </TText>
-            </Animated.View>
+        <Animated.View entering={enterUp(0)} style={styles.hero}>
+          {artist && (
+            <View style={styles.artistRow}>
+              <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="sm" />
+              <TText variant="caption" color="secondary">Votre séance avec {artist.blaze}</TText>
+            </View>
           )}
+          <TText variant="displayS" accessibilityRole="header">
+            Comment s’est passée <TText variant="displayS" italic color="accentGlow">votre séance</TText>{' '}?
+          </TText>
         </Animated.View>
 
-        {/* ── Tags ── */}
-        <Animated.View
-          entering={FadeInDown.delay(180).springify()}
-          style={styles.section}
-        >
-          <TText
-            variant="label"
-            color="tertiary"
-            uppercase
-            style={styles.label}
-          >
-            Mots-clés
+        <Animated.View entering={enterUp(1)} style={styles.section}>
+          <StarRating rating={rating} onChange={setRating} />
+          <TText variant="bodySmall" weight="medium" color={rating ? 'accentGlow' : 'tertiary'} style={styles.ratingLabel} accessibilityLiveRegion="polite">
+            {rating ? RATING_LABELS[rating] : 'Touchez une étoile pour noter'}
           </TText>
-          <View style={styles.tagsGrid}>
+        </Animated.View>
+
+        <Animated.View entering={enterUp(2)} style={styles.section}>
+          <TText variant="caption" weight="medium" color="secondary" style={{ marginBottom: Spacing.xs }}>
+            Ce que vous avez apprécié <TText variant="caption" color="tertiary">· optionnel</TText>
+          </TText>
+          <View style={styles.tags}>
             {REVIEW_TAGS.map((tag) => {
               const active = selectedTags.has(tag);
               return (
-                <TouchableOpacity
+                <Pressable
                   key={tag}
                   onPress={() => toggleTag(tag)}
-                  style={[styles.tag, active && styles.tagActive]}
-                  activeOpacity={0.8}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: active }}
+                  style={[styles.chip, active && styles.chipActive]}
                 >
-                  {active && (
-                    <LinearGradient
-                      colors={[
-                        'rgba(212,168,100,0.15)',
-                        'rgba(212,168,100,0.05)',
-                      ]}
-                      style={StyleSheet.absoluteFill}
-                    />
-                  )}
-                  <TText
-                    variant="caption"
-                    style={{
-                      color: active
-                        ? Colors.accentWarm
-                        : Colors.textSecondary,
-                    }}
-                  >
+                  <TText variant="caption" weight="medium" style={{ fontSize: 13, color: active ? Colors.textInverse : Colors.textSecondary }}>
                     {tag}
                   </TText>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
         </Animated.View>
 
-        {/* ── Written review ── */}
-        <Animated.View
-          entering={FadeInDown.delay(240).springify()}
-          style={styles.section}
-        >
-          <TText
-            variant="label"
-            color="tertiary"
-            uppercase
-            style={styles.label}
-          >
-            Commentaire (optionnel)
-          </TText>
-          <GlassCard variant="default" style={{ padding: 0 }}>
-            <TextInput
-              style={styles.reviewInput}
-              value={review}
-              onChangeText={setReview}
-              placeholder="Décris ton expérience avec cet artiste…"
-              placeholderTextColor={Colors.textTertiary}
-              multiline
-              numberOfLines={4}
-              maxLength={500}
-              textAlignVertical="top"
-            />
-            <TText
-              variant="micro"
-              color="tertiary"
-              style={styles.charCount}
-            >
-              {review.length}/500
-            </TText>
-          </GlassCard>
+        <Animated.View entering={enterUp(3)} style={styles.section}>
+          <TInput
+            label="Commentaire"
+            optional
+            value={review}
+            onChangeText={setReview}
+            placeholder="Accueil, déroulé de la séance, cicatrisation…"
+            multiline
+            numberOfLines={4}
+            maxLength={MAX_LENGTH}
+            textAlignVertical="top"
+            helper={`${review.length} / ${MAX_LENGTH}`}
+            inputStyle={{ minHeight: 120, paddingTop: 14 }}
+            containerStyle={{ marginBottom: 0 }}
+          />
         </Animated.View>
       </ScrollView>
 
-      {/* ── Submit footer ── */}
-      <Animated.View
-        entering={FadeInUp.delay(400).springify()}
-        style={[
-          styles.footer,
-          { paddingBottom: insets.bottom + Spacing.md },
-        ]}
-      >
-        <TouchableOpacity
-          onPress={handleSubmit}
-          activeOpacity={0.85}
-          style={[styles.submitBtn, !canSubmit && { opacity: 0.45 }]}
-          disabled={!canSubmit}
-        >
-          <LinearGradient
-            colors={
-              canSubmit
-                ? [Colors.accentGlow, Colors.accentWarm, '#A06030']
-                : [Colors.bgSubtle, Colors.bgSubtle]
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
+      <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={styles.barInner}>
+          {!!submitError && (
+            <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+              <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
+              <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{submitError}</TText>
+            </View>
+          )}
+          {!canSubmit && !submitError && (
+            <TText variant="caption" color="tertiary" style={{ textAlign: 'center' }}>Choisissez une note pour publier.</TText>
+          )}
+          <TButton
+            title={submitError ? 'Réessayer' : 'Publier l’avis'}
+            onPress={handleSubmit}
+            loading={isSubmitting}
+            disabled={!canSubmit}
           />
-          <TText
-            variant="body"
-            weight="bold"
-            style={{
-              color: canSubmit ? Colors.bgPrimary : Colors.textTertiary,
-            }}
-          >
-            Publier mon avis →
-          </TText>
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
+        </View>
+      </GlassSurface>
+    </KeyboardAvoidingView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-
-  successContainer: { alignItems: 'center', justifyContent: 'center' },
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    ...GlowShadow.amberStrong,
+  body: {
+    width: '100%', maxWidth: FORM_MAX + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter,
   },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing['2xs'],
-    paddingBottom: Spacing.sm,
-  },
-  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  hero: { paddingTop: Spacing.lg, paddingBottom: Spacing.md, gap: Spacing.sm },
+  artistRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
 
-  section: { paddingHorizontal: Spacing.sm, marginBottom: Spacing.md },
-  sectionTitle: {
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-    letterSpacing: -0.5,
+  section: {
+    paddingVertical: Spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  label: {
-    letterSpacing: 2,
-    marginBottom: Spacing.xs,
-    paddingHorizontal: Spacing['2xs'],
-  },
+  stars: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  star: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  ratingLabel: { textAlign: 'center', marginTop: Spacing.xs },
 
-  tagsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tag: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    overflow: 'hidden',
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    height: 36, paddingHorizontal: 14, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.borderDefault,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  tagActive: { borderColor: Colors.accentWarm },
+  chipActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
 
-  reviewInput: {
-    color: Colors.textPrimary,
-    fontSize: FontSize.body,
-    lineHeight: 24,
-    padding: Spacing.sm,
-    minHeight: 100,
+  bar: {
+    paddingTop: 12, paddingHorizontal: Layout.gutter,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  charCount: {
-    textAlign: 'right',
-    paddingHorizontal: Spacing.sm,
-    paddingBottom: Spacing['2xs'],
-  },
+  barInner: { width: '100%', maxWidth: FORM_MAX, alignSelf: 'center', gap: Spacing['2xs'] },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
-  footer: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: 8,
-    backgroundColor: Colors.bgPrimary,
-  },
-  submitBtn: {
-    height: 56,
-    borderRadius: Radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    ...GlowShadow.amber,
+  success: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: Layout.gutter },
+  successRing: {
+    width: 76, height: 76, borderRadius: 38, marginBottom: Spacing.lg,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
   },
 });
+

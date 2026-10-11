@@ -56,7 +56,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         .from('posts')
         .select(`
           id, media_url, caption, styles, likes_count, published_at, artist_id,
-          artists!inner (
+          artists!posts_artist_id_fkey!inner (
             id, blaze, city, avatar_url, tier, profile_id, booking_status
           )
         `)
@@ -102,7 +102,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         .from('posts')
         .select(`
           id, media_url, caption, styles, likes_count, published_at, artist_id,
-          artists!inner (id, blaze, city, avatar_url, tier, profile_id, booking_status)
+          artists!posts_artist_id_fkey!inner (id, blaze, city, avatar_url, tier, profile_id, booking_status)
         `)
         .eq('is_published', true)
         .lt('published_at', cursor)
