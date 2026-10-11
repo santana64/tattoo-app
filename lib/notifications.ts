@@ -55,7 +55,7 @@ export async function scheduleLocalNotification(
 ): Promise<void> {
   await Notifications.scheduleNotificationAsync({
     content: { title, body, data },
-    trigger: { seconds },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds },
   });
 }
 

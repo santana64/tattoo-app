@@ -1,7 +1,11 @@
 // INKR Design System v3.0 — 2026 "Ink Meets Future"
 // Philosophy: Editorial magazine × Tattoo culture × Spatial computing
 
+// Legacy Expo components consume semantic light/dark palettes. INKR uses its dark identity in both modes.
+const semanticPalette = { text: '#F2F0EC', background: '#030305', tint: '#E8DCC8', icon: '#7A7875', tabIconDefault: '#7A7875', tabIconSelected: '#E8DCC8' };
 export const Colors = {
+  light: semanticPalette,
+  dark: semanticPalette,
   // ── Backgrounds — deep, rich, layered ─────────────────────
   bgPrimary:   '#030305',     // void black with violet undertone
   bgElevated:  '#0A0A0F',     // elevated surface

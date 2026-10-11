@@ -48,6 +48,7 @@ export async function getArtistAnalytics(artistId: string, days = 30) {
   // Group by day + event_type
   const byDay: Record<string, Record<string, number>> = {};
   (data ?? []).forEach((ev) => {
+    if (!ev.created_at) return;
     const day = ev.created_at.slice(0, 10);
     if (!byDay[day]) byDay[day] = {};
     byDay[day][ev.event_type] = (byDay[day][ev.event_type] ?? 0) + 1;

@@ -180,12 +180,14 @@ export default function AnalyticsScreen() {
       const now = Date.now();
 
       viewEvents?.forEach((e) => {
+        if (!e.created_at) return;
         const daysAgo = Math.floor((now - new Date(e.created_at).getTime()) / (1000 * 60 * 60 * 24));
-        if (daysAgo < 7) viewsByDay[6 - daysAgo]++;
+        if (daysAgo >= 0 && daysAgo < 7) viewsByDay[6 - daysAgo]++;
       });
       requests?.forEach((r) => {
+        if (!r.submitted_at) return;
         const daysAgo = Math.floor((now - new Date(r.submitted_at).getTime()) / (1000 * 60 * 60 * 24));
-        if (daysAgo < 7) reqsByDay[6 - daysAgo]++;
+        if (daysAgo >= 0 && daysAgo < 7) reqsByDay[6 - daysAgo]++;
       });
 
       setAnalytics({

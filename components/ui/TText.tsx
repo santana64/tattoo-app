@@ -6,6 +6,7 @@ type Variant =
   | 'displayXL'
   | 'displayL'
   | 'displayM'
+  | 'displayS'
   | 'title1'
   | 'title2'
   | 'body'
@@ -24,7 +25,7 @@ interface TTextProps extends TextProps {
   color?: Color;
   weight?: 'regular' | 'medium' | 'semibold' | 'bold' | 'black';
   uppercase?: boolean;
-  style?: TextStyle | TextStyle[];
+  style?: TextProps['style'];
 }
 
 const variantStyles: Record<Variant, TextStyle> = {
@@ -46,6 +47,7 @@ const variantStyles: Record<Variant, TextStyle> = {
     letterSpacing: LetterSpacing.tight,
     lineHeight: 38,
   },
+  displayS: { fontSize: FontSize.displayS, fontWeight: '700', letterSpacing: LetterSpacing.tighter, lineHeight: 34 },
   title1: {
     fontSize: FontSize.title1,
     fontWeight: '600',

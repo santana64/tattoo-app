@@ -34,7 +34,7 @@ const STATUS_FILTERS: {
   { label: 'Tous',      value: 'all',       icon: 'apps-outline' },
   { label: 'Nouveau',   value: 'submitted', color: '#60A5FA', icon: 'flash-outline' },
   { label: 'Accepté',   value: 'accepted',  color: '#34D399', icon: 'checkmark-circle-outline' },
-  { label: 'En cours',  value: 'in_progress', color: Colors.accentWarm, icon: 'time-outline' },
+  { label: 'À préciser', value: 'clarification_needed', color: Colors.accentWarm, icon: 'time-outline' },
   { label: 'Archivé',   value: 'archived',  color: Colors.textTertiary, icon: 'archive-outline' },
 ];
 
@@ -302,7 +302,7 @@ export default function InboxScreen() {
         <TouchableOpacity
           style={styles.headerIconBtn}
           onPress={() =>
-            isArtist ? router.push('/settings/index') : router.push('/(tabs)/explore')
+            isArtist ? router.push('/settings') : router.push('/(tabs)/explore')
           }
         >
           <Ionicons

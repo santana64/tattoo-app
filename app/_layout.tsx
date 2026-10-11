@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { Colors } from '@/constants/theme';
 import { ToastProvider } from '@/components/ui/TToast';
 import { registerForPushNotifications } from '@/lib/notifications';
+import { authRedirect } from '@/lib/auth-routing';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -18,37 +19,16 @@ export default function RootLayout() {
   const segments = useSegments();
 
   useEffect(() => {
-    initialize();
-  }, []);
+    return initialize();
+  }, [initialize]);
 
   useEffect(() => {
     if (isLoading) return;
     SplashScreen.hideAsync();
 
-    const inAuth = segments[0] === '(auth)';
-    const inOnboarding = segments[0] === '(onboarding)';
-    const inTabs = segments[0] === '(tabs)';
-
-    if (!isAuthenticated && !inAuth) {
-      router.replace('/(auth)/welcome');
-      return;
-    }
-    if (isAuthenticated && user && !user.onboardingCompleted && !inOnboarding) {
-      router.replace(
-        user.role === 'artist'
-          ? '/(onboarding)/artist/step1'
-          : '/(onboarding)/client/step1'
-      );
-      return;
-    }
-    if (isAuthenticated && user?.onboardingCompleted && (inAuth || inOnboarding)) {
-      router.replace('/(tabs)');
-      return;
-    }
-    if (isAuthenticated && user && !user.role && !inAuth) {
-      router.replace('/(auth)/role-select');
-    }
-  }, [isLoading, isAuthenticated, user]);
+    const redirect = authRedirect(segments, isAuthenticated, user);
+    if (redirect) router.replace(redirect);
+  }, [isLoading, isAuthenticated, user, segments, router]);
 
   // Register push notifications when user is logged in
   useEffect(() => {

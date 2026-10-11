@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity, Animated as RNAnimated } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, Dimensions, TouchableOpacity, type DimensionValue } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,17 +7,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withSpring,
   withDelay, withRepeat, withSequence, Easing, FadeIn, FadeInUp, FadeInDown,
-  interpolate, useAnimatedScrollHandler,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow, Gradients } from '@/constants/theme';
+import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { Logo } from '@/components/ui/Logo';
 
 const { width: W, height: H } = Dimensions.get('window');
 
 // Floating orb for aurora effect
-function FloatingOrb({ color, size, x, y, delay }: { color: string; size: number; x: string; y: number; delay: number }) {
+function FloatingOrb({ color, size, x, y, delay }: { color: string; size: number; x: DimensionValue; y: number; delay: number }) {
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(0);
 
@@ -25,11 +24,11 @@ function FloatingOrb({ color, size, x, y, delay }: { color: string; size: number
     opacity.value = withDelay(delay, withTiming(1, { duration: 1200 }));
     translateY.value = withDelay(delay, withRepeat(
       withSequence(
-        withTiming(-20, { duration: 4000, easing: Easing.inOut(Easing.sine) }),
-        withTiming(20, { duration: 4000, easing: Easing.inOut(Easing.sine) }),
+        withTiming(-20, { duration: 4000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(20, { duration: 4000, easing: Easing.inOut(Easing.sin) }),
       ), -1, true
     ));
-  }, []);
+  }, [delay, opacity, translateY]);
 
   const style = useAnimatedStyle(() => ({
     opacity: opacity.value * 0.6,
@@ -97,7 +96,7 @@ export default function WelcomeScreen() {
     btnOpacity2.value = withDelay(800, withTiming(1, { duration: 500 }));
     btnScale2.value = withDelay(800, withSpring(1, { damping: 12, stiffness: 200 }));
     dotOpacity.value = withDelay(1200, withTiming(1, { duration: 800 }));
-  }, []);
+  }, [bgOpacity, bgScale, btnOpacity1, btnOpacity2, btnScale1, btnScale2, dotOpacity]);
 
   const bgStyle = useAnimatedStyle(() => ({
     transform: [{ scale: bgScale.value }],
@@ -116,7 +115,7 @@ export default function WelcomeScreen() {
 
   const handleStart = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/(auth)/sign-in');
+    router.push('/(tabs)/explore');
   };
 
   const handleSignIn = () => {
@@ -163,7 +162,7 @@ export default function WelcomeScreen() {
             weight="black"
             style={styles.heroTitle}
           >
-            L'art{'\n'}sur ta peau.
+            L’art{'\n'}sur ta peau.
           </TText>
         </Animated.View>
         <Animated.View entering={FadeInDown.delay(500).duration(600)}>
@@ -175,11 +174,11 @@ export default function WelcomeScreen() {
 
       {/* Stats row */}
       <Animated.View entering={FadeInUp.delay(700).springify()} style={styles.statsRow}>
-        <StatPill value="2 400+" label="artistes" delay={720} />
+        <StatPill value="Styles" label="trouve le tien" delay={720} />
         <View style={styles.statsDivider} />
-        <StatPill value="98%" label="satisfaction" delay={780} />
+        <StatPill value="Artistes" label="découvre leur univers" delay={780} />
         <View style={styles.statsDivider} />
-        <StatPill value="12k+" label="tatouages" delay={840} />
+        <StatPill value="Projets" label="prépare ton tatouage" delay={840} />
       </Animated.View>
 
       {/* CTA section */}
@@ -199,7 +198,7 @@ export default function WelcomeScreen() {
               style={StyleSheet.absoluteFill}
             />
             <TText variant="body" weight="bold" style={styles.primaryBtnText}>
-              Commencer maintenant
+              Explorer les tatoueurs
             </TText>
             <View style={styles.primaryBtnArrow}>
               <TText style={{ color: Colors.bgPrimary, fontSize: 16 }}>â†’</TText>

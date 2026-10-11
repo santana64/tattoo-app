@@ -1,7 +1,15 @@
 import { create } from 'zustand';
 import { Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
-import { Tables } from '@/lib/supabase';
+import { supabase, Tables } from '@/lib/supabase';
+import { Platform } from 'react-native';
+
+let profileLoadVersion = 0;
+
+function authCallbackUrl() {
+  return Platform.OS === 'web' && typeof window !== 'undefined'
+    ? `${window.location.origin}/auth/callback`
+    : 'inkr://auth/callback';
+}
 
 export type UserRole = 'user' | 'artist';
 export type ArtistTier = 'normal' | 'premium';
@@ -27,8 +35,9 @@ interface AuthState {
   user: AppUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  error: string | null;
 
-  initialize: () => Promise<void>;
+  initialize: () => () => void;
   _loadUser: (session: Session) => Promise<void>;
   signInWithEmail: (email: string) => Promise<{ error: string | null }>;
   signInWithApple: () => Promise<{ error: string | null }>;
@@ -40,7 +49,6 @@ interface AuthState {
   updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<void>;
   refreshProfile: () => Promise<void>;
   setLoading: (loading: boolean) => void;
-  _devSignIn: (role: UserRole) => void;
 }
 
 function mapProfile(
@@ -55,7 +63,7 @@ function mapProfile(
     role: profile.role,
     city: profile.city ?? undefined,
     stylePreferences: profile.style_prefs ?? [],
-    onboardingCompleted: profile.onboarding_completed,
+    onboardingCompleted: profile.onboarding_completed ?? false,
     artistId: artist?.id ?? undefined,
     artistTier: artist?.tier ?? undefined,
     artistBlaze: artist?.blaze ?? undefined,
@@ -68,49 +76,71 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  error: null,
 
-  initialize: async () => {
-    set({ isLoading: true });
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) await get()._loadUser(session);
-      supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (session) {
-          await get()._loadUser(session);
-        } else {
-          set({ session: null, user: null, isAuthenticated: false });
-        }
-      });
-    } finally {
-      set({ isLoading: false });
-    }
+  initialize: () => {
+    let active = true;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    set({ isLoading: true, error: null });
+    // Supabase emits INITIAL_SESSION itself. Do not await a Supabase query
+    // inside this callback: it holds the auth lock until the callback returns.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      clearTimeout(pending);
+      profileLoadVersion++;
+      if (!session) {
+        set({ session: null, user: null, isAuthenticated: false, isLoading: false, error: null });
+        return;
+      }
+      const sameUser = get().user?.id === session.user.id;
+      set({ session, isAuthenticated: true, user: sameUser ? get().user : null, isLoading: !sameUser });
+      pending = setTimeout(() => {
+        if (active) void get()._loadUser(session);
+      }, 0);
+    });
+    return () => {
+      active = false;
+      clearTimeout(pending);
+      profileLoadVersion++;
+      subscription.unsubscribe();
+    };
   },
 
   _loadUser: async (session) => {
-    const { data: profile } = await supabase
-      .from('profiles').select('*').eq('id', session.user.id).single();
-    if (!profile) {
-      set({ session, isAuthenticated: true, user: null });
-      return;
+    const version = ++profileLoadVersion;
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles').select('*').eq('id', session.user.id).single();
+      if (error || !profile) throw new Error('Impossible de charger ton profil. Réessaie dans un instant.');
+      let artist: Tables<'artists'> | null = null;
+      if (profile.role === 'artist') {
+        const result = await supabase.from('artists').select('*').eq('profile_id', profile.id).maybeSingle();
+        if (result.error) throw new Error('Impossible de charger ton profil artiste.');
+        artist = result.data;
+      }
+      if (version === profileLoadVersion && get().session?.user.id === session.user.id) {
+        set({ user: mapProfile(profile, artist), isLoading: false, error: null });
+      }
+    } catch (error) {
+      if (version === profileLoadVersion) {
+        set({ isLoading: false, error: error instanceof Error ? error.message : 'Connexion indisponible.' });
+      }
     }
-    let artist: Tables<'artists'> | null = null;
-    if (profile.role === 'artist') {
-      const { data } = await supabase
-        .from('artists').select('*').eq('profile_id', profile.id).single();
-      artist = data;
-    }
-    set({ session, isAuthenticated: true, user: mapProfile(profile, artist) });
   },
 
   signInWithEmail: async (email) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: 'inkr://auth/callback' },
+      options: { emailRedirectTo: authCallbackUrl() },
     });
     return { error: error?.message ?? null };
   },
 
   signInWithApple: async () => {
+    if (Platform.OS === 'web') {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'apple', options: { redirectTo: authCallbackUrl() } });
+      return { error: error?.message ?? null };
+    }
     try {
       const AppleAuth = await import('expo-apple-authentication');
       const credential = await AppleAuth.signInAsync({
@@ -134,20 +164,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signInWithGoogle: async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'inkr://auth/callback' },
+      options: { redirectTo: authCallbackUrl() },
     });
     return { error: error?.message ?? null };
   },
 
   signOut: async () => {
-    await supabase.auth.signOut();
-    set({ session: null, user: null, isAuthenticated: false });
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    profileLoadVersion++;
+    set({ session: null, user: null, isAuthenticated: false, error: null });
   },
 
   setRole: async (role) => {
     const { session } = get();
     if (!session) return;
-    await supabase.from('profiles').update({ role }).eq('id', session.user.id);
+    const { error } = await supabase.from('profiles').update({ role }).eq('id', session.user.id);
+    if (error) throw error;
     set((s) => ({ user: s.user ? { ...s.user, role } : null }));
   },
 
@@ -184,23 +217,4 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setLoading: (isLoading) => set({ isLoading }),
 
-  _devSignIn: (role) => {
-    if (!__DEV__) return; // No-op in production builds
-    set({
-      isAuthenticated: true,
-      isLoading: false,
-      user: {
-        id: 'dev-user-id',
-        email: 'dev@tattoo.app',
-        displayName: role === 'artist' ? 'Marco Ink' : 'Alex Client',
-        role,
-        stylePreferences: ['blackwork', 'neo-trad'],
-        onboardingCompleted: false,
-        artistId: role === 'artist' ? 'dev-artist-id' : undefined,
-        artistTier: role === 'artist' ? 'premium' : undefined,
-        artistBlaze: role === 'artist' ? 'Marco Ink' : undefined,
-        artistBookingStatus: role === 'artist' ? 'open' : undefined,
-      },
-    });
-  },
 }));

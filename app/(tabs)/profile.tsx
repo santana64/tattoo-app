@@ -174,7 +174,7 @@ export default function ProfileScreen() {
           {/* Header */}
           <View style={styles.simpleHeader}>
             <TText variant="title1" weight="bold">Mon profil</TText>
-            <TouchableOpacity onPress={() => router.push('/settings/index')} style={styles.headerBtn}>
+            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerBtn}>
               <Ionicons name="settings-outline" size={22} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={() => router.push('/analytics')} style={styles.headerBtn}>
               <Ionicons name="bar-chart-outline" size={20} color={Colors.textSecondary} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('/settings/index')} style={styles.headerBtn}>
+            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerBtn}>
               <Ionicons name="settings-outline" size={20} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -325,7 +325,7 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={() => router.push('/analytics')} style={styles.coverBtn}>
               <Ionicons name="bar-chart-outline" size={19} color="rgba(255,255,255,0.85)" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('/settings/index')} style={styles.coverBtn}>
+            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.coverBtn}>
               <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.85)" />
             </TouchableOpacity>
           </View>
@@ -438,7 +438,7 @@ export default function ProfileScreen() {
           <TText variant="label" color="tertiary" uppercase style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'], letterSpacing: 2 }}>
             Paramètres
           </TText>
-          <MenuItem icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings/index')} />
+          <MenuItem icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
           <MenuItem
             icon="card-outline"
             label="Abonnement"

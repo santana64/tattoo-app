@@ -20,10 +20,13 @@ import { ArtistCard } from '@/components/ArtistCard';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
+import { useSavedArtistsStore } from '@/store/saved-artists-store';
+import { useAuthStore } from '@/store/auth-store';
+import { Toast } from '@/components/ui/TToast';
 import { STYLES } from '@/constants/mock-data';
 import type { Artist } from '@/constants/mock-data';
 import { supabase } from '@/lib/supabase';
+import { mapArtist, PUBLIC_ARTIST_COLUMNS } from '@/lib/catalog';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const AVAILABILITY_OPTIONS = ['Tous', 'Disponible', 'En pause', 'Fermé'];
@@ -63,9 +66,9 @@ interface ExploreTrendingPost {
 }
 const BUDGET_OPTIONS: Array<{ label: string; value: number | null }> = [
   { label: 'Tous', value: null },
-  { label: '300€', value: 300 },
-  { label: '500€', value: 500 },
-  { label: '800€+', value: 800 },
+  { label: '≤ 300€', value: 300 },
+  { label: '≤ 500€', value: 500 },
+  { label: '≤ 800€', value: 800 },
 ];
 
 // ─── Style Category Pill V3
@@ -220,7 +223,13 @@ function TrendingPostCard({ post, index }: { post: ExploreTrendingPost; index: n
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { savedArtistIds, toggleSaveArtist } = useAppStore();
+  const { user } = useAuthStore();
+  const { savedArtistIds, fetchSaved, toggle } = useSavedArtistsStore();
+  useEffect(() => { void fetchSaved(user?.id); }, [fetchSaved, user?.id]);
+  const toggleSaveArtist = useCallback(async (id: string) => {
+    if (!user?.id) { router.push('/(auth)/sign-in'); return; }
+    if (!await toggle(user.id, id)) Toast.error('Favori non enregistré. Réessaie.');
+  }, [router, toggle, user?.id]);
 
   // ── Real data state
   const [artists, setArtists] = useState<Artist[]>([]);
@@ -252,7 +261,7 @@ export default function ExploreScreen() {
       const [artistsRes, postsRes] = await Promise.all([
         supabase
           .from('artists')
-          .select('id, blaze, city, bio, cover_url, avatar_url, styles, specialties, booking_status, min_budget, tier, is_verified, exclusions, rules, process, stat_posts, stat_profile_views, stat_requests_month')
+          .select(PUBLIC_ARTIST_COLUMNS)
           .order('tier', { ascending: false })
           .order('stat_profile_views', { ascending: false })
           .limit(60),
@@ -265,7 +274,7 @@ export default function ExploreScreen() {
       ]);
 
       if (artistsRes.error) throw artistsRes.error;
-      setArtists((artistsRes.data ?? []).map(mapSupabaseArtist));
+      setArtists((artistsRes.data ?? []).map(mapArtist));
 
       if (!postsRes.error && postsRes.data) {
         setTrendingPosts(postsRes.data.map((p: any) => ({
@@ -317,17 +326,18 @@ export default function ExploreScreen() {
       'Disponible': 'open', 'En pause': 'paused', 'Fermé': 'closed',
     };
     let result = artists.filter((a) => {
-      const q = query.toLowerCase();
-      const matchQ = !query || a.blaze.toLowerCase().includes(q) || a.city.toLowerCase().includes(q) || a.styles.some((s) => s.toLowerCase().includes(q));
+      const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const q = normalize(query);
+      const matchQ = !q || normalize(a.blaze).includes(q) || normalize(a.city).includes(q) || a.styles.some((s) => normalize(s).includes(q));
       const matchStyle = !selectedStyle || a.styles.some((s) => s.toLowerCase().replace(/ /g, '-') === selectedStyle);
       const matchAvail = selectedAvailability === 'Tous' || a.bookingStatus === statusMap[selectedAvailability];
       const matchSheetAvail = filterAvailability === 'Tous' || a.bookingStatus === statusMap[filterAvailability];
-      const matchBudget = filterBudgetMax === null || a.minBudget <= filterBudgetMax;
+      const matchBudget = filterBudgetMax === null || (a.minBudget > 0 && a.minBudget <= filterBudgetMax);
       return matchQ && matchStyle && matchAvail && matchSheetAvail && matchBudget;
     });
 
-    if (sortBy === 'premium') result = [...result].sort((a, b) => (a.tier === 'premium' ? -1 : 1));
-    else if (sortBy === 'open') result = [...result].sort((a, b) => (a.bookingStatus === 'open' ? -1 : 1));
+    if (sortBy === 'premium') result = [...result].sort((a, b) => Number(b.tier === 'premium') - Number(a.tier === 'premium'));
+    else if (sortBy === 'open') result = [...result].sort((a, b) => Number(b.bookingStatus === 'open') - Number(a.bookingStatus === 'open'));
     else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => a.minBudget - b.minBudget);
     return result;
   }, [artists, query, selectedStyle, selectedAvailability, sortBy, filterAvailability, filterBudgetMax]);
@@ -359,7 +369,7 @@ export default function ExploreScreen() {
       {!hasFilters && (
         <>
           {/* Spotlight */}
-          <SpotlightCard artist={spotlightArtist} />
+          {spotlightArtist && <SpotlightCard artist={spotlightArtist} />}
 
           {/* Trending posts strip */}
           <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.trendingSection}>

@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, type TouchableOpacityProps } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
@@ -14,6 +14,8 @@ import { STATUS_LABELS, PROJECT_TYPE_LABELS, SIZE_LABELS } from '@/constants/moc
 interface RequestCardProps {
   request: TattooRequest;
   viewAs: 'artist' | 'client';
+  onPressIn?: TouchableOpacityProps['onPressIn'];
+  onPressOut?: TouchableOpacityProps['onPressOut'];
 }
 
 const STATUS_CONFIG: Record<TattooRequest['status'], {
@@ -36,7 +38,7 @@ const PROJECT_ICONS: Record<string, string> = {
   extension: 'expand-outline',
 };
 
-export function RequestCard({ request, viewAs }: RequestCardProps) {
+export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestCardProps) {
   const router = useRouter();
   const config = STATUS_CONFIG[request.status];
   const isNew = request.status === 'submitted' && viewAs === 'artist';
@@ -55,6 +57,8 @@ export function RequestCard({ request, viewAs }: RequestCardProps) {
       <TouchableOpacity
         activeOpacity={1}
         onPress={handlePress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
         style={[styles.container, { backgroundColor: config.bg || Colors.bgElevated }, isNew && styles.containerNew]}
       >
         {/* New request accent line */}

@@ -20,7 +20,7 @@ import { Logo } from '@/components/ui/Logo';
 import { useFeedStore, FeedPost } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationStore } from '@/store/notification-store';
-import { ARTISTS } from '@/constants/mock-data';
+import { Toast } from '@/components/ui/TToast';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -44,7 +44,7 @@ function buildBento(posts: FeedPost[]): BentoRow[] {
 }
 
 // ── Artist story pill — V3
-function StoryPill({ artist, index }: { artist: typeof ARTISTS[0]; index: number }) {
+function StoryPill({ artist, index }: { artist: { id: string; blaze: string; avatarUrl: string | null; tier: string; bookingStatus: string }; index: number }) {
   const router = useRouter();
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -95,7 +95,7 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { posts, isLoading, isRefreshing, hasMore, fetchFeed, fetchMore, refresh, toggleLike } = useFeedStore();
+  const { posts, error, isLoading, isRefreshing, hasMore, fetchFeed, fetchMore, refresh, toggleLike } = useFeedStore();
   const { unreadCount } = useNotificationStore();
 
   const scrollY = useRef(new RNAnimated.Value(0)).current;
@@ -106,19 +106,22 @@ export default function FeedScreen() {
   });
   const headerBorderOpacity = scrollY.interpolate({ inputRange: [50, 80], outputRange: [0, 1], extrapolate: 'clamp' });
 
-  useEffect(() => { fetchFeed(user?.id); }, [user?.id]);
+  useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
 
-  const handleRefresh    = useCallback(() => refresh(user?.id), [user?.id]);
-  const handleEndReached = useCallback(() => fetchMore(user?.id), [user?.id]);
+  const handleRefresh    = useCallback(() => refresh(user?.id), [user?.id, refresh]);
+  const handleEndReached = useCallback(() => fetchMore(user?.id), [user?.id, fetchMore]);
+  const handleLike = useCallback(async (id: string) => {
+    if (!user?.id) { router.push('/(auth)/sign-in'); return; }
+    if (!await toggleLike(id, user.id)) Toast.error('Le j’aime n’a pas été enregistré.');
+  }, [router, toggleLike, user?.id]);
   const bentoRows        = useMemo(() => buildBento(posts), [posts]);
 
   const featuredArtists = useMemo(
-    () => [...ARTISTS].sort((a, b) => {
-      if (a.tier === 'premium' && b.tier !== 'premium') return -1;
-      if (b.tier === 'premium' && a.tier !== 'premium') return 1;
-      return a.bookingStatus === 'open' ? -1 : 1;
-    }),
-    []
+    () => [...new Map(posts.map((post) => [post.artistId, {
+      id: post.artistId, blaze: post.artistName, avatarUrl: post.artistAvatarUrl,
+      tier: post.artistIsPremium ? 'premium' : 'normal', bookingStatus: post.artistBookingStatus,
+    }])).values()],
+    [posts]
   );
 
   const renderRow = useCallback(
@@ -138,7 +141,7 @@ export default function FeedScreen() {
             <PostCard
               post={toCard(row.post)}
               variant="full"
-              onLike={() => user?.id && toggleLike(row.post.id, user.id)}
+              onLike={() => handleLike(row.post.id)}
               onPress={() => router.push(`/post/${row.post.id}`)}
               onArtistPress={() => router.push(`/artist/${row.post.artistId}`)}
               onQuickBook={() => router.push(`/request/new?artistId=${row.post.artistId}`)}
@@ -154,7 +157,7 @@ export default function FeedScreen() {
             <View style={styles.halfCell}>
               <PostCard
                 post={toCard(p1)} variant="half"
-                onLike={() => user?.id && toggleLike(p1.id, user.id)}
+                onLike={() => handleLike(p1.id)}
                 onPress={() => router.push(`/post/${p1.id}`)}
                 onArtistPress={() => router.push(`/artist/${p1.artistId}`)}
               />
@@ -162,7 +165,7 @@ export default function FeedScreen() {
             <View style={styles.halfCell}>
               <PostCard
                 post={toCard(p2)} variant="half"
-                onLike={() => user?.id && toggleLike(p2.id, user.id)}
+                onLike={() => handleLike(p2.id)}
                 onPress={() => router.push(`/post/${p2.id}`)}
                 onArtistPress={() => router.push(`/artist/${p2.artistId}`)}
               />
@@ -176,14 +179,14 @@ export default function FeedScreen() {
           <PostCard
             post={toCard(row.post)}
             variant="wide"
-            onLike={() => user?.id && toggleLike(row.post.id, user.id)}
+            onLike={() => handleLike(row.post.id)}
             onPress={() => router.push(`/post/${row.post.id}`)}
             onArtistPress={() => router.push(`/artist/${row.post.artistId}`)}
           />
         </Animated.View>
       );
     },
-    [user?.id, toggleLike]
+    [handleLike, router]
   );
 
   const ListHeader = useMemo(() => (
@@ -208,7 +211,7 @@ export default function FeedScreen() {
         </View>
       </View>
     </View>
-  ), [insets.top, featuredArtists]);
+  ), [insets.top, featuredArtists, router]);
 
   return (
     <View style={styles.container}>
@@ -259,10 +262,10 @@ export default function FeedScreen() {
           ListEmptyComponent={
             <EmptyState
               icon="images-outline"
-              title="Ton feed se construit."
-              description="Explore des artistes pour commencer."
-              ctaLabel="Explorer"
-              onCta={() => router.push('/(tabs)/explore')}
+              title={error ? 'Le fil est indisponible' : 'Ton feed se construit.'}
+              description={error ?? 'Explore des artistes pour commencer.'}
+              ctaLabel={error ? 'Réessayer' : 'Explorer'}
+              onCta={() => error ? void handleRefresh() : router.push('/(tabs)/explore')}
               style={{ marginTop: 80 }}
             />
           }

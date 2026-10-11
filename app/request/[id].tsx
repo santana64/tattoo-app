@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, StyleSheet, View, TouchableOpacity,
 } from 'react-native';
@@ -16,10 +16,10 @@ import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
 import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
+import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import {
-  REQUESTS, PROJECT_TYPE_LABELS, SIZE_LABELS, STATUS_LABELS,
+  PROJECT_TYPE_LABELS, SIZE_LABELS, STATUS_LABELS,
   DECLINE_REASONS,
 } from '@/constants/mock-data';
 
@@ -28,6 +28,7 @@ const STATUS_CONFIG = {
   accepted:             { dot: '#34D399', variant: 'success'  as const },
   declined:             { dot: '#F87171', variant: 'error'    as const },
   clarification_needed: { dot: '#FBBF24', variant: 'warning'  as const },
+  confirmed: { dot: '#34D399', variant: 'success' as const },
   completed:            { dot: '#818CF8', variant: 'info'     as const },
   archived:             { dot: Colors.textTertiary, variant: 'default' as const },
 };
@@ -63,6 +64,7 @@ function ActionBtn({ label, icon, onPress, variant = 'default', loading = false 
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onPress();
         }}
+        disabled={loading}
         activeOpacity={1}
         style={[styles.actionBtn, { backgroundColor: colors.bg, borderColor: colors.border }]}
       >
@@ -78,36 +80,48 @@ export default function RequestDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-  const { updateRequestStatus } = useAppStore();
-  const isArtist = user?.role === 'artist';
-
+  const { fetchRequest, updateStatus } = useRequestStore();
+  const [request, setRequest] = useState<TattooRequest | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [showDecline, setShowDecline] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
-
-  const request = useAppStore((s) => s.requests.find((r) => r.id === id))
-    ?? REQUESTS.find((r) => r.id === id)
-    ?? REQUESTS[0];
-
-  const config = STATUS_CONFIG[request.status];
-
-  const handleAccept = useCallback(() => {
-    updateRequestStatus(request.id, 'accepted');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [request.id]);
-
-  const handleDecline = useCallback(() => {
-    if (!selectedReason) return;
-    updateRequestStatus(request.id, 'declined');
+  useEffect(() => {
+    let active = true;
+    setRequest(null); setLoading(true); setError(null);
+    if (!user) { setLoading(false); return; }
+    fetchRequest(id, user.id).then(data => { if (active) setRequest(data); })
+      .catch(() => { if (active) setError('Impossible de charger la demande.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id, user, attempt, fetchRequest]);
+  const changeStatus = async (status: RequestStatus) => {
+    if (!request || savingRef.current) return;
+    savingRef.current = true; setSaving(true); setError(null);
+    const result = await updateStatus(request.id, status, status === 'declined' ? { declineReason: selectedReason } : undefined);
+    savingRef.current = false; setSaving(false);
+    if (result.error) { setError(result.error); return; }
+    setRequest(useRequestStore.getState().getRequest(request.id) ?? request);
     setShowDecline(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-  }, [request.id, selectedReason]);
-
-  const handleClarification = useCallback(() => {
-    updateRequestStatus(request.id, 'clarification_needed');
-  }, [request.id]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+  const handleAccept = () => { void changeStatus('accepted'); };
+  const handleDecline = () => { if (selectedReason) void changeStatus('declined'); };
+  const handleClarification = () => { void changeStatus('clarification_needed'); };
+  if (!request) return <View style={[styles.container, { padding: 24, paddingTop: insets.top + 24, gap: 16 }]}>
+    <TText variant="title2">{loading ? 'Chargement de la demande…' : error ?? 'Demande introuvable ou inaccessible'}</TText>
+    {!loading && <TButton title="Réessayer" onPress={() => setAttempt(n => n + 1)} />}
+    <TButton title="Mes demandes" variant="glass" onPress={() => router.replace('/(tabs)/inbox')} />
+  </View>;
+  const isArtist = user?.artistId === request.artistId;
+  const config = STATUS_CONFIG[request.status];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {error && <TText color="error" style={{ padding: 16 }}>{error}</TText>}
       {/* Header */}
       <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
@@ -124,9 +138,9 @@ export default function RequestDetailScreen() {
         {/* Client identity */}
         <Animated.View entering={FadeInDown.delay(80).springify()}>
           <GlassCard variant="elevated" style={styles.clientCard}>
-            <TAvatar uri={request.clientAvatar} name={request.clientName} size="xl" />
+            <TAvatar uri={(isArtist ? request.clientAvatarUrl : request.artistAvatarUrl) ?? undefined} name={(isArtist ? request.clientName : request.artistName) ?? ''} size="xl" />
             <View style={{ flex: 1 }}>
-              <TText variant="title2" weight="bold">{request.clientName}</TText>
+              <TText variant="title2" weight="bold">{isArtist ? request.clientName : request.artistName}</TText>
               <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>
                 {new Date(request.submittedAt).toLocaleDateString('fr-FR', {
                   weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -134,7 +148,7 @@ export default function RequestDetailScreen() {
               </TText>
               <View style={styles.statusRow}>
                 <View style={[styles.statusDot, { backgroundColor: config.dot }]} />
-                <TBadge label={STATUS_LABELS[request.status]} variant={config.variant} />
+                <TBadge label={(request.status === 'confirmed' ? 'Confirmée' : STATUS_LABELS[request.status])} variant={config.variant} />
               </View>
             </View>
           </GlassCard>
@@ -152,20 +166,20 @@ export default function RequestDetailScreen() {
             <TDivider style={{ marginVertical: 6 }} />
             <InfoRow icon="resize-outline"     label="Taille" value={SIZE_LABELS[request.sizeCategory]?.split('·')[0]?.trim() ?? request.sizeCategory} />
             <TDivider style={{ marginVertical: 6 }} />
-            <InfoRow icon="cash-outline"       label="Budget" value={`${request.budgetMin}–${request.budgetMax}€`} />
-            {request.stylePrefs?.length > 0 && (
+            <InfoRow icon="cash-outline"       label="Budget" value={request.budgetUnknown ? 'À définir' : `${request.budgetMin ?? '—'}–${request.budgetMax ?? '—'} €`} />
+            {!!request.stylePreference && (
               <>
                 <TDivider style={{ marginVertical: 6 }} />
-                <InfoRow icon="color-palette-outline" label="Styles" value={request.stylePrefs.join(', ')} />
+                <InfoRow icon="color-palette-outline" label="Styles" value={request.stylePreference ?? ''} />
               </>
             )}
-            {request.colorPref && (
+            {request.colorPreference && (
               <>
                 <TDivider style={{ marginVertical: 6 }} />
-                <InfoRow icon="contrast-outline" label="Couleur" value={request.colorPref} />
+                <InfoRow icon="contrast-outline" label="Couleur" value={request.colorPreference} />
               </>
             )}
-            {request.isFlexible && (
+            {request.flexibilityLevel !== 'precise' && (
               <>
                 <TDivider style={{ marginVertical: 6 }} />
                 <InfoRow icon="swap-horizontal-outline" label="Flexibilité" value="Ouvert aux suggestions" />
@@ -220,7 +234,7 @@ export default function RequestDetailScreen() {
                 title="Confirmer le refus"
                 variant="secondary"
                 size="sm"
-                disabled={!selectedReason}
+                disabled={!selectedReason || saving}
                 onPress={handleDecline}
               />
             </View>
@@ -229,14 +243,14 @@ export default function RequestDetailScreen() {
       </ScrollView>
 
       {/* Artist action bar */}
-      {isArtist && request.status === 'submitted' && !showDecline && (
+      {isArtist && (request.status === 'submitted' || request.status === 'clarification_needed') && !showDecline && (
         <Animated.View
           entering={FadeIn.delay(400).springify()}
           style={[styles.actionBar, { paddingBottom: insets.bottom + 8 }]}
         >
-          <ActionBtn label="Accepter" icon="checkmark-outline" onPress={handleAccept} variant="success" />
-          <ActionBtn label="Clarifier" icon="help-outline" onPress={handleClarification} variant="warning" />
-          <ActionBtn label="Refuser" icon="close-outline" onPress={() => setShowDecline(true)} variant="error" />
+          <ActionBtn loading={saving} label="Accepter" icon="checkmark-outline" onPress={handleAccept} variant="success" />
+          <ActionBtn loading={saving} label="Clarifier" icon="help-outline" onPress={handleClarification} variant="warning" />
+          <ActionBtn loading={saving} label="Refuser" icon="close-outline" onPress={() => setShowDecline(true)} variant="error" />
         </Animated.View>
       )}
 

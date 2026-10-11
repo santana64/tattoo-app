@@ -1,18 +1,17 @@
 import React, { useState, useRef } from 'react';
 import {
   View, StyleSheet, ScrollView, TouchableOpacity,
-  KeyboardAvoidingView, Platform, Dimensions,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
-  FadeIn, FadeInDown, FadeInUp, FadeOutLeft, FadeOutRight,
-  useSharedValue, useAnimatedStyle, withSpring, withTiming,
+  FadeIn, FadeInDown,
+  useSharedValue, useAnimatedStyle, withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -20,9 +19,10 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { useRequestStore } from '@/store/request-store';
 import type { SubmitPayload } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import { ARTISTS, STYLES } from '@/constants/mock-data';
+import { STYLES } from '@/constants/mock-data';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+import { useArtist } from '@/hooks/use-artist';
+
 
 const STEPS = ['Type', 'Zone', 'Taille & Budget', 'Style', 'Description', 'Récap'];
 
@@ -169,7 +169,10 @@ export default function NewRequestScreen() {
   const { submitRequest } = useRequestStore();
   const { user } = useAuthStore();
 
-  const artist = ARTISTS.find((a) => a.id === artistId) ?? ARTISTS[0];
+  const { artist, loading, error, retry } = useArtist(artistId);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [step, setStep] = useState(0);
   const [projectType, setProjectType] = useState('');
@@ -185,8 +188,9 @@ export default function NewRequestScreen() {
   const canNext = () => {
     if (step === 0) return !!projectType;
     if (step === 1) return !!bodyZone;
-    if (step === 2) return !!sizeCategory && !!budgetMin && !!budgetMax;
+    if (step === 2) return !!sizeCategory && !!budgetMin.trim() && !!budgetMax.trim() && Number.isFinite(Number(budgetMin)) && Number.isFinite(Number(budgetMax)) && Number(budgetMin) >= 0 && Number(budgetMax) >= Number(budgetMin);
     if (step === 3) return stylePrefs.length > 0 && !!colorPref;
+    if (step === 4) return description.trim().length >= 10;
     return true;
   };
 
@@ -203,7 +207,12 @@ export default function NewRequestScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!user?.id) return;
+    if (submittingRef.current || !artist || artist.bookingStatus !== 'open') return;
+    if (!user?.id) { setSubmitError('Connectez-vous pour envoyer votre demande.'); return; }
+    if (!projectType || !bodyZone || description.trim().length < 10 || !budgetMin.trim() || !budgetMax.trim() || !Number.isFinite(Number(budgetMin)) || !Number.isFinite(Number(budgetMax)) || Number(budgetMin) < 0 || Number(budgetMax) < Number(budgetMin)) {
+      setSubmitError('Complétez le projet, une description de 10 caractères et un budget cohérent.'); return;
+    }
+    submittingRef.current = true; setSubmitting(true); setSubmitError(null);
 
     const colorMap: Record<string, SubmitPayload['colorPreference']> = {
       black_grey: 'black_grey',
@@ -213,23 +222,25 @@ export default function NewRequestScreen() {
     };
 
     const payload: SubmitPayload = {
-      artistId: artistId ?? artist.id,
+      artistId: artist.id,
       projectType: projectType as SubmitPayload['projectType'],
       bodyZone,
       sizeCategory: sizeCategory as SubmitPayload['sizeCategory'],
-      budgetMin: parseInt(budgetMin) || undefined,
-      budgetMax: parseInt(budgetMax) || undefined,
+      budgetMin: Number(budgetMin),
+      budgetMax: Number(budgetMax),
       colorPreference: colorMap[colorPref] ?? 'artist_choice',
       stylePreference: stylePrefs.join(', ') || undefined,
-      description,
+      description: description.trim(),
       flexibilityLevel: isFlexible ? 'open' : 'precise',
     };
 
-    const { error } = await submitRequest(payload, user.id);
+    const { id: requestId, error } = await submitRequest(payload, user.id);
+    submittingRef.current = false; setSubmitting(false);
     Haptics.notificationAsync(
       error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success
     );
-    router.replace('/(tabs)/inbox');
+    if (error || !requestId) { setSubmitError(error ?? 'Envoi impossible. Votre formulaire est conservé.'); return; }
+    router.replace({ pathname: '/request/[id]', params: { id: requestId } });
   };
 
   const toggleStylePref = (slug: string) => {
@@ -237,6 +248,12 @@ export default function NewRequestScreen() {
       prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
   };
+
+  if (!artist || artist.bookingStatus !== 'open') return <View style={[styles.container, { padding: 24, paddingTop: insets.top + 24, gap: 16 }]}>
+    <TText variant="title2">{loading ? 'Chargement…' : error ?? (artist ? 'Cet artiste ne prend pas de demandes actuellement.' : 'Artiste introuvable')}</TText>
+    {!loading && <TButton title="Réessayer" onPress={retry} />}
+    <TButton title="Explorer" variant="glass" onPress={() => router.replace('/(tabs)/explore')} />
+  </View>;
 
   return (
     <KeyboardAvoidingView
@@ -255,6 +272,7 @@ export default function NewRequestScreen() {
         <View style={{ width: 44 }} />
       </View>
 
+      {submitError && <TText color="error" style={{ padding: 16 }}>{submitError}</TText>}
       {/* Step bar */}
       <StepBar current={step} total={STEPS.length} />
 
@@ -406,7 +424,7 @@ export default function NewRequestScreen() {
               <View style={{ flex: 1, marginLeft: Spacing.sm }}>
                 <TText variant="bodySmall" weight="semibold">Ouvert aux suggestions</TText>
                 <TText variant="caption" color="secondary" style={{ marginTop: 1 }}>
-                  Je laisse une marge créative à l'artiste
+                  Je laisse une marge créative à l’artiste
                 </TText>
               </View>
             </TouchableOpacity>
@@ -454,7 +472,8 @@ export default function NewRequestScreen() {
           />
         ) : (
           <TButton
-            title="Envoyer la demande →"
+            title="Envoyer la demande �’"
+            loading={submitting}
             onPress={handleSubmit}
             variant="primary"
           />

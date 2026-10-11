@@ -69,7 +69,7 @@ function Section({ title, children, delay = 0 }: { title: string; children: Reac
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, signOut } = useAuthStore();
   const isArtist = user?.role === 'artist';
   const artist = isArtist ? ARTISTS[0] : null;
 
@@ -157,7 +157,7 @@ export default function SettingsScreen() {
           destructive
           onPress={() => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            logout();
+            void signOut();
           }}
         />
         <TDivider />

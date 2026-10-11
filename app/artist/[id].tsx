@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   ScrollView, StyleSheet, View, TouchableOpacity,
   Dimensions, Animated as RNAnimated,
@@ -13,7 +13,7 @@ import Animated, {
   useSharedValue, useAnimatedStyle, withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TBadge } from '@/components/ui/TBadge';
@@ -21,11 +21,12 @@ import { TButton } from '@/components/ui/TButton';
 import { TChip } from '@/components/ui/TChip';
 import { TDivider } from '@/components/ui/TDivider';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
-import { useAuthStore } from '@/store/auth-store';
-import { supabase } from '@/lib/supabase';
-import { ARTISTS, POSTS } from '@/constants/mock-data';
+import { useSavedArtistsStore } from '@/store/saved-artists-store';
 import { Toast } from '@/components/ui/TToast';
+import { useAuthStore } from '@/store/auth-store';
+import { fetchArtistPortfolio } from '@/lib/catalog';
+import { useArtist } from '@/hooks/use-artist';
+import type { Tables } from '@/lib/supabase';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const COVER_H = 320;
@@ -87,7 +88,7 @@ function GalleryCell({ uri, onPress, index }: { uri: string; onPress: () => void
         activeOpacity={1}
         style={StyleSheet.absoluteFill}
       >
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" sharedTransitionTag={`gallery-${uri}`} />
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
         <LinearGradient colors={['transparent', 'rgba(5,5,8,0.3)']} style={StyleSheet.absoluteFill} />
       </TouchableOpacity>
     </Animated.View>
@@ -98,26 +99,28 @@ export default function ArtistProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { savedArtistIds, toggleSaveArtist } = useAppStore();
-  const { isAuthenticated } = useAuthStore();
+  const { savedArtistIds, pendingIds, fetchSaved, toggle } = useSavedArtistsStore();
+  const { isAuthenticated, user } = useAuthStore();
+  useEffect(() => { void fetchSaved(user?.id); }, [user?.id, fetchSaved]);
 
-  const artist = ARTISTS.find((a) => a.id === id) ?? ARTISTS[0];
-  const artistPosts = POSTS.filter((p) => p.artistId === artist.id);
-  const isSaved = savedArtistIds.has(artist.id);
-  const booking = STATUS_CONFIG[artist.bookingStatus];
+  const { artist: loadedArtist, loading, error, retry } = useArtist(id);
+  const [artistPosts, setArtistPosts] = useState<Tables<'posts'>[]>([]);
+  const [faq, setFaq] = useState<{ question: string; answer: string }[]>([]);
+  const [portfolioError, setPortfolioError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setArtistPosts([]); setFaq([]); setPortfolioError(false);
+    if (loadedArtist) fetchArtistPortfolio(loadedArtist.id).then(data => {
+      if (active) { setArtistPosts(data.posts); setFaq(data.faq); }
+    }).catch(() => { if (active) setPortfolioError(true); });
+    return () => { active = false; };
+  }, [loadedArtist]);
+  const artist = useMemo(() => loadedArtist ? { ...loadedArtist, faq } : null, [loadedArtist, faq]);
+  const isSaved = artist ? savedArtistIds.has(artist.id) : false;
+  const booking = STATUS_CONFIG[artist?.bookingStatus ?? 'closed'];
 
-  const [notifyEnabled, setNotifyEnabled] = useState(false);
   const saveScale = useSharedValue(1);
 
-  // Track profile view analytics
-  useEffect(() => {
-    // Only track for real artist IDs (not mock a1/a2 etc.)
-    if (!id || id.length < 20) return;
-    supabase.from('artist_analytics_events').insert({
-      artist_id: id,
-      event_type: 'profile_view',
-    }).then(() => {});
-  }, [id]);
   const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
 
   const scrollY = useRef(new RNAnimated.Value(0)).current;
@@ -126,16 +129,25 @@ export default function ArtistProfileScreen() {
   const headerBg = scrollY.interpolate({ inputRange: [COVER_H * 0.4, COVER_H * 0.8], outputRange: ['rgba(5,5,8,0)', 'rgba(5,5,8,0.97)'], extrapolate: 'clamp' });
   const headerTitleOpacity = scrollY.interpolate({ inputRange: [COVER_H * 0.6, COVER_H * 0.9], outputRange: [0, 1], extrapolate: 'clamp' });
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (!artist) return;
+    if (!user) { router.push({ pathname: '/(auth)/sign-in', params: { next: `/artist/${artist.id}` } }); return; }
     saveScale.value = withSpring(1.4, { damping: 4 }, () => { saveScale.value = withSpring(1); });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    toggleSaveArtist(artist.id);
-  }, [artist.id]);
+    if (!await toggle(user.id, artist.id)) Toast.error("Impossible d’enregistrer cet artiste. Réessayez.");
+  }, [artist, saveScale, toggle, user, router]);
 
   const handleRequest = () => {
-    if (!isAuthenticated) { router.push('/(auth)/sign-in'); return; }
+    if (!artist) return;
+    if (!isAuthenticated) { router.push({ pathname: '/(auth)/sign-in', params: { next: `/request/new?artistId=${artist.id}` } }); return; }
     router.push({ pathname: '/request/new', params: { artistId: artist.id } });
   };
+
+  if (!artist) return <View style={[styles.container, { padding: 24, paddingTop: insets.top + 24, gap: 16 }]}>
+    <TText variant="title2">{loading ? 'Chargement de l’artiste…' : error ?? 'Artiste introuvable'}</TText>
+    {!loading && <TButton title="Réessayer" onPress={retry} />}
+    <TButton title="Explorer les artistes" variant="glass" onPress={() => router.replace('/(tabs)/explore')} />
+  </View>;
 
   return (
     <View style={styles.container}>
@@ -149,7 +161,7 @@ export default function ArtistProfileScreen() {
             <TText variant="title2" weight="bold" numberOfLines={1}>{artist.blaze}</TText>
           </RNAnimated.View>
           <Animated.View style={saveStyle}>
-            <TouchableOpacity onPress={handleSave} style={styles.headerBtn}>
+            <TouchableOpacity onPress={handleSave} disabled={pendingIds.has(id)} style={styles.headerBtn}>
               <Ionicons
                 name={isSaved ? 'bookmark' : 'bookmark-outline'}
                 size={22}
@@ -173,7 +185,6 @@ export default function ArtistProfileScreen() {
               source={{ uri: artist.coverUrl }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
-              sharedTransitionTag={`artist-cover-${artist.id}`}
             />
           </RNAnimated.View>
           <RNAnimated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: coverDim }]} />
@@ -189,7 +200,7 @@ export default function ArtistProfileScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <Animated.View style={saveStyle}>
-              <TouchableOpacity onPress={handleSave} style={styles.glassBtn}>
+              <TouchableOpacity onPress={handleSave} disabled={pendingIds.has(id)} style={styles.glassBtn}>
                 <Ionicons
                   name={isSaved ? 'bookmark' : 'bookmark-outline'}
                   size={20}
@@ -259,10 +270,12 @@ export default function ArtistProfileScreen() {
             <TText variant="caption" color="tertiary">{artistPosts.length} œuvres</TText>
           </View>
           <View style={styles.gallery}>
+            {portfolioError && <TText color="secondary">Portfolio indisponible. Réessayez en rechargeant le profil.</TText>}
+            {!portfolioError && artistPosts.length === 0 && <TText color="secondary">Aucune publication pour le moment.</TText>}
             {artistPosts.map((post, i) => (
               <GalleryCell
                 key={post.id}
-                uri={post.mediaUrl}
+                uri={post.media_url}
                 onPress={() => router.push(`/post/${post.id}`)}
                 index={i}
               />
@@ -359,21 +372,7 @@ export default function ArtistProfileScreen() {
                   : 'Ce tatoueur a fermé son carnet'}
               </TText>
             </View>
-            <TButton
-              title={notifyEnabled ? 'Notifié ✓' : 'Me notifier'}
-              variant={notifyEnabled ? 'glow' : 'glass'}
-              size="md"
-              fullWidth={false}
-              onPress={() => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                setNotifyEnabled(prev => !prev);
-                if (!notifyEnabled) {
-                  Toast.success('Tu seras notifié quand cet artiste rouvre !');
-                } else {
-                  Toast.success('Notification désactivée.');
-                }
-              }}
-            />
+
           </View>
         )}
       </Animated.View>

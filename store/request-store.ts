@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase';
-import { Tables } from '@/lib/supabase';
+import { supabase, type Tables } from '@/lib/supabase';
+import { isUuid } from '@/lib/catalog';
 
 export type RequestStatus =
   | 'submitted' | 'accepted' | 'declined'
@@ -39,10 +39,12 @@ export interface TattooRequest {
 interface RequestState {
   requests: TattooRequest[];
   isLoading: boolean;
+  error: string | null;
+  fetchRequest: (id: string, userId: string) => Promise<TattooRequest | null>;
 
   fetchRequests: (userId: string, role: 'user' | 'artist') => Promise<void>;
   submitRequest: (payload: SubmitPayload, userId: string) => Promise<{ id: string | null; error: string | null }>;
-  updateStatus: (requestId: string, status: RequestStatus, extra?: { declineReason?: string; artistNotes?: string }) => Promise<void>;
+  updateStatus: (requestId: string, status: RequestStatus, extra?: { declineReason?: string; artistNotes?: string }) => Promise<{ error: string | null }>;
   getRequest: (id: string) => TattooRequest | undefined;
 }
 
@@ -62,7 +64,12 @@ export interface SubmitPayload {
   referenceUris?: string[];
 }
 
-function mapRequest(raw: any): TattooRequest {
+type RequestRow = Tables<'tattoo_requests'> & {
+  profiles?: { display_name: string; avatar_url: string | null } | null;
+  artists?: { blaze: string; avatar_url: string | null; city: string } | null;
+  request_references?: { url: string }[];
+};
+function mapRequest(raw: RequestRow): TattooRequest {
   return {
     id: raw.id,
     clientId: raw.client_id,
@@ -81,30 +88,47 @@ function mapRequest(raw: any): TattooRequest {
     status: raw.status,
     declineReason: raw.decline_reason,
     artistNotes: raw.artist_notes,
-    submittedAt: raw.submitted_at,
+    submittedAt: raw.submitted_at ?? raw.created_at ?? '',
     acceptedAt: raw.accepted_at,
-    clientName: raw.profiles?.display_name ?? raw.client_name,
+    clientName: raw.profiles?.display_name ?? 'Client',
     clientAvatarUrl: raw.profiles?.avatar_url ?? null,
-    artistName: raw.artists?.blaze ?? raw.artist_name,
+    artistName: raw.artists?.blaze ?? 'Artiste',
     artistAvatarUrl: raw.artists?.avatar_url ?? null,
     artistCity: raw.artists?.city ?? '',
-    references: (raw.request_references ?? []).map((r: any) => r.url),
+    references: (raw.request_references ?? []).map((r) => r.url),
   };
 }
 
 export const useRequestStore = create<RequestState>((set, get) => ({
   requests: [],
   isLoading: false,
+  error: null,
+  fetchRequest: async (id, userId) => {
+    if (!isUuid(id) || !isUuid(userId)) return null;
+    const { data, error } = await supabase.from('tattoo_requests')
+      .select('*, profiles!client_id(display_name,avatar_url), artists!artist_id(blaze,avatar_url,city), request_references(url)')
+      .eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    if (data.client_id !== userId) {
+      const { data: owner, error: ownerError } = await supabase.from('artists').select('id').eq('id', data.artist_id).eq('profile_id', userId).maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!owner) return null;
+    }
+    const request = mapRequest(data);
+    set(s => ({ requests: [...s.requests.filter(r => r.id !== id), request] }));
+    return request;
+  },
 
   fetchRequests: async (userId, role) => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       let query;
       if (role === 'artist') {
         // Get artist id first
         const { data: artist } = await supabase
           .from('artists').select('id').eq('profile_id', userId).single();
-        if (!artist) { set({ isLoading: false }); return; }
+        if (!artist) { set({ requests: [], isLoading: false }); return; }
         query = supabase
           .from('tattoo_requests')
           .select(`*, profiles!client_id(display_name, avatar_url), request_references(url)`)
@@ -121,13 +145,19 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (error) throw error;
       set({ requests: (data ?? []).map(mapRequest), isLoading: false });
     } catch {
-      set({ isLoading: false });
+      set({ requests: [], isLoading: false, error: "Impossible de charger les demandes." });
     }
   },
 
   submitRequest: async (payload, userId) => {
     try {
+      if (!isUuid(userId) || !isUuid(payload.artistId)) return { id: null, error: 'Identifiant invalide.' };
+      if (!payload.description.trim() || (payload.budgetMin != null && (!Number.isFinite(payload.budgetMin) || payload.budgetMin < 0)) || (payload.budgetMax != null && (!Number.isFinite(payload.budgetMax) || payload.budgetMax < (payload.budgetMin ?? 0)))) return { id: null, error: 'Description ou budget invalide.' };
+      const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
+      if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
       const { referenceUris, ...rest } = payload;
+      // References need an atomic upload workflow; reject before inserting to avoid duplicate requests on retry.
+      if (referenceUris?.length) return { id: null, error: 'Les pièces jointes ne sont pas encore disponibles.' };
       const { data, error } = await supabase
         .from('tattoo_requests')
         .insert({
@@ -150,17 +180,6 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         .single();
       if (error) return { id: null, error: error.message };
 
-      // Upload references if any
-      if (referenceUris?.length) {
-        const { uploadReference } = await import('@/lib/storage');
-        const uploads = await Promise.all(
-          referenceUris.map((uri, i) => uploadReference(uri, data.id, i))
-        );
-        await supabase.from('request_references').insert(
-          uploads.map((u) => ({ request_id: data.id, url: u.url }))
-        );
-      }
-
       await get().fetchRequests(userId, 'user');
       return { id: data.id, error: null };
     } catch (e: any) {
@@ -169,18 +188,24 @@ export const useRequestStore = create<RequestState>((set, get) => ({
   },
 
   updateStatus: async (requestId, status, extra) => {
-    const updates: Record<string, unknown> = { status };
-    if (status === 'accepted') updates.accepted_at = new Date().toISOString();
-    if (status === 'confirmed') updates.confirmed_at = new Date().toISOString();
-    if (status === 'completed') updates.completed_at = new Date().toISOString();
-    if (extra?.declineReason) updates.decline_reason = extra.declineReason;
-    if (extra?.artistNotes) updates.artist_notes = extra.artistNotes;
-    await supabase.from('tattoo_requests').update(updates).eq('id', requestId);
-    set((s) => ({
-      requests: s.requests.map((r) =>
-        r.id === requestId ? { ...r, status, ...extra } : r
-      ),
-    }));
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) return { error: 'Reconnectez-vous pour continuer.' };
+      const request = await get().fetchRequest(requestId, user.id);
+      if (!request) return { error: 'Demande introuvable.' };
+      const { data: owner, error: ownerError } = await supabase.from('artists').select('id').eq('id', request.artistId).eq('profile_id', user.id).maybeSingle();
+      if (ownerError || !owner) return { error: 'Seul l’artiste destinataire peut modifier cette demande.' };
+      const allowed = (request.status === 'submitted' || request.status === 'clarification_needed') && ['accepted', 'declined', 'clarification_needed'].includes(status) && request.status !== status;
+      if (!allowed) return { error: 'Ce changement de statut n’est pas disponible.' };
+      const updates: Partial<Tables<'tattoo_requests'>> = { status };
+      if (status === 'accepted') updates.accepted_at = new Date().toISOString();
+      if (extra?.declineReason) updates.decline_reason = extra.declineReason;
+      if (extra?.artistNotes) updates.artist_notes = extra.artistNotes;
+      const { data, error } = await supabase.from('tattoo_requests').update(updates).eq('id', requestId).eq('artist_id', owner.id).eq('status', request.status).select('id').maybeSingle();
+      if (error || !data) return { error: 'Modification non enregistrée. Rechargez la demande et réessayez.' };
+      set(s => ({ requests: s.requests.map(r => r.id === requestId ? { ...r, status, ...extra } : r) }));
+      return { error: null };
+    } catch { return { error: 'Connexion impossible. La demande n’a pas été modifiée.' }; }
   },
 
   getRequest: (id) => get().requests.find((r) => r.id === id),

@@ -8,6 +8,7 @@ export interface FeedPost {
   artistCity: string;
   artistAvatarUrl: string | null;
   artistIsPremium: boolean;
+  artistBookingStatus: 'open' | 'paused' | 'closed';
   mediaUrl: string;
   caption: string | null;
   styles: string[];
@@ -23,14 +24,16 @@ interface FeedState {
   isRefreshing: boolean;
   hasMore: boolean;
   cursor: string | null;
+  error: string | null;
+  pendingActions: Set<string>;
   likedPostIds: Set<string>;
   savedPostIds: Set<string>;
 
   fetchFeed: (userId?: string) => Promise<void>;
   fetchMore: (userId?: string) => Promise<void>;
   refresh: (userId?: string) => Promise<void>;
-  toggleLike: (postId: string, userId: string) => Promise<void>;
-  toggleSave: (postId: string, userId: string) => Promise<void>;
+  toggleLike: (postId: string, userId: string) => Promise<boolean>;
+  toggleSave: (postId: string, userId: string) => Promise<boolean>;
 }
 
 const PAGE_SIZE = 12;
@@ -41,18 +44,20 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   isRefreshing: false,
   hasMore: true,
   cursor: null,
+  error: null,
+  pendingActions: new Set(),
   likedPostIds: new Set(),
   savedPostIds: new Set(),
 
   fetchFeed: async (userId) => {
-    set({ isLoading: true, cursor: null, hasMore: true });
+    set({ isLoading: true, cursor: null, hasMore: true, error: null });
     try {
       let query = supabase
         .from('posts')
         .select(`
           id, media_url, caption, styles, likes_count, published_at, artist_id,
           artists!inner (
-            id, blaze, city, avatar_url, tier, profile_id
+            id, blaze, city, avatar_url, tier, profile_id, booking_status
           )
         `)
         .eq('is_published', true)
@@ -84,12 +89,12 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         hasMore: posts.length === PAGE_SIZE,
       });
     } catch {
-      set({ isLoading: false });
+      set({ isLoading: false, error: 'Impossible de charger les publications. Réessaie dans un instant.' });
     }
   },
 
   fetchMore: async (userId) => {
-    const { isLoading, hasMore, cursor, posts, likedPostIds } = get();
+    const { isLoading, hasMore, cursor, posts, likedPostIds, savedPostIds } = get();
     if (isLoading || !hasMore || !cursor) return;
     set({ isLoading: true });
     try {
@@ -97,14 +102,14 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         .from('posts')
         .select(`
           id, media_url, caption, styles, likes_count, published_at, artist_id,
-          artists!inner (id, blaze, city, avatar_url, tier, profile_id)
+          artists!inner (id, blaze, city, avatar_url, tier, profile_id, booking_status)
         `)
         .eq('is_published', true)
         .lt('published_at', cursor)
         .order('published_at', { ascending: false })
         .limit(PAGE_SIZE);
       if (error) throw error;
-      const newPosts = (data ?? []).map(mapPost(likedPostIds));
+      const newPosts = (data ?? []).map(mapPost(likedPostIds, savedPostIds));
       set({
         posts: [...posts, ...newPosts],
         isLoading: false,
@@ -123,40 +128,56 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   },
 
   toggleLike: async (postId, userId) => {
+    const key = `like:${postId}`;
+    if (!userId || get().pendingActions.has(key)) return false;
+    set((s) => ({ pendingActions: new Set(s.pendingActions).add(key) }));
     const { likedPostIds } = get();
     const isLiked = likedPostIds.has(postId);
-    // Optimistic update
-    const newSet = new Set(likedPostIds);
+    try {
+      const { error } = isLiked
+        ? await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId)
+        : await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
+      if (error) return false;
+    const newSet = new Set(get().likedPostIds);
     if (isLiked) newSet.delete(postId); else newSet.add(postId);
     set((s) => ({
       likedPostIds: newSet,
       posts: s.posts.map((p) =>
         p.id === postId
-          ? { ...p, isLiked: !isLiked, likesCount: p.likesCount + (isLiked ? -1 : 1) }
+          ? { ...p, isLiked: !isLiked, likesCount: Math.max(0, p.likesCount + (isLiked ? -1 : 1)) }
           : p
       ),
     }));
-    // Persist
-    if (isLiked) {
-      await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId);
-    } else {
-      await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
     }
   },
 
   toggleSave: async (postId, userId) => {
-    const { savedPostIds, posts } = get();
+    const key = `save:${postId}`;
+    if (!userId || get().pendingActions.has(key)) return false;
+    set((s) => ({ pendingActions: new Set(s.pendingActions).add(key) }));
+    const { savedPostIds } = get();
     const isSaved = savedPostIds.has(postId);
-    const newSet = new Set(savedPostIds);
+    try {
+      const { error } = isSaved
+        ? await supabase.from('saved_posts').delete().eq('user_id', userId).eq('post_id', postId)
+        : await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
+      if (error) return false;
+    const newSet = new Set(get().savedPostIds);
     if (isSaved) newSet.delete(postId); else newSet.add(postId);
-    set({
+    set((s) => ({
       savedPostIds: newSet,
-      posts: posts.map((p) => p.id === postId ? { ...p, isSaved: !isSaved } : p),
-    });
-    if (isSaved) {
-      await supabase.from('saved_posts').delete().eq('user_id', userId).eq('post_id', postId);
-    } else {
-      await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
+      posts: s.posts.map((p) => p.id === postId ? { ...p, isSaved: !isSaved } : p),
+    }));
+      return true;
+    } catch {
+      return false;
+    } finally {
+      set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
     }
   },
 }));
@@ -170,6 +191,7 @@ function mapPost(likedSet: Set<string>, savedSet: Set<string> = new Set()) {
     artistCity: raw.artists?.city ?? '',
     artistAvatarUrl: raw.artists?.avatar_url ?? null,
     artistIsPremium: raw.artists?.tier === 'premium',
+    artistBookingStatus: raw.artists?.booking_status ?? 'closed',
     mediaUrl: raw.media_url,
     caption: raw.caption,
     styles: raw.styles ?? [],

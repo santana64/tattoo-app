@@ -17,7 +17,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
@@ -95,7 +94,7 @@ function AuroraOrb({
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { signInWithEmail, signInWithApple, signInWithGoogle, _devSignIn } = useAuthStore();
+  const { signInWithEmail, signInWithApple, signInWithGoogle, error: profileError, refreshProfile, signOut } = useAuthStore();
   const [email, setEmail] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
@@ -129,9 +128,6 @@ export default function SignInScreen() {
     }
   };
 
-  const handleDevLogin = (role: 'user' | 'artist') => {
-    _devSignIn(role);
-  };
 
   return (
     <KeyboardAvoidingView
@@ -169,12 +165,24 @@ export default function SignInScreen() {
             color="secondary"
             style={styles.tagline}
           >
-            L'art du tatouage, r√©invent√©.
+            Líart du tatouage, r√©invent√©.
           </TText>
         </Animated.View>
 
         {/* Auth methods */}
         <View style={styles.methods}>
+
+          {profileError && (
+            <View style={styles.emailFormCard}>
+              <TText color="secondary">{profileError}</TText>
+              <TouchableOpacity onPress={() => void refreshProfile()}>
+                <TText>RÈessayer le chargement</TText>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => void signOut().catch(() => Toast.error('DÈconnexion impossible. RÈessaie.'))}>
+                <TText>Utiliser un autre compte</TText>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Apple */}
           <SocialButton onPress={handleApple} disabled={!!loading} delay={80}>
@@ -301,32 +309,7 @@ export default function SignInScreen() {
             )}
           </Animated.View>
 
-          {/* Dev shortcuts */}
-          {__DEV__ && (
-            <Animated.View entering={FadeIn.delay(500)} style={styles.devRow}>
-              <TText variant="caption" color="tertiary" style={styles.devLabel}>
-                DEV ‚Äî Connexion rapide
-              </TText>
-              <View style={styles.devButtons}>
-                <TouchableOpacity
-                  style={styles.devBtn}
-                  onPress={() => handleDevLogin('user')}
-                >
-                  <TText variant="caption" style={{ color: Colors.textSecondary }}>
-                    Client
-                  </TText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.devBtn}
-                  onPress={() => handleDevLogin('artist')}
-                >
-                  <TText variant="caption" style={{ color: Colors.accentWarm }}>
-                    Artiste
-                  </TText>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          )}
+
         </View>
 
         {/* Legal */}

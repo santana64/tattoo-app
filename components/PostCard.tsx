@@ -113,7 +113,6 @@ export function PostCard({ post, onLike, onPress, onArtistPress, onQuickBook, va
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={{ duration: 400, effect: 'cross-dissolve' }}
-            sharedTransitionTag={`post-image-${post.id}`}
           />
         </Animated.View>
 

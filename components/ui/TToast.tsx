@@ -55,7 +55,7 @@ export function ToastProvider() {
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(-120);
   const [state, setState] = React.useState<ToastState>({ visible: false, config: { message: '' } });
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hide = () => {
     translateY.value = withTiming(-120, { duration: 300 }, () => {

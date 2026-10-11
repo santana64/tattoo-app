@@ -7,7 +7,7 @@ import { TText } from './TText';
 type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
 interface TAvatarProps {
-  uri?: string;
+  uri?: string | null;
   name?: string;
   size?: AvatarSize;
   showBadge?: boolean;

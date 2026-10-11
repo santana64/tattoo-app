@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
   Pressable,
 } from 'react-native';
@@ -63,7 +62,7 @@ function ScaleCard({
 export default function RoleSelectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setRole, session, user, _devSignIn } = useAuthStore();
+  const { setRole, session, user, refreshProfile } = useAuthStore();
   const [loading, setLoading] = useState<'user' | 'artist' | null>(null);
 
   const selectRole = async (role: 'user' | 'artist') => {
@@ -78,9 +77,11 @@ export default function RoleSelectScreen() {
             city: 'Ma Ville',
           });
           if (error && error.code !== '23505') throw error;
+          await refreshProfile();
         }
       } else {
-        _devSignIn(role);
+        router.replace('/(auth)/sign-in');
+        return;
       }
       router.replace(role === 'user' ? '/(onboarding)/client/step1' : '/(onboarding)/artist/step1');
     } catch (e: any) {

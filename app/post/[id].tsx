@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, StyleSheet, TouchableOpacity, ScrollView, Dimensions,
-  Share, ActionSheetIOS, Platform, Alert,
+  Share, ActionSheetIOS, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,10 +18,13 @@ import { TAvatar } from '@/components/ui/TAvatar';
 import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
+import { useFeedStore } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
-import { supabase } from '@/lib/supabase';
-import { POSTS, ARTISTS, STYLES } from '@/constants/mock-data';
+import { supabase, type Tables } from '@/lib/supabase';
+import { fetchArtist, isUuid } from '@/lib/catalog';
+import type { Artist } from '@/constants/mock-data';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Toast } from '@/components/ui/TToast';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const STATUS_CONFIG = {
@@ -32,44 +35,114 @@ const STATUS_CONFIG = {
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [resource, setResource] = useState<{ post: Tables<'posts'>; artist: Artist | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const router = useRouter();
+  useEffect(() => {
+    let active = true;
+    setResource(null); setLoading(true); setError(false);
+    async function load() {
+      try {
+        if (!isUuid(id)) return;
+        const { data, error: failure } = await supabase.from('posts').select('*').eq('id', id).eq('is_published', true).maybeSingle();
+        if (failure) throw failure;
+        if (!data) return;
+        const artist = await fetchArtist(data.artist_id);
+        if (active) setResource({ post: data, artist });
+      } catch { if (active) setError(true); }
+      finally { if (active) setLoading(false); }
+    }
+    void load();
+    return () => { active = false; };
+  }, [id, attempt]);
+  if (loading) return <View style={[styles.container, { justifyContent: 'center' }]}><ActivityIndicator color={Colors.accentWarm} accessibilityLabel="Chargement de la publication" /></View>;
+  if (!resource) return <View style={styles.container}><EmptyState title={error ? 'Publication inaccessible' : 'Publication introuvable'} description={error ? 'La connexion a échoué. Tu peux réessayer.' : 'Cette publication a été retirée ou ce lien est invalide.'} ctaLabel={error ? 'Réessayer' : 'Explorer'} onCta={() => error ? setAttempt((n) => n + 1) : router.replace('/(tabs)/explore')} /></View>;
+  return <PostContent key={id} row={resource.post} artist={resource.artist} />;
+}
+
+function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | null }) {
+  const id = row.id;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { toggleLike, savedPostIds, toggleSavePost } = useAppStore();
   const { user } = useAuthStore();
-
-  const post = useAppStore((s) => s.posts.find((p) => p.id === id)) ?? POSTS[0];
-  const artist = ARTISTS.find((a) => a.id === post.artistId);
+  const [isLiked, setLiked] = useState(false);
+  const [isSaved, setSaved] = useState(false);
+  const [likes, setLikes] = useState(row.likes_count ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [membershipReady, setMembershipReady] = useState(false);
+  const post = { id, mediaUrl: row.media_url, caption: row.caption, styles: row.styles ?? [], likes };
   const status = artist ? STATUS_CONFIG[artist.bookingStatus] : null;
+  useEffect(() => {
+    let active = true;
+    setMembershipReady(false); setLiked(false); setSaved(false);
+    if (!user?.id) return;
+    Promise.all([
+      supabase.from('post_likes').select('post_id').eq('post_id', id).eq('user_id', user.id).maybeSingle(),
+      supabase.from('saved_posts').select('post_id').eq('post_id', id).eq('user_id', user.id).maybeSingle(),
+    ]).then(([like, save]) => {
+      if (!active) return;
+      if (like.error || save.error) { Toast.error('Impossible de charger tes favoris.'); return; }
+      setLiked(!!like.data); setSaved(!!save.data); setMembershipReady(true);
+    }).catch(() => { if (active) Toast.error('Impossible de charger tes favoris.'); });
+    return () => { active = false; };
+  }, [id, user?.id]);
 
   const heartScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
-  const isLiked = post.isLiked;
-  const isSaved = savedPostIds.has(post.id);
 
   const heartStyle = useAnimatedStyle(() => ({ transform: [{ scale: heartScale.value }] }));
   const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
 
+  const mutate = async (kind: 'like' | 'save') => {
+    if (!user?.id) { router.push('/(auth)/sign-in'); return; }
+    if (busy || !membershipReady) return;
+    setBusy(true);
+    const current = kind === 'like' ? isLiked : isSaved;
+    const table = kind === 'like' ? 'post_likes' : 'saved_posts';
+    try {
+      const { error } = current
+        ? await supabase.from(table).delete().eq('post_id', id).eq('user_id', user.id)
+        : await supabase.from(table).insert({ post_id: id, user_id: user.id });
+      if (error) throw error;
+      if (kind === 'like') { setLiked(!current); setLikes((n) => Math.max(0, n + (current ? -1 : 1))); }
+      else setSaved(!current);
+      useFeedStore.setState((state) => {
+        const membership = new Set(kind === 'like' ? state.likedPostIds : state.savedPostIds);
+        if (current) membership.delete(id); else membership.add(id);
+        return {
+          ...(kind === 'like' ? { likedPostIds: membership } : { savedPostIds: membership }),
+          posts: state.posts.map((p) => p.id !== id ? p : kind === 'like'
+            ? { ...p, isLiked: !current, likesCount: Math.max(0, likes + (current ? -1 : 1)) }
+            : { ...p, isSaved: !current }),
+        };
+      });
+    } catch { Toast.error('Modification non enregistrée. Réessaie.'); }
+    finally { setBusy(false); }
+  };
   const handleLike = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     heartScale.value = withSequence(withSpring(1.5, { damping: 3 }), withSpring(1, { damping: 6 }));
-    toggleLike(post.id);
+    void mutate('like');
   };
 
   const handleSave = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     saveScale.value = withSequence(withSpring(1.4, { damping: 4 }), withSpring(1, { damping: 6 }));
-    toggleSavePost(post.id);
+    void mutate('save');
   };
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Découvre ce tatouage sur INKR : ${post?.caption ?? ''}`,
+        message: `Découvre ce tatouage sur INKR : ${post.caption ?? ''}${Platform.OS === 'web' ? ` ${window.location.origin}/post/${id}` : ''}`,
       });
     } catch {}
   };
 
   const handleReport = () => {
+    if (!user?.id) { router.push('/(auth)/sign-in'); return; }
     Alert.alert(
       'Signaler ce contenu',
       'Pourquoi tu veux signaler ce post ?',
@@ -82,16 +155,20 @@ export default function PostDetailScreen() {
     );
   };
 
-  const submitReport = async (reason: string) => {
-    if (user?.id && id && id.length > 10) {
-      await supabase.from('reports').insert({
+  const submitReport = async (reason: 'spam' | 'inappropriate' | 'fake') => {
+    if (!user?.id) return;
+    try {
+      const { error } = await supabase.from('reports').insert({
         reporter_id: user.id,
         target_type: 'post',
         target_id: id,
         reason,
       });
+      if (error) throw error;
+      Toast.success('Signalement envoyé. Merci.');
+    } catch {
+      Toast.error('Le signalement n’a pas été envoyé. Réessaie.');
     }
-    Alert.alert('Signalement envoyé', 'Merci. Notre équipe va examiner ce contenu.');
   };
 
   const handleOptions = () => {
@@ -133,7 +210,6 @@ export default function PostDetailScreen() {
             source={{ uri: post.mediaUrl }}
             style={[styles.image, { height: SCREEN_W * 1.25 }]}
             contentFit="cover"
-            sharedTransitionTag={`post-image-${post.id}`}
           />
           <LinearGradient
             colors={['rgba(5,5,8,0.5)', 'transparent', 'rgba(5,5,8,0.7)']}
