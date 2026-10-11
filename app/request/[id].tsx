@@ -21,6 +21,7 @@ import {
 } from '@/components/RequestCard';
 import { BottomSheet, GlassSurface, RevealImage, enterUp } from '@/components/motion';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
+import { AppointmentPanel } from '@/components/AppointmentPanel';
 import { useAuthStore } from '@/store/auth-store';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/mock-data';
@@ -72,14 +73,17 @@ function nextStepCopy(r: TattooRequest, viewAs: RequestViewer, counterpart: stri
     switch (r.status) {
       case 'submitted': return 'Répondez à cette demande : acceptez-la, demandez des précisions ou refusez-la.';
       case 'clarification_needed': return 'Vous avez demandé des précisions. Vous pouvez toujours accepter ou refuser la demande.';
-      case 'accepted': return 'Vous avez accepté ce projet. Poursuivez l’échange dans la conversation.';
+      case 'accepted': return 'Vous avez accepté ce projet. Proposez un créneau ci-dessous, puis poursuivez l’échange dans la conversation.';
+      case 'confirmed': return 'Rendez-vous confirmé. Après la séance, marquez-la comme réalisée.';
       default: return null;
     }
   }
   switch (r.status) {
     case 'submitted': return `${counterpart} n’a pas encore répondu. Sa réponse apparaîtra ici.`;
     case 'clarification_needed': return `${counterpart} souhaite des précisions sur votre projet.`;
-    case 'accepted': return `${counterpart} a accepté votre projet. Échangez dans la conversation pour convenir du rendez-vous et du devis.`;
+    case 'accepted': return `${counterpart} a accepté votre projet. Le créneau proposé apparaîtra ci-dessous ; échangez dans la conversation pour le devis.`;
+    case 'confirmed': return 'Votre rendez-vous est confirmé.';
+    case 'completed': return 'Séance réalisée. Vous pouvez laisser un avis.';
     case 'declined': return `${counterpart} ne peut pas réaliser ce projet.`;
     default: return null;
   }
@@ -200,7 +204,7 @@ export default function RequestDetailScreen() {
   const counterpart = (isArtist ? request.clientName : request.artistName) ?? '';
   const counterpartAvatar = isArtist ? request.clientAvatarUrl : request.artistAvatarUrl;
   const canAnswer = isArtist && (request.status === 'submitted' || request.status === 'clarification_needed');
-  const canChat = request.status === 'accepted';
+  const canChat = ['accepted', 'confirmed', 'completed'].includes(request.status);
   const hasBar = canAnswer || canChat;
   const guidance = nextStepCopy(request, viewAs, counterpart);
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
@@ -236,6 +240,17 @@ export default function RequestDetailScreen() {
         <Section title="Suivi" index={1}>
           <StatusTimeline steps={buildTimeline(request, viewAs)} />
           {!!guidance && <TText variant="bodySmall" color="secondary" style={styles.guidance}>{guidance}</TText>}
+          {['accepted', 'confirmed', 'completed'].includes(request.status) && (
+            <View style={{ marginTop: Spacing.md }}>
+              <AppointmentPanel
+                requestId={request.id}
+                requestStatus={request.status}
+                viewAs={viewAs}
+                counterpart={counterpart}
+                onChanged={() => setAttempt((n) => n + 1)}
+              />
+            </View>
+          )}
         </Section>
 
         {!!request.artistNotes && (

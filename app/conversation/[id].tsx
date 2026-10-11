@@ -22,6 +22,7 @@ import { useMessageStore, Message } from '@/store/message-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { pickImage, uploadFile } from '@/lib/storage';
+import { AppointmentPanel } from '@/components/AppointmentPanel';
 
 const THREAD_MAX = 720;
 const MAX_LENGTH = 1000;
@@ -295,6 +296,18 @@ export default function ConversationScreen() {
             </Pressable>
           </View>
         )}
+        {request && ['accepted', 'confirmed', 'completed'].includes(request.status) && (
+          <View style={styles.appointmentSlot}>
+            <AppointmentPanel
+              compact
+              requestId={request.id}
+              requestStatus={request.status}
+              viewAs={isArtist ? 'artist' : 'client'}
+              counterpart={counterpart}
+              onChanged={() => { if (user) void fetchRequest(id, user.id); }}
+            />
+          </View>
+        )}
       </View>
 
       {/* ── Thread ── */}
@@ -382,6 +395,7 @@ export default function ConversationScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  appointmentSlot: { marginTop: 10 },
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
   header: {

@@ -536,7 +536,20 @@ export interface Database {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      propose_appointment: {
+        Args: { p_request_id: string; p_starts_at: string; p_ends_at: string; p_notes?: string | null };
+        Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+      respond_to_appointment: {
+        Args: { p_appointment_id: string; p_accept: boolean };
+        Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+      complete_appointment: {
+        Args: { p_appointment_id: string };
+        Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };
