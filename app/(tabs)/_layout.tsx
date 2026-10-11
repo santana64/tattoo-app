@@ -109,6 +109,8 @@ export default function TabLayout() {
         name="explore"
         options={{
           title: 'Rechercher',
+          // Artists get Messages + Agenda instead: keep the bar at five tabs.
+          href: isArtist ? null : undefined,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="search" color={color} focused={focused} />
           ),
@@ -125,6 +127,15 @@ export default function TabLayout() {
               focused={focused}
               badge={newRequests}
             />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="chatbubbles" color={color} focused={focused} />
           ),
         }}
       />

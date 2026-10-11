@@ -3,7 +3,7 @@ import {
   FlatList, StyleSheet, View, Pressable, ScrollView, RefreshControl, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -12,6 +12,7 @@ import { TText } from '@/components/ui/TText';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { RequestCard, REQUEST_STATUS } from '@/components/RequestCard';
+import { supabase } from '@/lib/supabase';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { enterUp } from '@/components/motion';
@@ -95,6 +96,27 @@ export default function InboxScreen() {
     fetchRequests(user.id, user.role).finally(() => { if (active) setHasLoaded(true); });
     return () => { active = false; };
   }, [user?.id, user?.role, fetchRequests]);
+
+  // Tabs stay mounted: refresh silently whenever the tab regains focus.
+  useFocusEffect(useCallback(() => {
+    if (user?.id && hasLoaded) void fetchRequests(user.id, user.role, { silent: true });
+  }, [user?.id, user?.role, hasLoaded, fetchRequests]));
+
+  // Live updates: a new request (artist) or a status change (client) appears without reloading.
+  useEffect(() => {
+    if (!user?.id) return;
+    const filter = user.role === 'artist'
+      ? (user.artistId ? `artist_id=eq.${user.artistId}` : null)
+      : `client_id=eq.${user.id}`;
+    if (!filter) return;
+    const channel = supabase
+      .channel(`requests:${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tattoo_requests', filter }, () => {
+        void fetchRequests(user.id, user.role, { silent: true });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [user?.id, user?.role, user?.artistId, fetchRequests]);
 
   const counts = useMemo(() => {
     const map: Partial<Record<RequestStatus, number>> = {};

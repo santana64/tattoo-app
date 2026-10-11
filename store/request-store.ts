@@ -42,7 +42,8 @@ interface RequestState {
   error: string | null;
   fetchRequest: (id: string, userId: string) => Promise<TattooRequest | null>;
 
-  fetchRequests: (userId: string, role: 'user' | 'artist') => Promise<void>;
+  /** `silent` refreshes in place without toggling the loading state (focus, realtime). */
+  fetchRequests: (userId: string, role: 'user' | 'artist', opts?: { silent?: boolean }) => Promise<void>;
   submitRequest: (payload: SubmitPayload, userId: string) => Promise<{ id: string | null; error: string | null }>;
   updateStatus: (requestId: string, status: RequestStatus, extra?: { declineReason?: string; artistNotes?: string }) => Promise<{ error: string | null }>;
   getRequest: (id: string) => TattooRequest | undefined;
@@ -120,8 +121,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
     return request;
   },
 
-  fetchRequests: async (userId, role) => {
-    set({ isLoading: true, error: null });
+  fetchRequests: async (userId, role, opts) => {
+    if (!opts?.silent) set({ isLoading: true, error: null });
     try {
       let query;
       if (role === 'artist') {
@@ -145,6 +146,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (error) throw error;
       set({ requests: (data ?? []).map(mapRequest), isLoading: false });
     } catch {
+      // A failed background refresh keeps what is on screen.
+      if (opts?.silent) return;
       set({ requests: [], isLoading: false, error: "Impossible de charger les demandes." });
     }
   },
