@@ -21,6 +21,7 @@ export default function ArtistStep3() {
   const router = useRouter();
   const { updateProfile, saveArtist, session } = useAuthStore();
   const [saving, setSaving] = useState(false);
+  const [uploadFailed, setUploadFailed] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [coverUri, setCoverUri] = useState<string | null>(null);
 
@@ -65,10 +66,15 @@ export default function ArtistStep3() {
       if (avatar) await updateProfile({ avatarUrl: avatar.url });
       router.push('/(onboarding)/artist/step4');
     } catch (e) {
-      console.warn('[onboarding] photo upload failed', e);
-      Toast.error(e instanceof Error && e.message.startsWith('Enregistrement')
-        ? e.message
-        : 'Envoi des photos impossible. Réessayez, ou passez cette étape.');
+      setUploadFailed(true);
+      const detail = e instanceof Error ? e.message : String(e);
+      console.warn('[onboarding] photo upload failed:', detail, e);
+      Toast.error(
+        detail.startsWith('Enregistrement') ? detail
+          : /row-level security|unauthorized|403/i.test(detail)
+            ? 'Le stockage des photos refuse l’envoi : ses règles de sécurité ne sont pas configurées. Passez cette étape pour l’instant.'
+            : 'Envoi des photos impossible. Réessayez, ou passez cette étape.',
+      );
     } finally {
       setSaving(false);
     }
@@ -83,12 +89,23 @@ export default function ArtistStep3() {
       lede="Une photo de vous ou de votre poste de travail aide les clients à savoir à qui ils s’adressent."
       onBack={router.canGoBack() ? () => router.back() : undefined}
       footer={
-        <TButton
-          title={avatarUri ? 'Continuer' : 'Passer cette étape'}
-          variant={avatarUri ? 'primary' : 'secondary'}
-          onPress={handleContinue}
-          loading={saving}
-        />
+        <>
+          <TButton
+            title={avatarUri ? 'Continuer' : 'Passer cette étape'}
+            variant={avatarUri ? 'primary' : 'secondary'}
+            onPress={handleContinue}
+            loading={saving}
+          />
+          {uploadFailed && (
+            <TButton
+              title="Continuer sans photo"
+              variant="ghost"
+              onPress={() => router.push('/(onboarding)/artist/step4')}
+              disabled={saving}
+              style={{ marginTop: 8 }}
+            />
+          )}
+        </>
       }
     >
       {/* Profile photo */}
