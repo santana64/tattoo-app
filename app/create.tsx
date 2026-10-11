@@ -19,6 +19,7 @@ import { useAuthStore, type AppUser } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 import { pickImage, uploadPostMedia } from '@/lib/storage';
 import { Toast } from '@/components/ui/TToast';
+import { useFeedStore } from '@/store/feed-store';
 import { STYLES } from '@/constants/mock-data';
 
 const MAX_STYLES = 3;
@@ -87,9 +88,14 @@ function CreateForm({ user, router, insets }: {
       });
       if (error) throw error;
       Toast.success('Réalisation publiée');
+      void useFeedStore.getState().refresh(user.id);
       router.back();
     } catch (e: any) {
-      Toast.error(e.message ?? 'Erreur lors de la publication.');
+      const detail = String(e?.message ?? e);
+      console.warn('[create] publish failed:', detail, e);
+      Toast.error(/row-level security|unauthorized|403/i.test(detail)
+        ? 'Publication refusée par les règles de sécurité. Reconnectez-vous puis réessayez.'
+        : 'Publication impossible. Vérifiez votre connexion puis réessayez.');
     } finally {
       setIsPublishing(false);
     }

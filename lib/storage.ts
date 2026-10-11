@@ -79,7 +79,8 @@ export async function uploadPostMedia(
   onProgress?: (p: number) => void
 ): Promise<UploadResult> {
   const filename = `${artistId}/${Date.now()}.jpg`;
-  return uploadFile(uri, 'posts-media', filename, onProgress);
+  // Unique name: a plain insert is enough (upsert would also need SELECT + UPDATE policies).
+  return uploadFile(uri, 'posts-media', filename, onProgress, false);
 }
 
 // ─── Upload request reference ─────────────────────────────────────────────────
