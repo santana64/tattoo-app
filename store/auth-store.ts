@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Session } from '@supabase/supabase-js';
 import { supabase, Tables } from '@/lib/supabase';
 import { Platform } from 'react-native';
+import { authErrorMessage } from '@/lib/auth-errors';
 
 let profileLoadVersion = 0;
 
@@ -133,13 +134,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       email,
       options: { emailRedirectTo: authCallbackUrl() },
     });
-    return { error: error?.message ?? null };
+    return { error: authErrorMessage(error) };
   },
 
   signInWithApple: async () => {
     if (Platform.OS === 'web') {
       const { error } = await supabase.auth.signInWithOAuth({ provider: 'apple', options: { redirectTo: authCallbackUrl() } });
-      return { error: error?.message ?? null };
+      return { error: authErrorMessage(error) };
     }
     try {
       const AppleAuth = await import('expo-apple-authentication');
@@ -154,10 +155,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         provider: 'apple',
         token: credential.identityToken,
       });
-      return { error: error?.message ?? null };
+      return { error: authErrorMessage(error) };
     } catch (e: any) {
       if (e.code === 'ERR_REQUEST_CANCELED') return { error: null };
-      return { error: e.message };
+      return { error: authErrorMessage(e) };
     }
   },
 
@@ -166,7 +167,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       provider: 'google',
       options: { redirectTo: authCallbackUrl() },
     });
-    return { error: error?.message ?? null };
+    return { error: authErrorMessage(error) };
   },
 
   signOut: async () => {

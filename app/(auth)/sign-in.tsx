@@ -20,6 +20,7 @@ import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { Logo } from '@/components/ui/Logo';
+import { enabledOAuthProviders } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
@@ -35,6 +36,7 @@ export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { signInWithEmail, signInWithApple, signInWithGoogle, error: profileError, refreshProfile, signOut } = useAuthStore();
+  const oauth = enabledOAuthProviders();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
@@ -205,31 +207,39 @@ export default function SignInScreen() {
               </Animated.View>
             ) : (
               <>
-                {/* ── Providers ──────────────────────────────────── */}
-                <Animated.View entering={enterUp(2, STAGGER_BASE)} style={styles.providers}>
-                  <TButton
-                    title="Continuer avec Apple"
-                    variant="secondary"
-                    onPress={handleApple}
-                    loading={loading === 'apple'}
-                    disabled={!!loading}
-                    icon={<Ionicons name="logo-apple" size={19} color={Colors.textPrimary} />}
-                  />
-                  <TButton
-                    title="Continuer avec Google"
-                    variant="secondary"
-                    onPress={handleGoogle}
-                    loading={loading === 'google'}
-                    disabled={!!loading}
-                    icon={<Ionicons name="logo-google" size={17} color={Colors.textPrimary} />}
-                  />
-                </Animated.View>
+                {/* ── Providers (only those enabled on the Supabase project) ── */}
+                {oauth.size > 0 && (
+                  <>
+                    <Animated.View entering={enterUp(2, STAGGER_BASE)} style={styles.providers}>
+                      {oauth.has('apple') && (
+                        <TButton
+                          title="Continuer avec Apple"
+                          variant="secondary"
+                          onPress={handleApple}
+                          loading={loading === 'apple'}
+                          disabled={!!loading}
+                          icon={<Ionicons name="logo-apple" size={19} color={Colors.textPrimary} />}
+                        />
+                      )}
+                      {oauth.has('google') && (
+                        <TButton
+                          title="Continuer avec Google"
+                          variant="secondary"
+                          onPress={handleGoogle}
+                          loading={loading === 'google'}
+                          disabled={!!loading}
+                          icon={<Ionicons name="logo-google" size={17} color={Colors.textPrimary} />}
+                        />
+                      )}
+                    </Animated.View>
 
-                <Animated.View entering={enterUp(3, STAGGER_BASE)} style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <TText variant="caption" color="tertiary">ou par e-mail</TText>
-                  <View style={styles.dividerLine} />
-                </Animated.View>
+                    <Animated.View entering={enterUp(3, STAGGER_BASE)} style={styles.dividerRow}>
+                      <View style={styles.dividerLine} />
+                      <TText variant="caption" color="tertiary">ou par e-mail</TText>
+                      <View style={styles.dividerLine} />
+                    </Animated.View>
+                  </>
+                )}
 
                 {/* ── Email magic link ───────────────────────────── */}
                 <Animated.View entering={enterUp(4, STAGGER_BASE)}>
