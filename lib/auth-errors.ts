@@ -12,6 +12,11 @@ const MESSAGES: Record<string, string> = {
   flow_state_not_found: 'Ce lien doit être ouvert dans le navigateur où vous l’avez demandé. Demandez un nouveau lien depuis cet appareil.',
   flow_state_expired: 'Ce lien a expiré. Demandez-en un nouveau.',
   bad_code_verifier: 'Ce lien doit être ouvert dans le navigateur où vous l’avez demandé. Demandez un nouveau lien depuis cet appareil.',
+  invalid_credentials: 'E-mail ou mot de passe incorrect.',
+  user_already_exists: 'Un compte existe déjà avec cette adresse. Connectez-vous.',
+  email_exists: 'Un compte existe déjà avec cette adresse. Connectez-vous.',
+  weak_password: 'Mot de passe trop faible : utilisez au moins 8 caractères, avec lettres et chiffres.',
+  email_not_confirmed: 'Confirmez d’abord votre adresse grâce à l’e-mail reçu, puis connectez-vous.',
   unexpected_failure: 'Le service de connexion a rencontré une erreur. Réessayez dans un instant.',
 };
 
@@ -21,6 +26,10 @@ export function authErrorMessage(error: Pick<AuthError, 'message'> & { code?: st
   if (error.code && MESSAGES[error.code]) return MESSAGES[error.code];
   const msg = error.message.toLowerCase();
   if (msg.includes('rate limit')) return MESSAGES.over_email_send_rate_limit;
+  if (msg.includes('invalid login credentials')) return MESSAGES.invalid_credentials;
+  if (msg.includes('already registered')) return MESSAGES.user_already_exists;
+  if (msg.includes('email not confirmed')) return MESSAGES.email_not_confirmed;
+  if (msg.includes('password should')) return MESSAGES.weak_password;
   if (msg.includes('not authorized')) return MESSAGES.email_address_not_authorized;
   if (msg.includes('provider is not enabled') || msg.includes('unsupported provider')) return MESSAGES.provider_disabled;
   if (msg.includes('code verifier') || msg.includes('flow state')) return MESSAGES.flow_state_not_found;

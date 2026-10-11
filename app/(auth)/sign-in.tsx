@@ -25,6 +25,8 @@ import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
 const FORM_MAX_WIDTH = 480;
+const MIN_PASSWORD = 8;
+type AuthMode = 'signin' | 'signup' | 'magic';
 // Format check only: the provider remains the source of truth.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -35,12 +37,20 @@ export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { signInWithEmail, signInWithApple, signInWithGoogle, error: profileError, refreshProfile, signOut } = useAuthStore();
+  const {
+    signInWithEmail, signInWithPassword, signUpWithPassword, signInWithApple, signInWithGoogle,
+    error: profileError, refreshProfile, signOut,
+  } = useAuthStore();
   const oauth = enabledOAuthProviders();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
-  const [emailSent, setEmailSent] = useState(false);
+  const [emailSent, setEmailSent] = useState<false | 'magic' | 'confirm'>(false);
   const [emailTouched, setEmailTouched] = useState(false);
+  // Password is the default: it works even when the e-mail provider is throttled.
+  const [mode, setMode] = useState<AuthMode>('signin');
+  const [password, setPassword] = useState('');
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleApple = async () => {
     setLoading('apple');
@@ -64,9 +74,41 @@ export default function SignInScreen() {
     if (error) {
       Toast.error(error);
     } else {
-      setEmailSent(true);
+      setEmailSent('magic');
       Toast.success('Lien envoyé. Vérifiez votre boîte mail.');
     }
+  };
+
+  const passwordError = passwordTouched && mode !== 'magic'
+    ? (!password
+      ? 'Saisissez votre mot de passe.'
+      : mode === 'signup' && password.length < MIN_PASSWORD
+        ? `Au moins ${MIN_PASSWORD} caractères.`
+        : undefined)
+    : undefined;
+
+  const handlePassword = async () => {
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    const tooShort = mode === 'signup' && password.length < MIN_PASSWORD;
+    if (!EMAIL_PATTERN.test(email.trim()) || !password || tooShort) return;
+    setLoading('password');
+    if (mode === 'signup') {
+      const { error, needsConfirmation } = await signUpWithPassword(email.trim(), password);
+      setLoading(null);
+      if (error) Toast.error(error);
+      else if (needsConfirmation) setEmailSent('confirm');
+      // Otherwise a session exists: the root layout routes to onboarding.
+    } else {
+      const { error } = await signInWithPassword(email.trim(), password);
+      setLoading(null);
+      if (error) Toast.error(error);
+    }
+  };
+
+  const switchMode = (next: AuthMode) => {
+    setMode(next);
+    setPasswordTouched(false);
   };
 
   const emailValid = EMAIL_PATTERN.test(email.trim());
@@ -137,7 +179,7 @@ export default function SignInScreen() {
               </TText>
               <TText variant="body" color="secondary" style={styles.lede}>
                 Un seul compte pour suivre vos artistes, confier vos projets et retrouver vos
-                rendez-vous. Aucun mot de passe à retenir.
+                rendez-vous.
               </TText>
             </Animated.View>
 
@@ -179,22 +221,33 @@ export default function SignInScreen() {
                   <TText variant="displayS" italic color="accentGlow">boîte mail</TText>
                 </TText>
                 <TText variant="bodySmall" color="secondary" style={styles.sentText}>
-                  Nous avons envoyé un lien de connexion à{' '}
-                  <TText variant="bodySmall" weight="medium">{email.trim()}</TText>.
+                  {emailSent === 'confirm' ? 'Votre compte est créé. Confirmez l’adresse ' : 'Nous avons envoyé un lien de connexion à '}
+                  <TText variant="bodySmall" weight="medium">{email.trim()}</TText>
+                  {emailSent === 'confirm' ? ' grâce au lien reçu, puis connectez-vous.' : '.'}
                 </TText>
                 <TText variant="caption" color="tertiary" style={styles.sentText}>
                   Ouvrez-le depuis cet appareil pour terminer la connexion. Pensez à vérifier
                   vos courriers indésirables.
                 </TText>
                 <View style={styles.sentActions}>
-                  <TButton
-                    title="Renvoyer le lien"
-                    variant="secondary"
-                    size="md"
-                    fullWidth={false}
-                    loading={loading === 'email'}
-                    onPress={handleEmail}
-                  />
+                  {emailSent === 'magic' ? (
+                    <TButton
+                      title="Renvoyer le lien"
+                      variant="secondary"
+                      size="md"
+                      fullWidth={false}
+                      loading={loading === 'email'}
+                      onPress={handleEmail}
+                    />
+                  ) : (
+                    <TButton
+                      title="J’ai confirmé, me connecter"
+                      variant="secondary"
+                      size="md"
+                      fullWidth={false}
+                      onPress={() => { setEmailSent(false); switchMode('signin'); }}
+                    />
+                  )}
                   <TButton
                     title="Changer d’adresse"
                     variant="ghost"
@@ -241,8 +294,26 @@ export default function SignInScreen() {
                   </>
                 )}
 
-                {/* ── Email magic link ───────────────────────────── */}
-                <Animated.View entering={enterUp(4, STAGGER_BASE)}>
+                {/* ── Mode switch ─────────────────────────────────── */}
+                {mode !== 'magic' && (
+                  <Animated.View entering={enterUp(4, STAGGER_BASE)} style={styles.segment} accessibilityRole="tablist">
+                    {(['signin', 'signup'] as const).map((m) => (
+                      <Pressable
+                        key={m}
+                        onPress={() => switchMode(m)}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: mode === m }}
+                        style={[styles.segmentItem, mode === m && styles.segmentItemActive]}
+                      >
+                        <TText variant="bodySmall" weight="medium" style={{ color: mode === m ? Colors.textInverse : Colors.textSecondary }}>
+                          {m === 'signin' ? 'Se connecter' : 'Créer un compte'}
+                        </TText>
+                      </Pressable>
+                    ))}
+                  </Animated.View>
+                )}
+
+                <Animated.View entering={enterUp(5, STAGGER_BASE)}>
                   <TInput
                     label="Adresse e-mail"
                     value={email}
@@ -250,23 +321,75 @@ export default function SignInScreen() {
                     onBlur={() => { if (email.trim()) setEmailTouched(true); }}
                     placeholder="vous@exemple.fr"
                     error={emailError}
-                    helper="Nous vous envoyons un lien de connexion par e-mail."
+                    helper={mode === 'magic' ? 'Nous vous envoyons un lien de connexion par e-mail.' : undefined}
                     keyboardType="email-address"
                     inputMode="email"
                     autoCapitalize="none"
                     autoCorrect={false}
                     autoComplete="email"
                     textContentType="emailAddress"
-                    returnKeyType="send"
-                    onSubmitEditing={submitEmail}
-                    editable={loading !== 'email'}
+                    returnKeyType={mode === 'magic' ? 'send' : 'next'}
+                    onSubmitEditing={mode === 'magic' ? submitEmail : undefined}
+                    editable={!loading}
                   />
-                  <TButton
-                    title="Recevoir le lien de connexion"
-                    onPress={submitEmail}
-                    loading={loading === 'email'}
-                    disabled={!!loading && loading !== 'email'}
-                  />
+
+                  {mode !== 'magic' && (
+                    <TInput
+                      label="Mot de passe"
+                      value={password}
+                      onChangeText={setPassword}
+                      onBlur={() => { if (password) setPasswordTouched(true); }}
+                      placeholder={mode === 'signup' ? `${MIN_PASSWORD} caractères minimum` : 'Votre mot de passe'}
+                      error={passwordError}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                      textContentType={mode === 'signup' ? 'newPassword' : 'password'}
+                      returnKeyType="go"
+                      onSubmitEditing={() => void handlePassword()}
+                      editable={!loading}
+                      rightElement={
+                        <Pressable
+                          onPress={() => setShowPassword((v) => !v)}
+                          hitSlop={10}
+                          accessibilityRole="button"
+                          accessibilityLabel={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                        >
+                          <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={Colors.textTertiary} />
+                        </Pressable>
+                      }
+                    />
+                  )}
+
+                  {mode === 'magic' ? (
+                    <TButton
+                      title="Recevoir le lien de connexion"
+                      onPress={submitEmail}
+                      loading={loading === 'email'}
+                      disabled={!!loading && loading !== 'email'}
+                    />
+                  ) : (
+                    <TButton
+                      title={mode === 'signup' ? 'Créer mon compte' : 'Se connecter'}
+                      onPress={() => void handlePassword()}
+                      loading={loading === 'password'}
+                      disabled={!!loading && loading !== 'password'}
+                    />
+                  )}
+
+                  <Pressable
+                    onPress={() => switchMode(mode === 'magic' ? 'signin' : 'magic')}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    style={styles.altLink}
+                  >
+                    <TText variant="bodySmall" color="secondary" style={styles.underline}>
+                      {mode === 'magic'
+                        ? 'Utiliser plutôt un mot de passe'
+                        : mode === 'signin' ? 'Mot de passe oublié ? Recevoir un lien de connexion' : 'Recevoir plutôt un lien par e-mail'}
+                    </TText>
+                  </Pressable>
                 </Animated.View>
               </>
             )}
@@ -379,4 +502,24 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xl,
   },
   underline: { textDecorationLine: 'underline' },
+
+  segment: {
+    flexDirection: 'row',
+    padding: 4,
+    gap: 4,
+    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
+    backgroundColor: Colors.bgElevated,
+    marginBottom: Spacing.lg,
+  },
+  segmentItem: {
+    flex: 1,
+    height: 40,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentItemActive: { backgroundColor: Colors.accentAction },
+  altLink: { alignSelf: 'center', marginTop: Spacing.md, paddingVertical: 4 },
 });

@@ -41,6 +41,9 @@ interface AuthState {
   initialize: () => () => void;
   _loadUser: (session: Session) => Promise<void>;
   signInWithEmail: (email: string) => Promise<{ error: string | null }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
+  /** `needsConfirmation` is true when the project requires e-mail confirmation (no session yet). */
+  signUpWithPassword: (email: string, password: string) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   signInWithApple: () => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -135,6 +138,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       options: { emailRedirectTo: authCallbackUrl() },
     });
     return { error: authErrorMessage(error) };
+  },
+
+  signInWithPassword: async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: authErrorMessage(error) };
+  },
+
+  signUpWithPassword: async (email, password) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: authCallbackUrl() },
+    });
+    if (error) return { error: authErrorMessage(error), needsConfirmation: false };
+    // With e-mail confirmation off, Supabase returns a session immediately and
+    // onAuthStateChange takes over. Otherwise the user must confirm first.
+    return { error: null, needsConfirmation: !data.session };
   },
 
   signInWithApple: async () => {
