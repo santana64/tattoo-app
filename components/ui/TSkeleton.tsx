@@ -18,13 +18,13 @@ interface SkeletonProps {
 }
 
 export function TSkeleton({ width = '100%', height = 16, radius = Radius.sm, style }: SkeletonProps) {
-  const opacity = useSharedValue(0.3);
+  const opacity = useSharedValue(0.45);
 
   useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
-        withTiming(0.7, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.3, { duration: 800, easing: Easing.inOut(Easing.ease) })
+        withTiming(0.85, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.45, { duration: 900, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       false
@@ -35,7 +35,7 @@ export function TSkeleton({ width = '100%', height = 16, radius = Radius.sm, sty
 
   return (
     <Animated.View
-      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgSurface }, animStyle, style]}
+      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgElevated }, animStyle, style]}
     />
   );
 }

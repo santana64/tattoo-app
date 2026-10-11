@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from './TText';
 import { TButton } from './TButton';
 
@@ -18,9 +18,11 @@ export function EmptyState({ icon, title, description, ctaLabel, onCta, style }:
   return (
     <View style={[styles.container, style]}>
       {icon && (
-        <Ionicons name={icon} size={48} color={Colors.textTertiary} style={styles.icon} />
+        <View style={styles.iconFrame}>
+          <Ionicons name={icon} size={22} color={Colors.accentWarm} />
+        </View>
       )}
-      <TText variant="title2" style={styles.title}>
+      <TText variant="displayS" style={styles.title}>
         {title}
       </TText>
       {description && (
@@ -35,7 +37,6 @@ export function EmptyState({ icon, title, description, ctaLabel, onCta, style }:
           variant="secondary"
           size="md"
           fullWidth={false}
-          style={styles.cta}
         />
       )}
     </View>
@@ -47,19 +48,28 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Spacing['2xl'],
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing['3xl'],
   },
-  icon: {
+  iconFrame: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
     marginBottom: Spacing.md,
   },
   title: {
     textAlign: 'center',
     marginBottom: Spacing['2xs'],
+    maxWidth: Layout.maxReading,
   },
   description: {
     textAlign: 'center',
     marginBottom: Spacing.lg,
-    lineHeight: 22,
+    maxWidth: 360,
   },
-  cta: {},
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, ViewStyle, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,39 +27,43 @@ export function THeader({
   const router = useRouter();
 
   const handleBack = () => {
-    if (onBack) {
-      onBack();
-    } else {
-      router.back();
-    }
+    if (onBack) onBack();
+    else if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
   };
 
   return (
     <View
       style={[
         styles.container,
-        { paddingTop: insets.top + 8 },
+        { paddingTop: insets.top + 6 },
         transparent ? styles.transparent : styles.solid,
         style,
       ]}
     >
       <View style={styles.inner}>
         {showBack ? (
-          <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-          </TouchableOpacity>
+          <Pressable
+            onPress={handleBack}
+            accessibilityRole="button"
+            accessibilityLabel="Retour"
+            hitSlop={8}
+            style={({ pressed }) => [styles.backButton, transparent && styles.backOnImage, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+          </Pressable>
         ) : (
-          <View style={styles.backButton} />
+          <View style={styles.spacer} />
         )}
 
-        {title && (
-          <TText variant="title2" style={styles.title} numberOfLines={1}>
+        {title ? (
+          <TText variant="bodySmall" weight="semibold" style={styles.title} numberOfLines={1} accessibilityRole="header">
             {title}
           </TText>
-        )}
+        ) : <View style={{ flex: 1 }} />}
 
         <View style={styles.right}>
-          {rightElement || <View style={{ width: 40 }} />}
+          {rightElement || <View style={styles.spacer} />}
         </View>
       </View>
     </View>
@@ -89,15 +93,24 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    alignItems: 'flex-start',
+    borderRadius: 20,
+    alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
+  backOnImage: {
+    backgroundColor: 'rgba(11,10,9,0.55)',
+    borderColor: Colors.glassBorderBright,
+  },
+  spacer: { width: 40 },
   title: {
     flex: 1,
     textAlign: 'center',
+    fontSize: 15,
   },
   right: {
-    width: 40,
+    minWidth: 40,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },

@@ -1,14 +1,13 @@
 import React, { useCallback } from 'react';
 import {
-  StyleSheet, ViewStyle, TextStyle, ActivityIndicator, View,
+  StyleSheet, ViewStyle, TextStyle, ActivityIndicator, View, Pressable, Platform,
 } from 'react-native';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withTiming,
+  useSharedValue, useAnimatedStyle, withSpring,
 } from 'react-native-reanimated';
-import { TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Radius, Spacing, GlowShadow } from '@/constants/theme';
+import { Colors, Radius, GlowShadow, SpringConfig } from '@/constants/theme';
 import { TText } from './TText';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'glass' | 'glow';
@@ -26,7 +25,14 @@ interface TButtonProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   fullWidth?: boolean;
+  accessibilityLabel?: string;
 }
+
+// RN-web adds hover/focus to the Pressable state; native only reports `pressed`.
+type InteractionState = { pressed: boolean; hovered?: boolean; focused?: boolean };
+
+const HEIGHTS: Record<Size, number> = { sm: 38, md: 46, lg: 54 };
+const PAD_X: Record<Size, number> = { sm: 14, md: 18, lg: 24 };
 
 export function TButton({
   title,
@@ -40,58 +46,65 @@ export function TButton({
   style,
   textStyle,
   fullWidth = true,
+  accessibilityLabel,
 }: TButtonProps) {
   const scale = useSharedValue(1);
+  const inactive = disabled || loading;
 
   const handlePressIn = useCallback(() => {
-    scale.value = withSpring(0.96, { damping: 15, stiffness: 300 });
-  }, []);
+    scale.value = withSpring(0.975, SpringConfig.snappy);
+  }, [scale]);
 
   const handlePressOut = useCallback(() => {
-    scale.value = withSpring(1, { damping: 12, stiffness: 250 });
-  }, []);
+    scale.value = withSpring(1, SpringConfig.gentle);
+  }, [scale]);
 
   const handlePress = () => {
-    if (disabled || loading) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (inactive) return;
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress?.();
   };
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const heights = { sm: 36, md: 44, lg: 54 };
-  const h = heights[size];
-  const isLight = variant === 'primary';
-  const isGlow = variant === 'glow';
-  const isGlass = variant === 'glass';
+  const filled = variant === 'primary' || variant === 'glow';
+  const labelColor = filled
+    ? Colors.textInverse
+    : variant === 'destructive' ? Colors.errorLight
+    : variant === 'ghost' ? Colors.textSecondary
+    : Colors.textPrimary;
 
   return (
     <Animated.View style={[animStyle, fullWidth && { width: '100%' }, style]}>
-      <TouchableOpacity
-        activeOpacity={1}
+      <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        disabled={disabled || loading}
-        style={[
-          styles.base,
-          { height: h },
-          isGlow && styles.variantGlow,
-          isGlass && styles.variantGlass,
-          variant === 'secondary' && styles.variantSecondary,
-          variant === 'ghost' && styles.variantGhost,
-          variant === 'destructive' && styles.variantDestructive,
-          (disabled || loading) && styles.disabled,
-        ]}
+        disabled={inactive}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? title}
+        accessibilityState={{ disabled: inactive, busy: loading }}
+        style={(state) => {
+          const { hovered, focused, pressed } = state as InteractionState;
+          return [
+            styles.base,
+            { height: HEIGHTS[size], paddingHorizontal: PAD_X[size] },
+            variant === 'primary' && styles.primary,
+            variant === 'glow' && styles.glow,
+            variant === 'secondary' && styles.secondary,
+            variant === 'glass' && styles.glass,
+            variant === 'ghost' && styles.ghost,
+            variant === 'destructive' && styles.destructive,
+            hovered && !inactive && (filled ? styles.filledHover : styles.outlineHover),
+            pressed && !filled && styles.outlinePressed,
+            focused && styles.focused,
+            inactive && styles.disabled,
+          ];
+        }}
       >
-        {/* Glow/primary gradient fill */}
-        {(variant === 'primary' || isGlow) && (
+        {variant === 'glow' && (
           <LinearGradient
-            colors={isGlow
-              ? ['#D4A96A', '#C8A882', '#B8987A']
-              : ['#FFFFFF', '#E8E0D0']}
+            colors={[Colors.premiumGradStart, Colors.premiumGradEnd]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -99,67 +112,61 @@ export function TButton({
         )}
 
         {loading ? (
-          <ActivityIndicator
-            color={isLight || isGlow ? Colors.textInverse : Colors.textPrimary}
-            size="small"
-          />
+          <ActivityIndicator color={labelColor} size="small" />
         ) : (
           <View style={styles.inner}>
             {icon && iconPosition === 'left' && <View style={styles.iconLeft}>{icon}</View>}
             <TText
               variant={size === 'sm' ? 'caption' : 'bodySmall'}
-              weight="bold"
-              color={isLight || isGlow ? 'inverse' : variant === 'destructive' ? 'primary' : 'primary'}
-              uppercase={size !== 'sm'}
+              weight="semibold"
               style={[
-                styles.text,
-                { letterSpacing: size === 'sm' ? 0.5 : 1.5 },
+                { color: labelColor, fontSize: size === 'lg' ? 15 : size === 'md' ? 14 : 13, letterSpacing: -0.1 },
                 textStyle,
               ]}
+              numberOfLines={1}
             >
               {title}
             </TText>
             {icon && iconPosition === 'right' && <View style={styles.iconRight}>{icon}</View>}
           </View>
         )}
-      </TouchableOpacity>
+      </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: Radius.full,
+    borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer', transitionDuration: '180ms' } as object : null),
   },
-  inner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  inner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   iconLeft:  { marginRight: 8 },
   iconRight: { marginLeft: 8 },
-  text: {},
-  variantSecondary: {
+  primary: { backgroundColor: Colors.accentAction },
+  glow: { ...GlowShadow.amber },
+  secondary: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: Colors.borderGlass,
+    borderColor: Colors.borderDefault,
   },
-  variantGhost: {
-    backgroundColor: 'transparent',
-  },
-  variantDestructive: {
-    backgroundColor: Colors.error,
-  },
-  variantGlow: {
-    ...GlowShadow.amberStrong,
-  },
-  variantGlass: {
-    backgroundColor: Colors.glassBg,
+  glass: {
+    backgroundColor: Colors.glassBgMid,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
   },
-  disabled: { opacity: 0.35 },
+  ghost: { backgroundColor: 'transparent' },
+  destructive: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(217,105,95,0.45)',
+  },
+  filledHover: { opacity: 0.9 },
+  outlineHover: { backgroundColor: Colors.glassBgHover, borderColor: Colors.borderGlass },
+  outlinePressed: { backgroundColor: Colors.bgSubtle },
+  focused: { borderWidth: 1.5, borderColor: Colors.borderFocus },
+  disabled: { opacity: 0.38 },
 });

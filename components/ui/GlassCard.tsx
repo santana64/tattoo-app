@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Radius, Shadow, Gradients } from '@/constants/theme';
 
 interface GlassCardProps {
   children: React.ReactNode;
@@ -21,31 +21,20 @@ export function GlassCard({
   const baseStyle: ViewStyle = {
     borderRadius: radius,
     overflow: 'hidden' as const,
-    ...(padding !== undefined ? { padding } : {}),
     ...VARIANT_STYLES[variant],
+    ...(padding !== undefined ? { padding } : {}),
     ...style,
   };
 
+  // Gold-lit variants: a soft wash from the top-left, like a spotlight on a plinth.
   if (variant === 'glow' || variant === 'premium') {
     return (
       <View style={baseStyle}>
         <LinearGradient
-          colors={['rgba(212,168,100,0.10)', 'rgba(212,168,100,0.03)']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
-        />
-        {children}
-      </View>
-    );
-  }
-
-  if (variant === 'violet') {
-    return (
-      <View style={baseStyle}>
-        <LinearGradient
-          colors={['rgba(139,92,246,0.10)', 'rgba(139,92,246,0.03)']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+          colors={Gradients.premiumCard}
+          start={{ x: 0, y: 0 }} end={{ x: 0.8, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
         />
         {children}
       </View>
@@ -55,45 +44,44 @@ export function GlassCard({
   return <View style={baseStyle}>{children}</View>;
 }
 
-const VARIANT_STYLES: Record<string, ViewStyle> = {
+const hairline = StyleSheet.hairlineWidth;
+
+const VARIANT_STYLES: Record<NonNullable<GlassCardProps['variant']>, ViewStyle> = {
   default: {
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    padding: 16,
+    backgroundColor: Colors.bgCard,
+    borderWidth: hairline,
+    borderColor: Colors.borderDefault,
+    padding: 18,
   },
   elevated: {
-    backgroundColor: Colors.bgSurface,
-    borderWidth: 1,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: hairline,
     borderColor: Colors.borderDefault,
-    padding: 16,
-    ...GlowShadow.white,
+    padding: 18,
+    ...Shadow.md,
   },
   glow: {
-    backgroundColor: Colors.glassAmber,
-    borderWidth: 1.5,
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
     borderColor: Colors.borderGlow,
-    padding: 16,
-    ...GlowShadow.amber,
+    padding: 18,
   },
   premium: {
-    backgroundColor: Colors.glassAmber,
-    borderWidth: 1.5,
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
     borderColor: Colors.borderGlow,
-    padding: 16,
-    ...GlowShadow.amber,
+    padding: 18,
   },
   violet: {
-    backgroundColor: Colors.glassViolet,
-    borderWidth: 1.5,
+    backgroundColor: Colors.bgCard,
+    borderWidth: hairline,
     borderColor: Colors.borderViolet,
-    padding: 16,
-    ...GlowShadow.violet,
+    padding: 18,
   },
   surface: {
     backgroundColor: Colors.bgCard,
-    borderWidth: 1,
+    borderWidth: hairline,
     borderColor: Colors.borderSubtle,
-    padding: 16,
+    padding: 18,
   },
 };

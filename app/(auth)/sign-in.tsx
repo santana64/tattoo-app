@@ -165,7 +165,7 @@ export default function SignInScreen() {
             color="secondary"
             style={styles.tagline}
           >
-            L�art du tatouage, réinventé.
+            L’art du tatouage, réinventé.
           </TText>
         </Animated.View>
 
@@ -176,9 +176,9 @@ export default function SignInScreen() {
             <View style={styles.emailFormCard}>
               <TText color="secondary">{profileError}</TText>
               <TouchableOpacity onPress={() => void refreshProfile()}>
-                <TText>R�essayer le chargement</TText>
+                <TText>Réessayer le chargement</TText>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => void signOut().catch(() => Toast.error('D�connexion impossible. R�essaie.'))}>
+              <TouchableOpacity onPress={() => void signOut().catch(() => Toast.error('Déconnexion impossible. Réessaie.'))}>
                 <TText>Utiliser un autre compte</TText>
               </TouchableOpacity>
             </View>

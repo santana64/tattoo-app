@@ -5,10 +5,10 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
-  TouchableOpacity,
   TextInputProps,
+  Platform,
 } from 'react-native';
-import { Colors, Radius, Spacing, FontSize } from '@/constants/theme';
+import { Colors, Radius, Spacing, FontSize, Fonts } from '@/constants/theme';
 import { TText } from './TText';
 
 interface TInputProps extends TextInputProps {
@@ -29,6 +29,8 @@ export function TInput({
   inputStyle,
   rightElement,
   optional = false,
+  onFocus,
+  onBlur,
   ...props
 }: TInputProps) {
   const [focused, setFocused] = useState(false);
@@ -37,11 +39,11 @@ export function TInput({
     <View style={[styles.container, containerStyle]}>
       {label && (
         <View style={styles.labelRow}>
-          <TText variant="caption" color="secondary" style={styles.label}>
+          <TText variant="caption" weight="medium" color="secondary">
             {label}
           </TText>
           {optional && (
-            <TText variant="caption" color="tertiary" style={styles.optional}>
+            <TText variant="caption" color="tertiary">
               Optionnel
             </TText>
           )}
@@ -57,14 +59,16 @@ export function TInput({
         <TextInput
           style={[styles.input, inputStyle]}
           placeholderTextColor={Colors.textTertiary}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          selectionColor={Colors.accentWarm}
+          accessibilityLabel={label ?? props.placeholder}
+          onFocus={(e) => { setFocused(true); onFocus?.(e); }}
+          onBlur={(e) => { setFocused(false); onBlur?.(e); }}
           {...props}
         />
         {rightElement && <View style={styles.right}>{rightElement}</View>}
       </View>
       {error ? (
-        <TText variant="caption" color="error" style={styles.message}>
+        <TText variant="caption" color="error" style={styles.message} accessibilityLiveRegion="polite">
           {error}
         </TText>
       ) : helper ? (
@@ -83,24 +87,21 @@ const styles = StyleSheet.create({
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: Spacing['3xs'],
+    marginBottom: 8,
   },
-  label: {
-    marginBottom: 2,
-  },
-  optional: {},
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.md,
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    borderColor: Colors.borderDefault,
     paddingHorizontal: Spacing.sm,
-    minHeight: 52,
+    minHeight: 54,
   },
   inputFocused: {
-    borderColor: Colors.accent,
+    borderColor: Colors.borderFocus,
+    backgroundColor: Colors.bgSurface,
   },
   inputError: {
     borderColor: Colors.error,
@@ -108,13 +109,15 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     color: Colors.textPrimary,
+    fontFamily: Fonts.sans,
     fontSize: FontSize.body,
     paddingVertical: Spacing['2xs'],
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null),
   },
   right: {
     marginLeft: Spacing['2xs'],
   },
   message: {
-    marginTop: 4,
+    marginTop: 6,
   },
 });

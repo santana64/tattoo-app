@@ -51,9 +51,10 @@ export function TAvatar({ uri, name, size = 'md', showBadge = false, isPremium =
           ]}
         >
           <TText
-            variant="caption"
-            color="secondary"
-            style={{ fontSize: dim * 0.3 }}
+            variant="displayS"
+            italic
+            color="accentGlow"
+            style={{ fontSize: dim * 0.42, lineHeight: dim * 0.5 }}
           >
             {initials}
           </TText>
@@ -70,11 +71,11 @@ export function TAvatar({ uri, name, size = 'md', showBadge = false, isPremium =
 
 const styles = StyleSheet.create({
   fallback: {
-    backgroundColor: Colors.bgSurface,
+    backgroundColor: Colors.bgElevated,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    borderColor: Colors.borderGlow,
   },
   badge: {
     position: 'absolute',

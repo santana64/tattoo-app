@@ -16,6 +16,12 @@
       "autoPort": true
     },
     {
+      "name": "Expo web 8090",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web", "--port", "8090"],
+      "port": 8090
+    },
+    {
       "name": "Expo (Android)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "android"],

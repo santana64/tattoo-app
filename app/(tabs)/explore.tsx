@@ -1,25 +1,20 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
-  FlatList, StyleSheet, View, TextInput, TouchableOpacity,
-  ScrollView, Dimensions, Animated as RNAnimated, RefreshControl,
+  FlatList, StyleSheet, View, TextInput, Pressable,
+  ScrollView, RefreshControl, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import Animated, {
-  FadeIn, FadeInDown, FadeInUp, FadeInRight,
-  SlideInDown, SlideOutDown,
-  useSharedValue, useAnimatedStyle, withSpring, withTiming,
-} from 'react-native-reanimated';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, FontSize, GlowShadow, Gradients } from '@/constants/theme';
+import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TButton } from '@/components/ui/TButton';
+import { TSkeleton } from '@/components/ui/TSkeleton';
 import { ArtistCard } from '@/components/ArtistCard';
-import { TAvatar } from '@/components/ui/TAvatar';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
@@ -28,233 +23,149 @@ import type { Artist } from '@/constants/mock-data';
 import { supabase } from '@/lib/supabase';
 import { mapArtist, PUBLIC_ARTIST_COLUMNS } from '@/lib/catalog';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const AVAILABILITY_OPTIONS = ['Tous', 'Disponible', 'En pause', 'Fermé'];
-
-// ─── Supabase → Artist shape ──────────────────────────────────────────────────
-function mapSupabaseArtist(row: any): Artist {
-  return {
-    id: row.id,
-    blaze: row.blaze,
-    city: row.city,
-    bio: row.bio ?? '',
-    coverUrl: row.cover_url ?? '',
-    avatarUrl: row.avatar_url ?? '',
-    styles: row.styles ?? [],
-    specialties: row.specialties ?? [],
-    bookingStatus: row.booking_status,
-    minBudget: row.min_budget ?? 0,
-    tier: row.tier,
-    isVerified: row.is_verified ?? false,
-    stats: {
-      posts: row.stat_posts ?? 0,
-      profileViews: row.stat_profile_views ?? 0,
-      requestsThisMonth: row.stat_requests_month ?? 0,
-    },
-    exclusions: row.exclusions ?? [],
-    faq: [],
-    rules: row.rules ?? '',
-    process: row.process ?? undefined,
-  };
-}
-
 interface ExploreTrendingPost {
   id: string;
   mediaUrl: string;
   artistName: string;
-  likesCount: number;
 }
+
+type Availability = 'all' | 'open' | 'paused' | 'closed';
+type SortKey = 'relevance' | 'open' | 'budget_asc';
+
+const AVAILABILITY_OPTIONS: Array<{ value: Availability; label: string; dot?: string }> = [
+  { value: 'all', label: 'Tous' },
+  { value: 'open', label: 'Prend des projets', dot: Colors.success },
+  { value: 'paused', label: 'Liste d’attente', dot: Colors.warning },
+  { value: 'closed', label: 'Complet', dot: Colors.textTertiary },
+];
+// Minimum budget an artist accepts — not a quote. Artists without a public budget are excluded when a cap is set.
 const BUDGET_OPTIONS: Array<{ label: string; value: number | null }> = [
   { label: 'Tous', value: null },
-  { label: '≤ 300€', value: 300 },
-  { label: '≤ 500€', value: 500 },
-  { label: '≤ 800€', value: 800 },
+  { label: 'Jusqu’à 300 €', value: 300 },
+  { label: 'Jusqu’à 500 €', value: 500 },
+  { label: 'Jusqu’à 800 €', value: 800 },
 ];
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'relevance', label: 'Pertinence' },
+  { value: 'open', label: 'Disponibles d’abord' },
+  { value: 'budget_asc', label: 'Budget croissant' },
+];
+const PREVIEWS_PER_ARTIST = 3;
 
-// ─── Style Category Pill V3
-function StylePill({ style, selected, onPress, index }: {
-  style: typeof STYLES[0]; selected: boolean; onPress: () => void; index: number;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-  const handlePress = () => {
-    scale.value = withSpring(0.88, { damping: 8 }, () => { scale.value = withSpring(1, { damping: 12 }); });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onPress();
-  };
+// Accepts a slug ("fine-line") or a display name ("Fine Line") from deep links.
+function resolveStyleSlug(param: string | string[] | undefined): string | null {
+  const raw = Array.isArray(param) ? param[0] : param;
+  if (!raw) return null;
+  const n = normalize(raw);
+  return STYLES.find((s) => s.slug === n || normalize(s.name) === n)?.slug ?? null;
+}
 
+// ─── Small building blocks ────────────────────────────────────────────────────
+function Chip({ label, selected, onPress, dot }: { label: string; selected: boolean; onPress: () => void; dot?: string }) {
   return (
-    <Animated.View entering={FadeInRight.delay(index * 35).springify()} style={animStyle}>
-      <TouchableOpacity onPress={handlePress} activeOpacity={1} style={[styles.stylePill, selected && styles.stylePillActive]}>
-        {selected && (
-          <LinearGradient
-            colors={['rgba(212,168,100,0.12)', 'rgba(212,168,100,0.05)']}
-            style={StyleSheet.absoluteFill}
-          />
-        )}
-        <TText style={styles.stylePillEmoji}>{style.emoji}</TText>
-        <TText
-          variant="caption"
-          weight={selected ? 'semibold' : 'regular'}
-          style={{ color: selected ? Colors.accentWarm : Colors.textSecondary }}
-        >
-          {style.name}
-        </TText>
-        {selected && <View style={styles.stylePillCheck}><TText style={{ fontSize: 9 }}>✓</TText></View>}
-      </TouchableOpacity>
-    </Animated.View>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={(state) => {
+        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+        return [styles.chip, (pressed || hovered) && !selected && styles.chipHover, selected && styles.chipSelected];
+      }}
+    >
+      {dot && <View style={[styles.chipDot, { backgroundColor: dot }]} />}
+      <TText variant="caption" weight="medium" style={{ fontSize: 13, color: selected ? Colors.textInverse : Colors.textSecondary }}>
+        {label}
+      </TText>
+    </Pressable>
   );
 }
 
-// ─── Grid/List Toggle
-function ViewToggle({ mode, onChange }: { mode: 'grid' | 'list'; onChange: (m: 'grid' | 'list') => void }) {
+function SectionLabel({ children, right }: { children: string; right?: React.ReactNode }) {
   return (
-    <View style={styles.viewToggle}>
-      {(['grid', 'list'] as const).map((m) => (
-        <TouchableOpacity
-          key={m}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(m); }}
-          style={[styles.viewToggleBtn, mode === m && styles.viewToggleBtnActive]}
-        >
-          <Ionicons
-            name={m === 'grid' ? 'grid-outline' : 'list-outline'}
-            size={16}
-            color={mode === m ? Colors.accentWarm : Colors.textTertiary}
-          />
-        </TouchableOpacity>
+    <View style={styles.sectionLabel}>
+      <TText variant="label" color="tertiary" uppercase>{children}</TText>
+      {right}
+    </View>
+  );
+}
+
+function TrendingTile({ post }: { post: ExploreTrendingPost }) {
+  const router = useRouter();
+  return (
+    <Pressable
+      onPress={() => router.push(`/post/${post.id}`)}
+      accessibilityRole="link"
+      accessibilityLabel={`Réalisation de ${post.artistName}`}
+      style={({ pressed }) => [styles.trendingTile, pressed && { opacity: 0.85 }]}
+    >
+      <View style={styles.trendingImage}>
+        <Image source={{ uri: post.mediaUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+      </View>
+      <TText variant="caption" color="secondary" numberOfLines={1} style={{ marginTop: 6 }}>{post.artistName}</TText>
+    </Pressable>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <View style={{ gap: Spacing.xl, marginTop: Spacing.sm }}>
+      {[0, 1].map((i) => (
+        <View key={i}>
+          <TSkeleton height={232} radius={Radius.xl} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 }}>
+            <TSkeleton width={40} height={40} radius={20} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <TSkeleton width="45%" height={16} />
+              <TSkeleton width="30%" height={11} />
+            </View>
+          </View>
+        </View>
       ))}
     </View>
   );
 }
 
-// ─── Spotlight Hero Card V3
-function SpotlightCard({ artist }: { artist: Artist }) {
-  const router = useRouter();
-  const scale = useSharedValue(1);
-  const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  return (
-    <Animated.View entering={FadeIn.duration(600)} style={[cardStyle, styles.spotlightWrap]}>
-      <TouchableOpacity
-        onPress={() => router.push(`/artist/${artist.id}`)}
-        onPressIn={() => { scale.value = withSpring(0.97, { damping: 18 }); }}
-        onPressOut={() => { scale.value = withSpring(1, { damping: 14 }); }}
-        activeOpacity={1}
-        style={styles.spotlightCard}
-      >
-        <Image source={{ uri: artist.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        <LinearGradient
-          colors={[...Gradients.heroOverlay]}
-          locations={[0.15, 0.55, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Violet glow accent */}
-        <LinearGradient
-          colors={[...Gradients.glowViolet]}
-          locations={[0, 1]}
-          style={[StyleSheet.absoluteFill, { opacity: 0.6 }]}
-        />
-        <View style={styles.spotlightContent}>
-          <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.spotlightBadge}>
-            <LinearGradient
-              colors={['rgba(212,168,100,0.25)', 'rgba(212,168,100,0.10)']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Ionicons name="star" size={11} color={Colors.accentGlow} />
-            <TText variant="micro" style={{ color: Colors.accentGlow, marginLeft: 5, letterSpacing: 1.5 }} uppercase>
-              Artiste du moment
-            </TText>
-          </Animated.View>
-          <Animated.View entering={FadeInUp.delay(300).springify()} style={{ marginTop: 8 }}>
-            <TText variant="title1" weight="bold" style={{ color: '#fff', letterSpacing: -0.5 }}>
-              {artist.blaze}
-            </TText>
-            <TText variant="caption" style={{ color: 'rgba(255,255,255,0.50)', marginTop: 2 }}>
-              {artist.city} · {artist.styles.slice(0, 2).join(', ')}
-            </TText>
-          </Animated.View>
-          {artist.bookingStatus === 'open' && (
-            <Animated.View entering={FadeInUp.delay(400).springify()} style={styles.spotlightCTA}>
-              <LinearGradient
-                colors={[Colors.accentGlow, Colors.accentWarm]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              <TText variant="caption" weight="bold" style={{ color: Colors.bgPrimary }}>
-                Voir le profil →
-              </TText>
-            </Animated.View>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-// ─── Trending Post Mini card
-function TrendingPostCard({ post, index }: { post: ExploreTrendingPost; index: number }) {
-  const router = useRouter();
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  return (
-    <Animated.View entering={FadeInRight.delay(index * 60).springify()} style={animStyle}>
-      <TouchableOpacity
-        onPress={() => router.push(`/post/${post.id}`)}
-        onPressIn={() => { scale.value = withSpring(0.95, { damping: 16 }); }}
-        onPressOut={() => { scale.value = withSpring(1, { damping: 12 }); }}
-        activeOpacity={1}
-        style={styles.trendingCard}
-      >
-        <Image source={{ uri: post.mediaUrl }} style={styles.trendingImg} contentFit="cover" />
-        <LinearGradient colors={['transparent', 'rgba(3,3,5,0.85)']} style={StyleSheet.absoluteFill} />
-        <View style={styles.trendingBottom}>
-          <TText variant="micro" color="secondary" numberOfLines={1}>{post.artistName}</TText>
-          <View style={styles.trendingLikes}>
-            <Ionicons name="heart" size={10} color="#F87171" />
-            <TText variant="micro" style={{ color: 'rgba(255,255,255,0.6)', marginLeft: 3 }}>{post.likesCount}</TText>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ style?: string }>();
+  const { width } = useWindowDimensions();
   const { user } = useAuthStore();
   const { savedArtistIds, fetchSaved, toggle } = useSavedArtistsStore();
   useEffect(() => { void fetchSaved(user?.id); }, [fetchSaved, user?.id]);
   const toggleSaveArtist = useCallback(async (id: string) => {
     if (!user?.id) { router.push('/(auth)/sign-in'); return; }
-    if (!await toggle(user.id, id)) Toast.error('Favori non enregistré. Réessaie.');
+    if (!await toggle(user.id, id)) Toast.error('Favori non enregistré. Réessayez.');
   }, [router, toggle, user?.id]);
 
-  // ── Real data state
+  // ── Data
   const [artists, setArtists] = useState<Artist[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const [trendingPosts, setTrendingPosts] = useState<ExploreTrendingPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // ── Filters
   const [query, setQuery] = useState('');
-  const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
-  const [selectedAvailability, setSelectedAvailability] = useState('Tous');
-  const [sortBy, setSortBy] = useState('premium');
+  const [selectedStyle, setSelectedStyle] = useState<string | null>(() => resolveStyleSlug(params.style));
+  const [availability, setAvailability] = useState<Availability>('all');
+  const [budgetMax, setBudgetMax] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<SortKey>('relevance');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchFocused, setSearchFocused] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
-  // ── Filter sheet state
-  const [showFilters, setShowFilters] = useState(false);
-  const [filterAvailability, setFilterAvailability] = useState<string>('Tous');
-  const [filterBudgetMax, setFilterBudgetMax] = useState<number | null>(null);
-  const filterSheetY = useSharedValue(300);
+  // Follow deep links that change the style while the tab stays mounted.
+  useEffect(() => {
+    const slug = resolveStyleSlug(params.style);
+    if (slug) setSelectedStyle(slug);
+  }, [params.style]);
 
-  const searchScale = useSharedValue(1);
-
-  // ── Fetch real data from Supabase
   const fetchData = useCallback(async () => {
     setFetchError(null);
     try {
@@ -269,23 +180,42 @@ export default function ExploreScreen() {
           .from('posts')
           .select('id, media_url, likes_count, artists!inner(blaze)')
           .eq('is_published', true)
+          .eq('media_type', 'photo')
           .order('likes_count', { ascending: false })
-          .limit(8),
+          .limit(10),
       ]);
 
       if (artistsRes.error) throw artistsRes.error;
-      setArtists((artistsRes.data ?? []).map(mapArtist));
+      const mapped = (artistsRes.data ?? []).map(mapArtist);
+      setArtists(mapped);
 
       if (!postsRes.error && postsRes.data) {
         setTrendingPosts(postsRes.data.map((p: any) => ({
           id: p.id,
           mediaUrl: p.media_url,
           artistName: (p.artists as any)?.blaze ?? '',
-          likesCount: p.likes_count ?? 0,
         })));
       }
+
+      // Portfolio previews for the cards: latest published photos per artist.
+      if (mapped.length) {
+        const { data: work } = await supabase
+          .from('posts')
+          .select('artist_id, media_url')
+          .in('artist_id', mapped.map((a) => a.id))
+          .eq('is_published', true)
+          .eq('media_type', 'photo')
+          .order('published_at', { ascending: false })
+          .limit(mapped.length * 6);
+        const grouped: Record<string, string[]> = {};
+        for (const row of work ?? []) {
+          const list = (grouped[row.artist_id] ??= []);
+          if (list.length < PREVIEWS_PER_ARTIST) list.push(row.media_url);
+        }
+        setPreviews(grouped);
+      }
     } catch (e: any) {
-      setFetchError(e.message ?? 'Erreur de chargement');
+      setFetchError(e?.message ? 'Le service ne répond pas. Vérifiez votre connexion.' : 'Erreur de chargement');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -299,427 +229,269 @@ export default function ExploreScreen() {
     fetchData();
   }, [fetchData]);
 
-  const searchFocusStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: searchScale.value }],
-  }));
-
-  const handleSearchFocus = () => {
-    searchScale.value = withSpring(1.01, { damping: 18 });
-    setSearchFocused(true);
-  };
-  const handleSearchBlur = () => {
-    searchScale.value = withSpring(1, { damping: 14 });
-    setSearchFocused(false);
+  const resetAll = () => {
+    setQuery('');
+    setSelectedStyle(null);
+    setAvailability('all');
+    setBudgetMax(null);
+    setSortBy('relevance');
   };
 
-  // ── Reset filter sheet state
-  const resetFilters = () => {
-    setFilterAvailability('Tous');
-    setFilterBudgetMax(null);
-  };
-
-  // ── Badge: are any sheet filters active?
-  const hasActiveFilters = filterAvailability !== 'Tous' || filterBudgetMax !== null;
+  const sheetFilterCount = Number(availability !== 'all') + Number(budgetMax !== null) + Number(sortBy !== 'relevance');
+  const hasFilters = !!query || !!selectedStyle || sheetFilterCount > 0;
 
   const filtered = useMemo(() => {
-    const statusMap: Record<string, string> = {
-      'Disponible': 'open', 'En pause': 'paused', 'Fermé': 'closed',
-    };
+    const q = normalize(query);
     let result = artists.filter((a) => {
-      const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-      const q = normalize(query);
-      const matchQ = !q || normalize(a.blaze).includes(q) || normalize(a.city).includes(q) || a.styles.some((s) => normalize(s).includes(q));
-      const matchStyle = !selectedStyle || a.styles.some((s) => s.toLowerCase().replace(/ /g, '-') === selectedStyle);
-      const matchAvail = selectedAvailability === 'Tous' || a.bookingStatus === statusMap[selectedAvailability];
-      const matchSheetAvail = filterAvailability === 'Tous' || a.bookingStatus === statusMap[filterAvailability];
-      const matchBudget = filterBudgetMax === null || (a.minBudget > 0 && a.minBudget <= filterBudgetMax);
-      return matchQ && matchStyle && matchAvail && matchSheetAvail && matchBudget;
+      const matchQ = !q || normalize(a.blaze).includes(q) || normalize(a.city).includes(q)
+        || a.styles.some((s) => normalize(s).includes(q) || normalize(STYLES.find((x) => x.slug === s)?.name ?? '').includes(q));
+      const matchStyle = !selectedStyle || a.styles.some((s) => normalize(s).replace(/ /g, '-') === selectedStyle);
+      const matchAvail = availability === 'all' || a.bookingStatus === availability;
+      const matchBudget = budgetMax === null || (a.minBudget > 0 && a.minBudget <= budgetMax);
+      return matchQ && matchStyle && matchAvail && matchBudget;
     });
 
-    if (sortBy === 'premium') result = [...result].sort((a, b) => Number(b.tier === 'premium') - Number(a.tier === 'premium'));
-    else if (sortBy === 'open') result = [...result].sort((a, b) => Number(b.bookingStatus === 'open') - Number(a.bookingStatus === 'open'));
-    else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => a.minBudget - b.minBudget);
+    if (sortBy === 'open') result = [...result].sort((a, b) => Number(b.bookingStatus === 'open') - Number(a.bookingStatus === 'open'));
+    else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => (a.minBudget || Infinity) - (b.minBudget || Infinity));
     return result;
-  }, [artists, query, selectedStyle, selectedAvailability, sortBy, filterAvailability, filterBudgetMax]);
+  }, [artists, query, selectedStyle, availability, budgetMax, sortBy]);
 
   const spotlightArtist = useMemo(
-    () => artists.find((a) => a.tier === 'premium' && a.bookingStatus === 'open') ?? artists[0],
-    [artists]
+    () => artists.find((a) => a.tier === 'premium' && a.bookingStatus === 'open'),
+    [artists],
+  );
+  const listed = useMemo(
+    () => (hasFilters || !spotlightArtist ? filtered : filtered.filter((a) => a.id !== spotlightArtist.id)),
+    [filtered, hasFilters, spotlightArtist],
   );
 
-  const hasFilters = !!query || !!selectedStyle || selectedAvailability !== 'Tous' || hasActiveFilters;
+  // Wider screens get more columns; phones keep the editorial single column by default.
+  const contentWidth = Math.min(width, Layout.maxContent);
+  const columns = viewMode === 'grid' ? (contentWidth >= 1000 ? 4 : contentWidth >= 700 ? 3 : 2) : contentWidth >= 900 ? 2 : 1;
 
   const renderArtist = useCallback(
-    ({ item, index }: { item: Artist; index: number }) => (
-      <Animated.View entering={FadeInDown.delay(Math.min(index * 50, 400)).springify()}>
+    ({ item }: { item: Artist }) => (
+      <View style={[styles.cell, columns > 1 && styles.cellMulti]}>
         <ArtistCard
           artist={item}
           isSaved={savedArtistIds.has(item.id)}
           onSave={toggleSaveArtist}
-          index={index}
-          variant={index === 0 && !hasFilters ? 'featured' : 'default'}
+          variant={viewMode === 'grid' ? 'tile' : 'default'}
+          previewImages={previews[item.id]}
         />
-      </Animated.View>
+      </View>
     ),
-    [savedArtistIds, toggleSaveArtist, hasFilters]
+    [savedArtistIds, toggleSaveArtist, viewMode, previews, columns],
   );
+
+  const openCount = artists.filter((a) => a.bookingStatus === 'open').length;
+  const styleName = selectedStyle ? STYLES.find((s) => s.slug === selectedStyle)?.name : null;
 
   const ListHeader = (
     <View>
-      {!hasFilters && (
+      {!hasFilters && !isLoading && !fetchError && (
         <>
-          {/* Spotlight */}
-          {spotlightArtist && <SpotlightCard artist={spotlightArtist} />}
+          {spotlightArtist && (
+            <Animated.View entering={FadeIn.duration(500)} style={styles.spotlight}>
+              <ArtistCard
+                artist={spotlightArtist}
+                variant="featured"
+                isSaved={savedArtistIds.has(spotlightArtist.id)}
+                onSave={toggleSaveArtist}
+                previewImages={previews[spotlightArtist.id]}
+              />
+            </Animated.View>
+          )}
 
-          {/* Trending posts strip */}
-          <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.trendingSection}>
-            <View style={styles.trendingSectionHeader}>
-              <TText variant="label" color="tertiary" uppercase style={{ letterSpacing: 2 }}>Tendances</TText>
-              <View style={styles.fireBadge}>
-                <TText style={{ fontSize: 11 }}>🔥</TText>
-              </View>
+          {trendingPosts.length > 0 && (
+            <View style={styles.trendingSection}>
+              <SectionLabel>Réalisations populaires</SectionLabel>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
+                {trendingPosts.map((p) => <TrendingTile key={p.id} post={p} />)}
+              </ScrollView>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
-              {trendingPosts.map((p, i) => (
-                <TrendingPostCard key={p.id} post={p} index={i} />
-              ))}
-            </ScrollView>
-          </Animated.View>
+          )}
         </>
       )}
 
-      {/* Results count + view toggle */}
-      <View style={styles.countRow}>
-        <TText variant="caption" color="tertiary">
-          {filtered.length} artiste{filtered.length > 1 ? 's' : ''}
-          {selectedStyle ? ` · ${STYLES.find((s) => s.slug === selectedStyle)?.name}` : ''}
-        </TText>
-        <ViewToggle mode={viewMode} onChange={setViewMode} />
-      </View>
+      {!fetchError && (
+        <View style={styles.countRow}>
+          <TText variant="bodySmall" color="secondary" tabular accessibilityLiveRegion="polite">
+            {isLoading ? 'Recherche…' : `${filtered.length} artiste${filtered.length > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
+          </TText>
+          <View style={styles.viewToggle} accessibilityRole="radiogroup">
+            {(['list', 'grid'] as const).map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => setViewMode(m)}
+                accessibilityRole="radio"
+                accessibilityLabel={m === 'grid' ? 'Affichage en grille' : 'Affichage en liste'}
+                accessibilityState={{ selected: viewMode === m }}
+                style={[styles.viewToggleBtn, viewMode === m && styles.viewToggleBtnActive]}
+              >
+                <Ionicons name={m === 'grid' ? 'grid-outline' : 'reorder-two-outline'} size={16} color={viewMode === m ? Colors.textPrimary : Colors.textTertiary} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
     </View>
   );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <Animated.View entering={FadeIn.duration(400)} style={styles.header}>
-        <View>
-          <TText variant="displayM" weight="black" style={styles.headerTitle}>Explorer</TText>
-          <TText variant="caption" color="tertiary" style={{ letterSpacing: 0.3, marginTop: 2 }}>
-            {isLoading ? '…' : `${artists.length} artiste${artists.length !== 1 ? 's' : ''} · ${artists.filter(a => a.bookingStatus === 'open').length} disponibles`}
+      <View style={styles.frame}>
+        {/* Masthead */}
+        <View style={styles.header}>
+          <TText variant="displayM" accessibilityRole="header">
+            Trouver <TText variant="displayM" italic color="accentGlow">un artiste</TText>
+          </TText>
+          <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }}>
+            {isLoading || fetchError ? 'Tatoueurs, studios et guest spots' : `${artists.length} artistes · ${openCount} prennent des projets`}
           </TText>
         </View>
-        {/* Filter icon button with active badge */}
-        <TouchableOpacity
-          style={[styles.filterIconBtn, hasActiveFilters && styles.filterIconBtnActive]}
-          activeOpacity={0.8}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setShowFilters(true);
-          }}
-        >
-          <Ionicons
-            name="options-outline"
-            size={20}
-            color={hasActiveFilters ? Colors.accentWarm : Colors.textSecondary}
-          />
-          {hasActiveFilters && <View style={styles.filterBadgeDot} />}
-        </TouchableOpacity>
-      </Animated.View>
 
-      {/* Search */}
-      <Animated.View style={[styles.searchWrap, searchFocusStyle]}>
-        <View style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}>
-          {searchFocused
-            ? <LinearGradient colors={['rgba(212,168,100,0.06)', 'transparent']} style={StyleSheet.absoluteFill} />
-            : null}
-          <Ionicons name="search" size={18} color={searchFocused ? Colors.accentWarm : Colors.textTertiary} />
-          <TextInput
-            ref={inputRef}
-            style={styles.searchInput}
-            placeholder="Artiste, ville, style…"
-            placeholderTextColor={Colors.textTertiary}
-            value={query}
-            onChangeText={setQuery}
-            onFocus={handleSearchFocus}
-            onBlur={handleSearchBlur}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-          {!!query && (
-            <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <View style={styles.clearBtn}>
-                <Ionicons name="close" size={12} color={Colors.textTertiary} />
-              </View>
-            </TouchableOpacity>
-          )}
+        {/* Search */}
+        <View style={styles.searchRow}>
+          <Pressable
+            onPress={() => inputRef.current?.focus()}
+            style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}
+          >
+            <Ionicons name="search" size={17} color={searchFocused ? Colors.accentWarm : Colors.textTertiary} />
+            <TextInput
+              ref={inputRef}
+              style={styles.searchInput}
+              placeholder="Artiste, ville ou style"
+              placeholderTextColor={Colors.textTertiary}
+              selectionColor={Colors.accentWarm}
+              value={query}
+              onChangeText={setQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              returnKeyType="search"
+              autoCorrect={false}
+              accessibilityLabel="Rechercher un artiste, une ville ou un style"
+            />
+            {!!query && (
+              <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Effacer la recherche" style={styles.clearBtn}>
+                <Ionicons name="close" size={13} color={Colors.textSecondary} />
+              </Pressable>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFilters(true); }}
+            accessibilityRole="button"
+            accessibilityLabel={sheetFilterCount ? `Filtres, ${sheetFilterCount} actifs` : 'Filtres'}
+            style={({ pressed }) => [styles.filterBtn, sheetFilterCount > 0 && styles.filterBtnActive, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="options-outline" size={19} color={sheetFilterCount ? Colors.textInverse : Colors.textPrimary} />
+            {sheetFilterCount > 0 && (
+              <TText variant="caption" weight="semibold" tabular style={{ color: Colors.textInverse, marginLeft: 4 }}>{sheetFilterCount}</TText>
+            )}
+          </Pressable>
         </View>
-      </Animated.View>
 
-      {/* Style pills */}
-      <Animated.View entering={FadeInDown.delay(100).springify()}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stylePills}>
-          {STYLES.map((s, i) => (
-            <StylePill
-              key={s.id} style={s}
+        {/* Styles */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.chipScroller}>
+          <Chip label="Tous les styles" selected={!selectedStyle} onPress={() => setSelectedStyle(null)} />
+          {STYLES.map((s) => (
+            <Chip
+              key={s.id}
+              label={s.name}
               selected={selectedStyle === s.slug}
               onPress={() => setSelectedStyle(selectedStyle === s.slug ? null : s.slug)}
-              index={i}
             />
           ))}
         </ScrollView>
-      </Animated.View>
+      </View>
 
-      {/* Availability + Sort chips */}
-      <Animated.View entering={FadeInDown.delay(140).springify()}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
-          {AVAILABILITY_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt}
-              onPress={() => { setSelectedAvailability(opt); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              style={[styles.filterChip, selectedAvailability === opt && styles.filterChipActive]}
-            >
-              {opt === 'Disponible' && <View style={[styles.filterDot, { backgroundColor: Colors.successLight }]} />}
-              {opt === 'En pause'   && <View style={[styles.filterDot, { backgroundColor: Colors.warningLight }]} />}
-              {opt === 'Fermé'      && <View style={[styles.filterDot, { backgroundColor: Colors.errorLight }]} />}
-              <TText
-                variant="caption"
-                weight={selectedAvailability === opt ? 'semibold' : 'regular'}
-                style={{ color: selectedAvailability === opt ? Colors.textPrimary : Colors.textTertiary }}
-              >
-                {opt}
-              </TText>
-            </TouchableOpacity>
-          ))}
-          <View style={styles.chipDivider} />
-          {[
-            { label: 'Premium', value: 'premium', icon: 'star-outline' },
-            { label: 'Disponibles', value: 'open', icon: 'flash-outline' },
-            { label: 'Budget ↑', value: 'budget_asc', icon: 'trending-up-outline' },
-          ].map((opt) => (
-            <TouchableOpacity
-              key={opt.value}
-              onPress={() => { setSortBy(opt.value); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              style={[styles.filterChip, sortBy === opt.value && styles.sortChipActive]}
-            >
-              <Ionicons
-                name={opt.icon as any}
-                size={11}
-                color={sortBy === opt.value ? Colors.accentWarm : Colors.textTertiary}
-              />
-              <TText
-                variant="caption"
-                style={{ color: sortBy === opt.value ? Colors.accentWarm : Colors.textTertiary, marginLeft: 4 }}
-              >
-                {opt.label}
-              </TText>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </Animated.View>
-
-      {/* Artist list */}
+      {/* Results */}
       <FlatList
-        data={isLoading ? [] : filtered}
+        data={isLoading ? [] : listed}
         keyExtractor={(item) => item.id}
         renderItem={renderArtist}
-        key={viewMode}
-        numColumns={viewMode === 'grid' ? 2 : 1}
-        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 90 }]}
+        key={`${viewMode}-${columns}`}
+        numColumns={columns}
+        columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
+        style={styles.list}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
+        keyboardDismissMode="on-drag"
         refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={Colors.accentWarm}
-            colors={[Colors.accentWarm]}
-          />
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} />
         }
         ListEmptyComponent={
-          isLoading ? (
-            <View style={{ paddingHorizontal: Spacing.sm, gap: Spacing.sm, marginTop: Spacing.sm }}>
-              {[0, 1, 2, 3].map((i) => (
-                <View key={i} style={styles.skeletonCard} />
-              ))}
-            </View>
-          ) : fetchError ? (
+          isLoading ? <ListSkeleton /> : fetchError ? (
             <EmptyState
-              icon="wifi-outline"
-              title="Impossible de charger."
+              icon="cloud-offline-outline"
+              title="Chargement impossible"
               description={fetchError}
               ctaLabel="Réessayer"
               onCta={() => { setIsLoading(true); fetchData(); }}
-              style={{ marginTop: 40 }}
             />
           ) : (
             <EmptyState
               icon="search-outline"
-              title="Aucun résultat."
-              description="Essaie d'autres filtres ou une autre ville."
-              ctaLabel="Réinitialiser"
-              onCta={() => { setQuery(''); setSelectedStyle(null); setSelectedAvailability('Tous'); resetFilters(); }}
-              style={{ marginTop: 40 }}
+              title="Aucun artiste ne correspond"
+              description="Élargissez la recherche : une autre ville, un autre style ou moins de filtres."
+              ctaLabel="Effacer les filtres"
+              onCta={resetAll}
             />
           )
         }
       />
 
-      {/* ── Filter bottom sheet overlay ── */}
+      {/* ── Filter sheet ── */}
       {showFilters && (
         <>
-          {/* Backdrop */}
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            onPress={() => setShowFilters(false)}
-            activeOpacity={1}
-          >
-            <View style={styles.filterBackdrop} />
-          </TouchableOpacity>
+          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(160)} style={StyleSheet.absoluteFill}>
+            <Pressable style={styles.backdrop} onPress={() => setShowFilters(false)} accessibilityLabel="Fermer les filtres" />
+          </Animated.View>
 
-          {/* Sheet */}
           <Animated.View
-            entering={SlideInDown.springify()}
-            exiting={SlideOutDown.springify()}
-            style={[styles.filterSheet, { paddingBottom: insets.bottom + Spacing.sm }]}
+            entering={SlideInDown.duration(320)}
+            exiting={SlideOutDown.duration(220)}
+            style={[styles.sheet, { paddingBottom: insets.bottom + Spacing.md }]}
+            accessibilityViewIsModal
           >
-            {/* Sheet background */}
-            <View style={StyleSheet.absoluteFill}>
-              <LinearGradient
-                colors={['rgba(18,18,26,0.98)', Colors.bgElevated]}
-                style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
-              />
-            </View>
-
-            {/* Handle bar */}
             <View style={styles.sheetHandle} />
-
-            {/* Header row */}
             <View style={styles.sheetHeader}>
-              <TText variant="title2" weight="bold" style={{ color: Colors.textPrimary }}>
-                Filtres
-              </TText>
-              <View style={styles.sheetHeaderActions}>
-                <TouchableOpacity
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); resetFilters(); }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <TText variant="caption" weight="semibold" style={{ color: Colors.accentWarm }}>
-                    Réinitialiser
-                  </TText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFilters(false); }}
-                  style={styles.sheetCloseBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={16} color={Colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
+              <TText variant="displayS">Filtres</TText>
+              <Pressable onPress={() => { setAvailability('all'); setBudgetMax(null); setSortBy('relevance'); }} hitSlop={8} accessibilityRole="button">
+                <TText variant="bodySmall" color="secondary" style={{ textDecorationLine: 'underline' }}>Réinitialiser</TText>
+              </Pressable>
             </View>
 
-            {/* Section: Disponibilité */}
-            <View style={styles.sheetSection}>
-              <TText variant="label" color="tertiary" uppercase style={styles.sheetSectionLabel}>
-                Disponibilité
-              </TText>
-              <View style={styles.pillRow}>
-                {['Tous', 'Disponible', 'En pause', 'Fermé'].map((opt) => {
-                  const isSelected = filterAvailability === opt;
-                  return (
-                    <TouchableOpacity
-                      key={opt}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setFilterAvailability(opt);
-                      }}
-                      style={[styles.sheetPill, isSelected && styles.sheetPillActive]}
-                      activeOpacity={0.8}
-                    >
-                      {isSelected && (
-                        <LinearGradient
-                          colors={['rgba(212,168,100,0.18)', 'rgba(212,168,100,0.08)']}
-                          style={[StyleSheet.absoluteFill, { borderRadius: Radius.full }]}
-                        />
-                      )}
-                      {opt === 'Disponible' && (
-                        <View style={[styles.filterDot, { backgroundColor: Colors.successLight }]} />
-                      )}
-                      {opt === 'En pause' && (
-                        <View style={[styles.filterDot, { backgroundColor: Colors.warningLight }]} />
-                      )}
-                      {opt === 'Fermé' && (
-                        <View style={[styles.filterDot, { backgroundColor: Colors.errorLight }]} />
-                      )}
-                      <TText
-                        variant="caption"
-                        weight={isSelected ? 'semibold' : 'regular'}
-                        style={{ color: isSelected ? Colors.accentWarm : Colors.textSecondary }}
-                      >
-                        {opt}
-                      </TText>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+            <SectionLabel>Disponibilité</SectionLabel>
+            <View style={styles.wrapRow}>
+              {AVAILABILITY_OPTIONS.map((o) => (
+                <Chip key={o.value} label={o.label} dot={o.dot} selected={availability === o.value} onPress={() => setAvailability(o.value)} />
+              ))}
             </View>
 
-            {/* Section: Budget max */}
-            <View style={styles.sheetSection}>
-              <TText variant="label" color="tertiary" uppercase style={styles.sheetSectionLabel}>
-                Budget max
-              </TText>
-              <View style={styles.pillRow}>
-                {BUDGET_OPTIONS.map(({ label, value }) => {
-                  const isSelected = filterBudgetMax === value;
-                  return (
-                    <TouchableOpacity
-                      key={label}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setFilterBudgetMax(value);
-                      }}
-                      style={[styles.sheetPill, isSelected && styles.sheetPillActive]}
-                      activeOpacity={0.8}
-                    >
-                      {isSelected && (
-                        <LinearGradient
-                          colors={['rgba(212,168,100,0.18)', 'rgba(212,168,100,0.08)']}
-                          style={[StyleSheet.absoluteFill, { borderRadius: Radius.full }]}
-                        />
-                      )}
-                      <TText
-                        variant="caption"
-                        weight={isSelected ? 'semibold' : 'regular'}
-                        style={{ color: isSelected ? Colors.accentWarm : Colors.textSecondary }}
-                      >
-                        {label}
-                      </TText>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+            <SectionLabel>Budget minimum de l’artiste</SectionLabel>
+            <View style={styles.wrapRow}>
+              {BUDGET_OPTIONS.map((o) => (
+                <Chip key={o.label} label={o.label} selected={budgetMax === o.value} onPress={() => setBudgetMax(o.value)} />
+              ))}
+            </View>
+            <TText variant="caption" color="tertiary" style={styles.sheetNote}>
+              Indicatif : le prix final dépend du projet et fait l’objet d’un devis par l’artiste.
+            </TText>
+
+            <SectionLabel>Trier par</SectionLabel>
+            <View style={styles.wrapRow}>
+              {SORT_OPTIONS.map((o) => (
+                <Chip key={o.value} label={o.label} selected={sortBy === o.value} onPress={() => setSortBy(o.value)} />
+              ))}
             </View>
 
-            {/* CTA: Appliquer */}
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setShowFilters(false);
-              }}
-              activeOpacity={0.88}
-              style={styles.sheetCTA}
-            >
-              <LinearGradient
-                colors={[Colors.accentGlow, Colors.accentWarm]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[StyleSheet.absoluteFill, { borderRadius: Radius.lg }]}
-              />
-              <TText variant="body" weight="bold" style={{ color: Colors.bgPrimary }}>
-                Appliquer les filtres
-              </TText>
-            </TouchableOpacity>
+            <TButton
+              title={isLoading ? 'Voir les artistes' : `Voir ${filtered.length} artiste${filtered.length > 1 ? 's' : ''}`}
+              onPress={() => setShowFilters(false)}
+              style={{ marginTop: Spacing.md }}
+            />
           </Animated.View>
         </>
       )}
@@ -729,191 +501,81 @@ export default function ExploreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  skeletonCard: {
-    height: 100,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bgSurface,
-    opacity: 0.5,
-  },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  header: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm, paddingTop: Spacing.xs, paddingBottom: Spacing['2xs'],
-  },
-  headerTitle: { letterSpacing: -2, fontSize: 34 },
-  filterIconBtn: {
-    width: 42, height: 42, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.borderDefault,
-  },
-  filterIconBtnActive: {
-    borderColor: Colors.accentWarm,
-    backgroundColor: Colors.glassAmber,
-  },
-  filterBadgeDot: {
-    position: 'absolute', top: 8, right: 8,
-    width: 7, height: 7, borderRadius: 4,
-    backgroundColor: Colors.accentGlow,
-    borderWidth: 1, borderColor: Colors.bgPrimary,
-  },
+  header: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.sm, paddingBottom: Spacing.md },
 
-  searchWrap: { paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'] },
+  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: Layout.gutter, marginBottom: Spacing.sm },
   searchBox: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.lg,
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    height: 50, paddingHorizontal: 16,
+    backgroundColor: Colors.bgElevated, borderRadius: Radius.lg,
     borderWidth: 1, borderColor: Colors.borderDefault,
-    paddingHorizontal: Spacing.sm, height: 50, gap: 10,
-    overflow: 'hidden',
   },
-  searchBoxFocused: { borderColor: Colors.accentWarm },
-  searchInput: { flex: 1, color: Colors.textPrimary, fontSize: FontSize.body },
+  searchBoxFocused: { borderColor: Colors.borderFocus, backgroundColor: Colors.bgSurface },
+  searchInput: {
+    flex: 1, height: '100%', color: Colors.textPrimary, fontFamily: Fonts.sans, fontSize: FontSize.body,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null),
+  },
   clearBtn: {
-    width: 20, height: 20, borderRadius: 10,
+    width: 22, height: 22, borderRadius: 11,
     backgroundColor: Colors.bgSubtle, alignItems: 'center', justifyContent: 'center',
   },
+  filterBtn: {
+    minWidth: 50, height: 50, paddingHorizontal: 14, borderRadius: Radius.lg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.borderDefault, backgroundColor: Colors.bgElevated,
+  },
+  filterBtnActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
 
-  stylePills: { paddingHorizontal: Spacing.sm, paddingBottom: Spacing['2xs'], gap: 7 },
-  stylePill: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 8,
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.full,
-    borderWidth: 1, borderColor: Colors.borderDefault, gap: 6, overflow: 'hidden',
+  chipScroller: { flexGrow: 0, marginBottom: Spacing.xs },
+  chipRow: { paddingHorizontal: Layout.gutter, gap: 8 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    height: 36, paddingHorizontal: 14, borderRadius: 18,
+    borderWidth: 1, borderColor: Colors.borderDefault,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  stylePillActive: { borderColor: Colors.accentWarm },
-  stylePillEmoji: { fontSize: 14 },
-  stylePillCheck: {
-    width: 14, height: 14, borderRadius: 7,
-    backgroundColor: Colors.accentWarm,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  chipHover: { backgroundColor: Colors.glassBgMid },
+  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  chipDot: { width: 6, height: 6, borderRadius: 3 },
 
-  filterChips: { paddingHorizontal: Spacing.sm, paddingBottom: Spacing['2xs'], gap: 6, alignItems: 'center' },
-  filterChip: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 11, paddingVertical: 6,
-    borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.borderSubtle,
-    gap: 4,
-  },
-  filterChipActive: { backgroundColor: Colors.bgSurface, borderColor: Colors.textSecondary },
-  sortChipActive: { backgroundColor: Colors.glassAmber, borderColor: Colors.accentWarm },
-  filterDot: { width: 6, height: 6, borderRadius: 3 },
-  chipDivider: { width: 1, height: 20, backgroundColor: Colors.borderSubtle, marginHorizontal: 3 },
+  list: { flex: 1 },
+  listContent: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter, paddingTop: Spacing.xs },
+  columnWrapper: { gap: Spacing.md },
+  cell: { width: '100%' },
+  cellMulti: { flex: 1, width: undefined },
+
+  spotlight: { marginTop: Spacing.xs },
+
+  sectionLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.xs, marginTop: Spacing.xs },
+
+  trendingSection: { marginBottom: Spacing.xl },
+  trendingRow: { gap: 10 },
+  trendingTile: { width: 116 },
+  trendingImage: { width: 116, height: 146, borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.bgSurface },
 
   countRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.sm, paddingBottom: Spacing['2xs'],
+    paddingBottom: Spacing.md, marginBottom: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
   },
-  viewToggle: {
-    flexDirection: 'row', gap: 4,
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.sm, padding: 3,
-    borderWidth: 1, borderColor: Colors.borderSubtle,
-  },
-  viewToggleBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.xs },
+  viewToggle: { flexDirection: 'row', gap: 2, padding: 3, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderDefault },
+  viewToggleBtn: { width: 32, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.sm },
   viewToggleBtnActive: { backgroundColor: Colors.bgSubtle },
 
-  spotlightWrap: { marginBottom: Spacing.sm },
-  spotlightCard: {
-    height: 220, borderRadius: Radius.xl, overflow: 'hidden',
-    ...GlowShadow.amberStrong, borderWidth: 1, borderColor: Colors.borderGlow,
-  },
-  spotlightContent: { position: 'absolute', bottom: Spacing.sm, left: Spacing.sm, right: Spacing.sm },
-  spotlightBadge: {
-    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-    borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: 'rgba(212,168,100,0.30)', overflow: 'hidden',
-  },
-  spotlightCTA: {
-    alignSelf: 'flex-start', marginTop: Spacing.xs,
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: Radius.full, overflow: 'hidden',
-  },
-
-  trendingSection: { marginBottom: Spacing.sm },
-  trendingSectionHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'],
-  },
-  fireBadge: {
-    backgroundColor: 'rgba(239,68,68,0.12)', borderRadius: Radius.full,
-    paddingHorizontal: 6, paddingVertical: 2,
-  },
-  trendingRow: { paddingHorizontal: Spacing.sm, gap: Spacing['2xs'] },
-  trendingCard: {
-    width: 120, height: 160, borderRadius: Radius.lg, overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderSubtle,
-  },
-  trendingImg: { width: 120, height: 160 },
-  trendingBottom: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: Spacing['2xs'],
-  },
-  trendingLikes: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-
-  list: { paddingHorizontal: Spacing.sm, paddingTop: Spacing['2xs'] },
-
-  // ── Filter sheet
-  filterBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  filterSheet: {
+  // Sheet
+  backdrop: { flex: 1, backgroundColor: 'rgba(5,4,3,0.72)' },
+  sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
+    alignSelf: 'center', width: '100%', maxWidth: 560,
     backgroundColor: Colors.bgElevated,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
-    overflow: 'hidden',
-    // Elevation
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 32,
-    elevation: 24,
+    borderTopLeftRadius: Radius['2xl'], borderTopRightRadius: Radius['2xl'],
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    paddingHorizontal: Layout.gutter, paddingTop: 10,
   },
-  sheetHandle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: Colors.borderDefault,
-    alignSelf: 'center',
-    marginBottom: Spacing.sm,
-    marginTop: Spacing['3xs'],
-  },
-  sheetHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: Spacing.md,
-  },
-  sheetHeaderActions: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-  },
-  sheetCloseBtn: {
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: Colors.bgSurface,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault,
-  },
-  sheetSection: {
-    marginBottom: Spacing.md,
-  },
-  sheetSectionLabel: {
-    letterSpacing: 1.5,
-    marginBottom: Spacing.xs,
-  },
-  pillRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
-  },
-  sheetPill: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingVertical: 9,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1, borderColor: Colors.borderDefault,
-    gap: 5, overflow: 'hidden',
-  },
-  sheetPillActive: {
-    borderColor: Colors.accentWarm,
-  },
-  sheetCTA: {
-    height: 52, borderRadius: Radius.lg,
-    alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-    marginTop: Spacing['2xs'],
-  },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.borderDefault, alignSelf: 'center', marginBottom: Spacing.md },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.sm },
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.md },
+  sheetNote: { marginTop: -Spacing.xs, marginBottom: Spacing.md },
 });

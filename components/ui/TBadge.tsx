@@ -12,29 +12,22 @@ interface TBadgeProps {
   dot?: boolean;
 }
 
-const variantColors: Record<BadgeVariant, { bg: string; text: string }> = {
-  default: { bg: Colors.bgSubtle, text: Colors.textSecondary },
-  success: { bg: 'rgba(74,222,128,0.12)', text: Colors.success },
-  warning: { bg: 'rgba(251,191,36,0.12)', text: Colors.warning },
-  error: { bg: 'rgba(248,113,113,0.12)', text: Colors.error },
-  info: { bg: 'rgba(96,165,250,0.12)', text: Colors.info },
-  premium: { bg: 'rgba(200,168,130,0.15)', text: Colors.accentWarm },
-  accent: { bg: 'rgba(232,224,208,0.12)', text: Colors.accent },
+const variantColors: Record<BadgeVariant, { bg: string; text: string; border: string }> = {
+  default: { bg: 'transparent', text: Colors.textSecondary, border: Colors.borderDefault },
+  success: { bg: 'rgba(143,181,154,0.10)', text: Colors.successLight, border: 'rgba(143,181,154,0.28)' },
+  warning: { bg: 'rgba(217,165,91,0.10)', text: Colors.warningLight, border: 'rgba(217,165,91,0.28)' },
+  error:   { bg: 'rgba(217,105,95,0.10)', text: Colors.errorLight, border: 'rgba(217,105,95,0.28)' },
+  info:    { bg: 'rgba(159,170,186,0.10)', text: Colors.infoLight, border: 'rgba(159,170,186,0.26)' },
+  premium: { bg: 'rgba(201,164,106,0.10)', text: Colors.accentGlow, border: Colors.borderGlow },
+  accent:  { bg: 'rgba(237,227,209,0.08)', text: Colors.accent, border: Colors.borderDefault },
 };
 
 export function TBadge({ label, variant = 'default', style, dot }: TBadgeProps) {
-  const colors = variantColors[variant];
+  const c = variantColors[variant];
   return (
-    <View style={[styles.badge, { backgroundColor: colors.bg }, style]}>
-      {dot && (
-        <View
-          style={[
-            styles.dot,
-            { backgroundColor: colors.text },
-          ]}
-        />
-      )}
-      <TText variant="label" style={{ color: colors.text, letterSpacing: 0.3 }}>
+    <View style={[styles.badge, { backgroundColor: c.bg, borderColor: c.border }, style]}>
+      {dot && <View style={[styles.dot, { backgroundColor: c.text }]} />}
+      <TText variant="label" style={{ color: c.text, letterSpacing: 0.4, textTransform: 'none', fontSize: 11 }}>
         {label}
       </TText>
     </View>
@@ -48,12 +41,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
     alignSelf: 'flex-start',
   },
   dot: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    marginRight: 5,
+    marginRight: 6,
   },
 });

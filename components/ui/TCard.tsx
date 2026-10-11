@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ViewStyle, Pressable } from 'react-native';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 
 interface TCardProps {
@@ -20,9 +20,16 @@ export function TCard({ children, style, onPress, elevated = false, noPadding = 
 
   if (onPress) {
     return (
-      <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={cardStyle}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        style={(state) => {
+          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+          return [cardStyle, (pressed || hovered) && styles.active];
+        }}
+      >
         {children}
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
@@ -31,15 +38,18 @@ export function TCard({ children, style, onPress, elevated = false, noPadding = 
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.md,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.xl,
+    padding: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
   elevated: {
     ...Shadow.md,
-    borderWidth: 0,
+    backgroundColor: Colors.bgElevated,
+  },
+  active: {
+    backgroundColor: Colors.bgSurface,
   },
   noPadding: {
     padding: 0,

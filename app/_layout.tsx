@@ -5,6 +5,17 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
+import { useFonts } from 'expo-font';
+import {
+  InstrumentSerif_400Regular,
+  InstrumentSerif_400Regular_Italic,
+} from '@expo-google-fonts/instrument-serif';
+import {
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from '@expo-google-fonts/geist';
 import { useAuthStore } from '@/store/auth-store';
 import { Colors } from '@/constants/theme';
 import { ToastProvider } from '@/components/ui/TToast';
@@ -17,18 +28,28 @@ export default function RootLayout() {
   const { initialize, isLoading, isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
+  const [fontsLoaded, fontError] = useFonts({
+    InstrumentSerif_400Regular,
+    InstrumentSerif_400Regular_Italic,
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    Geist_700Bold,
+  });
+  // A font failure must not lock the app behind the splash: fall back to system fonts.
+  const fontsReady = fontsLoaded || !!fontError;
 
   useEffect(() => {
     return initialize();
   }, [initialize]);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !fontsReady) return;
     SplashScreen.hideAsync();
 
     const redirect = authRedirect(segments, isAuthenticated, user);
     if (redirect) router.replace(redirect);
-  }, [isLoading, isAuthenticated, user, segments, router]);
+  }, [isLoading, fontsReady, isAuthenticated, user, segments, router]);
 
   // Register push notifications when user is logged in
   useEffect(() => {
@@ -36,6 +57,8 @@ export default function RootLayout() {
       registerForPushNotifications(user.id).catch(() => {});
     }
   }, [user?.id]);
+
+  if (!fontsReady) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.bgPrimary }}>

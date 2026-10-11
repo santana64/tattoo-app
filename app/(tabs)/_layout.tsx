@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
-import { Tabs, Redirect } from 'expo-router';
+import { Tabs } from 'expo-router';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming,
+  useSharedValue, useAnimatedStyle, withTiming,
 } from 'react-native-reanimated';
 import { useAuthStore } from '@/store/auth-store';
-import { useAppStore } from '@/store/app-store';
-import { Colors, Radius, Spacing, GlowShadow } from '@/constants/theme';
+import { useRequestStore } from '@/store/request-store';
+import { Colors, Duration, Fonts } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 
 function TabIcon({ name, color, focused, badge }: {
@@ -18,60 +18,50 @@ function TabIcon({ name, color, focused, badge }: {
   focused: boolean;
   badge?: number;
 }) {
-  const scale = useSharedValue(1);
-  const glowOpacity = useSharedValue(0);
+  const progress = useSharedValue(focused ? 1 : 0);
 
   useEffect(() => {
-    if (focused) {
-      scale.value = withSequence(
-        withSpring(1.2, { damping: 8, stiffness: 300 }),
-        withSpring(1.05, { damping: 12 }),
-      );
-      glowOpacity.value = withTiming(1, { duration: 200 });
-    } else {
-      scale.value = withSpring(1, { damping: 14 });
-      glowOpacity.value = withTiming(0, { duration: 150 });
-    }
-  }, [focused]);
+    progress.value = withTiming(focused ? 1 : 0, { duration: Duration.base });
+  }, [focused, progress]);
 
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const glowStyle = useAnimatedStyle(() => ({ opacity: glowOpacity.value }));
+  const dotStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ scaleX: 0.4 + progress.value * 0.6 }],
+  }));
 
   return (
     <View style={styles.iconContainer}>
-      <Animated.View style={[styles.iconGlow, glowStyle]} />
-      <Animated.View style={[styles.iconWrap, animStyle]}>
-        <Ionicons
-          name={focused ? name : (`${name}-outline` as any)}
-          size={24}
-          color={focused ? Colors.accentWarm : color}
-        />
-        {focused && <View style={styles.activeDot} />}
-        {!!badge && badge > 0 && (
-          <View style={styles.badge}>
-            <TText variant="micro" color="inverse" style={{ fontSize: 9, lineHeight: 13 }}>
-              {badge > 9 ? '9+' : badge}
-            </TText>
-          </View>
-        )}
-      </Animated.View>
+      <Ionicons
+        name={focused ? name : (`${name}-outline` as keyof typeof Ionicons.glyphMap)}
+        size={22}
+        color={focused ? Colors.textPrimary : color}
+      />
+      <Animated.View style={[styles.activeBar, dotStyle]} />
+      {!!badge && badge > 0 && (
+        <View style={styles.badge} accessibilityLabel={`${badge} nouvelles demandes`}>
+          <TText variant="micro" tabular style={{ fontSize: 9, lineHeight: 12, color: Colors.textInverse, letterSpacing: 0 }}>
+            {badge > 9 ? '9+' : badge}
+          </TText>
+        </View>
+      )}
     </View>
   );
 }
 
 export default function TabLayout() {
-  const { user, isAuthenticated } = useAuthStore();
-  const { requests } = useAppStore();
+  const user = useAuthStore((s) => s.user);
+  // Artist requests are already scoped to the signed-in artist by the store.
+  const requests = useRequestStore((s) => s.requests);
   const insets = useSafeAreaInsets();
 
-  if (!isAuthenticated) return <Redirect href="/(auth)/welcome" />;
-
+  // Visitors may browse Découvrir/Rechercher; the root layout's authRedirect
+  // sends private tabs to sign-in, so no blanket redirect here.
   const isArtist = user?.role === 'artist';
   const newRequests = isArtist
-    ? requests.filter((r) => r.status === 'submitted' && r.artistId === user?.artistId).length
+    ? requests.filter((r) => r.status === 'submitted').length
     : 0;
 
-  const TAB_H = 68 + insets.bottom;
+  const TAB_H = 62 + insets.bottom;
 
   return (
     <Tabs
@@ -90,29 +80,28 @@ export default function TabLayout() {
         tabBarBackground: () => (
           <View style={StyleSheet.absoluteFill}>
             <LinearGradient
-              colors={['rgba(3,3,5,0)', 'rgba(3,3,5,0.92)', 'rgba(3,3,5,0.98)']}
-              locations={[0, 0.2, 1]}
+              colors={['rgba(11,10,9,0.86)', 'rgba(11,10,9,0.97)']}
               style={StyleSheet.absoluteFill}
             />
             <View style={styles.tabBarBorder} />
           </View>
         ),
-        tabBarActiveTintColor: Colors.accentWarm,
+        tabBarActiveTintColor: Colors.textPrimary,
         tabBarInactiveTintColor: Colors.textTertiary,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '500',
+          fontSize: 10.5,
+          fontFamily: Fonts.sansMedium,
           letterSpacing: 0.2,
-          marginTop: -4,
+          marginTop: 2,
         },
-        tabBarItemStyle: { paddingTop: 8 },
+        tabBarItemStyle: { paddingTop: 6 },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Feed',
+          title: 'Découvrir',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="home" color={color} focused={focused} />
           ),
@@ -121,7 +110,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explorer',
+          title: 'Rechercher',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="search" color={color} focused={focused} />
           ),
@@ -130,7 +119,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="inbox"
         options={{
-          title: isArtist ? 'Inbox' : 'Demandes',
+          title: isArtist ? 'Demandes' : 'Projets',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={isArtist ? 'mail' : 'document-text'}
@@ -141,21 +130,21 @@ export default function TabLayout() {
           ),
         }}
       />
-      {isArtist && (
-        <Tabs.Screen
-          name="agenda"
-          options={{
-            title: 'Agenda',
-            tabBarIcon: ({ color, focused }) => (
-              <TabIcon name="calendar" color={color} focused={focused} />
-            ),
-          }}
-        />
-      )}
+      <Tabs.Screen
+        name="agenda"
+        options={{
+          title: 'Agenda',
+          // Route files always register as tabs; hide it for clients and visitors.
+          href: isArtist ? undefined : null,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="calendar" color={color} focused={focused} />
+          ),
+        }}
+      />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: 'Compte',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="person" color={color} focused={focused} />
           ),
@@ -167,34 +156,25 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   iconContainer: {
-    width: 48, height: 32,
+    width: 48, height: 30,
     alignItems: 'center', justifyContent: 'center',
   },
-  iconGlow: {
+  activeBar: {
     position: 'absolute',
-    width: 42, height: 42, borderRadius: 21,
-    backgroundColor: Colors.glowAmber,
-  },
-  iconWrap: {
-    width: 44, height: 30,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  activeDot: {
-    position: 'absolute',
-    bottom: -6,
-    width: 4, height: 4, borderRadius: 2,
+    top: -8,
+    width: 18, height: 2, borderRadius: 1,
     backgroundColor: Colors.accentWarm,
   },
   tabBarBorder: {
     position: 'absolute',
-    top: 0, left: Spacing.lg, right: Spacing.lg,
+    top: 0, left: 0, right: 0,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
+    backgroundColor: Colors.borderDefault,
   },
   badge: {
     position: 'absolute',
-    top: -3, right: -2,
-    backgroundColor: Colors.error,
+    top: -2, right: 6,
+    backgroundColor: Colors.accentWarm,
     borderRadius: 8,
     minWidth: 16, height: 16,
     alignItems: 'center', justifyContent: 'center',

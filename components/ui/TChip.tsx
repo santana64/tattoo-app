@@ -1,10 +1,6 @@
 import React from 'react';
-import {
-  TouchableOpacity,
-  StyleSheet,
-  ViewStyle,
-} from 'react-native';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Pressable, StyleSheet, ViewStyle, Platform } from 'react-native';
+import { Colors, Radius } from '@/constants/theme';
 import { TText } from './TText';
 
 interface TChipProps {
@@ -16,32 +12,47 @@ interface TChipProps {
 
 export function TChip({ label, selected = false, onPress, style }: TChipProps) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.8}
+    <Pressable
       onPress={onPress}
-      style={[styles.chip, selected && styles.selected, style]}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={(state) => {
+        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+        return [
+          styles.chip,
+          (hovered || pressed) && !selected && styles.active,
+          selected && styles.selected,
+          style,
+        ];
+      }}
     >
       <TText
         variant="caption"
         weight="medium"
-        style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}
+        style={{ color: selected ? Colors.textInverse : Colors.textSecondary, fontSize: 13 }}
       >
         {label}
       </TText>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   chip: {
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 6,
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
     borderRadius: Radius.full,
-    backgroundColor: Colors.bgSurface,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    borderColor: Colors.borderDefault,
     marginRight: 8,
     marginBottom: 8,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  },
+  active: {
+    backgroundColor: Colors.glassBgMid,
+    borderColor: Colors.borderGlass,
   },
   selected: {
     backgroundColor: Colors.accentAction,

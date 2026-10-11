@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Radius, Spacing, Fonts, Layout } from '@/constants/theme';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -100,8 +100,10 @@ const styles = StyleSheet.create({
     top: 0,
     left: 16,
     right: 16,
-    zIndex: 9999,
-    backgroundColor: Colors.bgSurface,
+    alignSelf: 'center',
+    maxWidth: Layout.maxReading,
+    zIndex: 100,
+    backgroundColor: Colors.bgSubtle,
     borderRadius: Radius.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -112,7 +114,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 10,
     borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    borderColor: Colors.borderDefault,
   },
   iconWrap: {
     width: 32,
@@ -125,6 +127,7 @@ const styles = StyleSheet.create({
   message: {
     flex: 1,
     color: Colors.textPrimary,
+    fontFamily: Fonts.sansMedium,
     fontSize: 14,
     lineHeight: 20,
   },

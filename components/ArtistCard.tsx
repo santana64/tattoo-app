@@ -1,402 +1,310 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, FadeInUp, withTiming,
-} from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withSequence } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 import type { Artist } from '@/constants/mock-data';
-import { POSTS } from '@/constants/mock-data';
+import { STYLES } from '@/constants/mock-data';
 
 interface ArtistCardProps {
   artist: Artist;
   isSaved?: boolean;
   onSave?: (id: string) => void;
   index?: number;
-  variant?: 'default' | 'featured' | 'compact';
+  variant?: 'default' | 'featured' | 'compact' | 'tile';
+  /** Latest published work, newest first. Falls back to the cover image. */
+  previewImages?: string[];
 }
 
-const { width: SCREEN_W } = Dimensions.get('window');
+export const BOOKING_STATUS = {
+  open:   { label: 'Prend des projets', short: 'Ouvert',     color: Colors.success },
+  paused: { label: 'Liste d’attente',   short: 'En attente', color: Colors.warning },
+  closed: { label: 'Complet',           short: 'Complet',    color: Colors.textTertiary },
+} as const;
 
-const STATUS_CONFIG = {
-  open:   { color: Colors.success,  label: 'Disponible', dot: Colors.successLight, glow: 'rgba(16,185,129,0.25)' },
-  paused: { color: Colors.warning,  label: 'En pause',   dot: Colors.warningLight, glow: 'rgba(245,158,11,0.20)' },
-  closed: { color: Colors.error,    label: 'Fermé',      dot: Colors.errorLight,   glow: 'rgba(239,68,68,0.20)'  },
-};
+const STYLE_NAMES = new Map(STYLES.map((s) => [s.slug, s.name]));
+export const styleName = (slug: string) => STYLE_NAMES.get(slug) ?? slug;
 
-function LiveDot({ color, glow }: { color: string; glow: string }) {
-  const pulse = useSharedValue(1);
-  React.useEffect(() => {
-    pulse.value = withSpring(1.1, { damping: 4, stiffness: 80 });
-  }, []);
-  const dotStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+const formatPrice = (amount: number) => `dès ${amount.toLocaleString('fr-FR')} €`;
+
+/** Shown when an artist has no published work yet: their monogram, softly lit. */
+export function ArtPlaceholder({ name, size = 56 }: { name: string; size?: number }) {
+  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return (
-    <View style={{ width: 10, height: 10, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: glow }} />
-      <Animated.View style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }, dotStyle]} />
+    <View style={[StyleSheet.absoluteFill, styles.placeholder]}>
+      <LinearGradient
+        colors={['rgba(201,164,106,0.12)', 'rgba(201,164,106,0.02)']}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <TText variant="displayL" italic style={{ fontSize: size, lineHeight: size * 1.1, color: 'rgba(221,187,130,0.55)' }}>
+        {initials}
+      </TText>
     </View>
   );
 }
 
-export function ArtistCard({ artist, isSaved = false, onSave, index = 0, variant = 'default' }: ArtistCardProps) {
+function StatusLine({ status }: { status: Artist['bookingStatus'] }) {
+  const s = BOOKING_STATUS[status];
+  return (
+    <View style={styles.statusLine}>
+      <View style={[styles.statusDot, { backgroundColor: s.color }]} />
+      <TText variant="caption" color="secondary">{s.label}</TText>
+    </View>
+  );
+}
+
+function SaveButton({ saved, onPress, onImage }: { saved: boolean; onPress: () => void; onImage?: boolean }) {
+  const scale = useSharedValue(1);
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Animated.View style={anim}>
+      <Pressable
+        onPress={() => {
+          scale.value = withSequence(withSpring(1.18, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={saved ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+        accessibilityState={{ selected: saved }}
+        hitSlop={8}
+        style={[styles.saveBtn, onImage && styles.saveBtnOnImage]}
+      >
+        <Ionicons
+          name={saved ? 'bookmark' : 'bookmark-outline'}
+          size={17}
+          color={saved ? Colors.accentGlow : onImage ? Colors.textPrimary : Colors.textSecondary}
+        />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Lift-on-press wrapper shared by every variant. */
+function useLift() {
+  const scale = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return {
+    style,
+    onPressIn: () => { scale.value = withSpring(0.985, SpringConfig.snappy); },
+    onPressOut: () => { scale.value = withSpring(1, SpringConfig.gentle); },
+  };
+}
+
+export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages }: ArtistCardProps) {
   const router = useRouter();
-  const artistPosts = POSTS.filter((p) => p.artistId === artist.id).slice(0, 3);
-  const coverPost   = artistPosts[0];
-  const status      = STATUS_CONFIG[artist.bookingStatus];
+  const lift = useLift();
+  const open = useCallback(() => router.push(`/artist/${artist.id}`), [artist.id, router]);
+  const save = useCallback(() => onSave?.(artist.id), [artist.id, onSave]);
 
-  const scale     = useSharedValue(1);
-  const saveScale = useSharedValue(1);
+  const images = (previewImages?.length ? previewImages : [artist.coverUrl]).filter(Boolean);
+  const stylesLabel = artist.styles.slice(0, 2).map(styleName).join(' · ');
+  const a11y = `${artist.blaze}, ${artist.city}${stylesLabel ? `, ${stylesLabel}` : ''}`;
 
-  const handlePressIn  = () => { scale.value = withSpring(0.97, { damping: 20 }); };
-  const handlePressOut = () => { scale.value = withSpring(1, { damping: 14 }); };
-
-  const handleSave = useCallback(() => {
-    saveScale.value = withSpring(1.5, { damping: 4 }, () => {
-      saveScale.value = withSpring(1);
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onSave?.(artist.id);
-  }, [artist.id, onSave]);
-
-  const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
-
+  // ── Featured: a single lit artwork, full bleed ─────────────────
   if (variant === 'featured') {
     return (
-      <Animated.View entering={FadeInUp.delay(index * 60).springify()} style={[styles.featuredContainer, cardStyle]}>
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => router.push(`/artist/${artist.id}`)}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          style={styles.featuredInner}
-        >
-          <Image
-            source={{ uri: artist.coverUrl ?? coverPost?.mediaUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-          />
+      <Animated.View style={[styles.featured, lift.style]}>
+        <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={{ flex: 1 }}>
+          {images[0] ? (
+            <Image source={{ uri: images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
+          ) : <ArtPlaceholder name={artist.blaze} size={120} />}
           <LinearGradient
-            colors={['transparent', 'rgba(3,3,5,0.40)', 'rgba(3,3,5,0.97)']}
-            locations={[0, 0.5, 1]}
+            colors={['rgba(11,10,9,0.25)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.92)']}
+            locations={[0, 0.35, 1]}
             style={StyleSheet.absoluteFill}
           />
-          {/* Amber glow at bottom for premium */}
-          {artist.tier === 'premium' && (
-            <View style={styles.premiumGlow} />
-          )}
-
-          <View style={styles.featuredContent}>
-            <View style={styles.featuredTop}>
-              <View style={[styles.statusPill, { borderColor: status.dot + '50' }]}>
-                <LiveDot color={status.dot} glow={status.glow} />
-                <TText variant="micro" color="secondary" uppercase style={{ marginLeft: 5 }}>{status.label}</TText>
+          <View style={styles.featuredTop}>
+            {artist.tier === 'premium' ? (
+              <View style={styles.sponsoredTag}>
+                <TText variant="micro" uppercase style={{ color: Colors.accentGlow }}>Mis en avant</TText>
               </View>
-              <Animated.View style={saveStyle}>
-                <TouchableOpacity onPress={handleSave} style={styles.saveBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Ionicons
-                    name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                    size={19}
-                    color={isSaved ? Colors.accentGlow : 'rgba(255,255,255,0.7)'}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-
-            <View style={styles.featuredBottom}>
-              <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" isPremium={artist.tier === 'premium'} />
-              <View style={{ marginLeft: 12, flex: 1 }}>
-                <View style={styles.nameRow}>
-                  <TText variant="title1" weight="bold" style={{ color: '#fff', letterSpacing: -0.5 }} numberOfLines={1}>
-                    {artist.blaze}
-                  </TText>
-                  {artist.isVerified && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.infoLight} style={{ marginLeft: 6 }} />
-                  )}
-                </View>
-                <TText variant="caption" style={{ color: 'rgba(255,255,255,0.50)', marginTop: 2 }}>
-                  {artist.city} · {artist.styles.slice(0, 2).join(', ')}
+            ) : <View />}
+            {onSave && <SaveButton saved={isSaved} onPress={save} onImage />}
+          </View>
+          <View style={styles.featuredBottom}>
+            <TText variant="displayM" numberOfLines={1}>{artist.blaze}</TText>
+            <TText variant="bodySmall" color="secondary" style={{ marginTop: 2 }} numberOfLines={1}>
+              {artist.city}{stylesLabel ? ` — ${stylesLabel}` : ''}
+            </TText>
+            <View style={styles.featuredMeta}>
+              <StatusLine status={artist.bookingStatus} />
+              {artist.minBudget > 0 && (
+                <TText variant="bodySmall" weight="medium" tabular style={{ color: Colors.accentGlow }}>
+                  {formatPrice(artist.minBudget)}
                 </TText>
-                {artist.minBudget > 0 && (
-                  <TText variant="caption" style={{ color: Colors.accentWarm, marginTop: 4, fontWeight: '600' }}>
-                    À partir de {artist.minBudget}€
-                  </TText>
-                )}
-              </View>
-              {/* Quick book */}
-              {artist.bookingStatus === 'open' && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/artist/${artist.id}`)}
-                  style={styles.quickBookFeatured}
-                  activeOpacity={0.85}
-                >
-                  <LinearGradient
-                    colors={[Colors.accentGlow, Colors.accentWarm]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <TText variant="micro" style={{ color: Colors.bgPrimary, fontWeight: '700' }} uppercase>Book</TText>
-                </TouchableOpacity>
               )}
             </View>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </Animated.View>
     );
   }
 
+  // ── Compact: horizontal rails ──────────────────────────────────
   if (variant === 'compact') {
     return (
-      <Animated.View entering={FadeInUp.delay(index * 50).springify()} style={[styles.compactContainer, cardStyle]}>
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => router.push(`/artist/${artist.id}`)}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          style={styles.compactInner}
-        >
-          <Image
-            source={{ uri: artist.avatarUrl ?? coverPost?.mediaUrl }}
-            style={styles.compactImage}
-            contentFit="cover"
-          />
-          <LinearGradient
-            colors={['transparent', 'rgba(3,3,5,0.92)']}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.compactContent}>
-            <LiveDot color={status.dot} glow={status.glow} />
-            <TText variant="bodySmall" weight="semibold" style={{ color: '#fff', marginTop: 4 }} numberOfLines={1}>
-              {artist.blaze}
-            </TText>
-            <TText variant="caption" style={{ color: 'rgba(255,255,255,0.45)' }} numberOfLines={1}>
-              {artist.city}
-            </TText>
+      <Animated.View style={[styles.compact, lift.style]}>
+        <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y}>
+          <View style={styles.compactImage}>
+            {images[0] || artist.avatarUrl ? (
+              <Image source={{ uri: images[0] || artist.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+            ) : <ArtPlaceholder name={artist.blaze} size={40} />}
           </View>
-        </TouchableOpacity>
+          <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={{ marginTop: 8 }}>{artist.blaze}</TText>
+          <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}</TText>
+        </Pressable>
       </Animated.View>
     );
   }
 
-  // Default variant
-  return (
-    <Animated.View
-      entering={FadeInUp.delay(index * 70).springify()}
-      style={[styles.defaultContainer, cardStyle]}
-    >
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={() => router.push(`/artist/${artist.id}`)}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-      >
-        {/* Gallery strip */}
-        <View style={styles.galleryStrip}>
-          {artistPosts.length > 0 ? (
-            artistPosts.map((post, i) => (
-              <View key={post.id} style={[styles.galleryCell, i === 0 && styles.galleryCellFirst]}>
-                <Image source={{ uri: post.mediaUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                {i === 0 && (
-                  <LinearGradient
-                    colors={['transparent', 'rgba(3,3,5,0.3)']}
-                    style={StyleSheet.absoluteFill}
-                  />
-                )}
-              </View>
-            ))
-          ) : (
-            [0, 1, 2].map((i) => (
-              <View key={i} style={[styles.galleryCell, i === 0 && styles.galleryCellFirst, styles.galleryEmpty]} />
-            ))
-          )}
-          {/* Post count overlay */}
-          {artistPosts.length > 3 && (
-            <View style={styles.moreOverlay}>
-              <TText variant="caption" weight="bold" style={{ color: '#fff' }}>+{artistPosts.length - 3}</TText>
-            </View>
-          )}
-        </View>
-
-        {/* Info row */}
-        <View style={styles.infoRow}>
-          <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="md" isPremium={artist.tier === 'premium'} />
-          <View style={styles.infoText}>
-            <View style={styles.nameRow}>
-              <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{artist.blaze}</TText>
-              {artist.isVerified && (
-                <Ionicons name="checkmark-circle" size={13} color={Colors.infoLight} style={{ marginLeft: 4 }} />
-              )}
-            </View>
-            <TText variant="caption" color="tertiary">{artist.city}</TText>
+  // ── Tile: two-column grid ──────────────────────────────────────
+  if (variant === 'tile') {
+    return (
+      <Animated.View style={[styles.tile, lift.style]}>
+        <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y}>
+          <View style={styles.tileImage}>
+            {images[0] ? (
+              <Image source={{ uri: images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+            ) : <ArtPlaceholder name={artist.blaze} size={48} />}
+            {onSave && <View style={styles.tileSave}><SaveButton saved={isSaved} onPress={save} onImage /></View>}
           </View>
-
-          <View style={styles.infoRight}>
-            <View style={[styles.statusPill, { borderColor: status.dot + '35' }]}>
-              <LiveDot color={status.dot} glow={status.glow} />
-              <TText variant="micro" color="secondary" uppercase style={{ marginLeft: 4 }}>{status.label}</TText>
-            </View>
-            {onSave && (
-              <Animated.View style={saveStyle}>
-                <TouchableOpacity onPress={handleSave} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Ionicons
-                    name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                    size={17}
-                    color={isSaved ? Colors.accentGlow : Colors.textTertiary}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
+          <View style={styles.tileText}>
+            <TText variant="title2" serif numberOfLines={1} style={{ fontSize: 20 }}>{artist.blaze}</TText>
+            <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}</TText>
+            {artist.minBudget > 0 && (
+              <TText variant="caption" tabular style={{ color: Colors.accentWarm, marginTop: 2 }}>{formatPrice(artist.minBudget)}</TText>
             )}
           </View>
-        </View>
+        </Pressable>
+      </Animated.View>
+    );
+  }
 
-        {/* Price + styles row */}
-        <View style={styles.bottomRow}>
-          {artist.minBudget > 0 && (
-            <View style={styles.priceTag}>
-              <TText variant="micro" style={{ color: Colors.accentWarm, fontWeight: '600' }}>
-                dès {artist.minBudget}€
-              </TText>
+  // ── Default: portfolio mosaic + caption, like a wall label ─────
+  const [lead, ...rest] = images;
+  const side = rest.slice(0, 2);
+  return (
+    <Animated.View style={[styles.card, lift.style]}>
+      <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y}>
+        <View style={styles.mosaic}>
+          <View style={[styles.mosaicLead, side.length === 0 && { flex: 1 }]}>
+            {lead ? (
+              <Image source={{ uri: lead }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+            ) : <ArtPlaceholder name={artist.blaze} size={72} />}
+          </View>
+          {side.length > 0 && (
+            <View style={styles.mosaicSide}>
+              {side.map((uri) => (
+                <View key={uri} style={styles.mosaicCell}>
+                  <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+                </View>
+              ))}
             </View>
           )}
-          {artist.styles.slice(0, 3).map((s) => (
-            <View key={s} style={styles.styleChip}>
-              <TText variant="micro" color="secondary" uppercase style={{ letterSpacing: 0.5 }}>{s}</TText>
-            </View>
-          ))}
         </View>
-      </TouchableOpacity>
+
+        <View style={styles.caption}>
+          <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="md" />
+          <View style={styles.captionText}>
+            <View style={styles.nameRow}>
+              <TText variant="title1" serif numberOfLines={1} style={styles.name}>{artist.blaze}</TText>
+              {artist.isVerified && (
+                <Ionicons name="checkmark-circle" size={15} color={Colors.accentWarm} accessibilityLabel="Profil vérifié" />
+              )}
+            </View>
+            <TText variant="caption" color="secondary" numberOfLines={1}>
+              {artist.city}{stylesLabel ? ` · ${stylesLabel}` : ''}
+            </TText>
+          </View>
+          {onSave && <SaveButton saved={isSaved} onPress={save} />}
+        </View>
+
+        <View style={styles.metaRow}>
+          <StatusLine status={artist.bookingStatus} />
+          {artist.minBudget > 0 && (
+            <TText variant="bodySmall" weight="medium" tabular style={{ color: Colors.accentGlow }}>
+              {formatPrice(artist.minBudget)}
+            </TText>
+          )}
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  // ── Featured ─────────────────────────────────────────────────
-  featuredContainer: {
-    height: 300,
-    borderRadius: Radius.xl,
-    overflow: 'hidden',
-    marginBottom: Spacing.sm,
-    ...GlowShadow.amberStrong,
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-  },
-  featuredInner: { flex: 1 },
-  premiumGlow: {
-    position: 'absolute',
-    bottom: -30,
-    left: '5%',
-    right: '5%',
-    height: 100,
-    backgroundColor: Colors.accentWarm,
-    opacity: 0.10,
-    borderRadius: 999,
-  },
-  featuredContent: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
-    padding: Spacing.sm,
-  },
-  featuredTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  featuredBottom: { flexDirection: 'row', alignItems: 'flex-end' },
+  imageEmpty: { backgroundColor: Colors.bgSurface },
+  placeholder: { backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
+
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+
   saveBtn: {
-    width: 36, height: 36,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 18,
+    width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
-  quickBookFeatured: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: Radius.full,
+  saveBtnOnImage: { backgroundColor: 'rgba(11,10,9,0.55)', borderColor: Colors.glassBorderBright },
+
+  // Featured
+  featured: {
+    aspectRatio: 4 / 5,
+    maxHeight: 520,
+    borderRadius: Radius['2xl'],
     overflow: 'hidden',
-    marginLeft: Spacing.xs,
-    alignSelf: 'flex-end',
-    marginBottom: 2,
+    marginBottom: Spacing.xl,
+    backgroundColor: Colors.bgSurface,
+  },
+  featuredTop: {
+    position: 'absolute', top: Spacing.sm, left: Spacing.sm, right: Spacing.sm,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  sponsoredTag: {
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.xs,
+    backgroundColor: 'rgba(11,10,9,0.6)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+  },
+  featuredBottom: { position: 'absolute', left: Spacing.md, right: Spacing.md, bottom: Spacing.md },
+  featuredMeta: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: Spacing.sm, paddingTop: Spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.glassBorderBright,
   },
 
-  // ── Compact ───────────────────────────────────────────────────
-  compactContainer: {
-    width: 130, height: 175,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    marginRight: Spacing['2xs'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderSubtle,
-  },
-  compactInner: { flex: 1 },
-  compactImage: { ...StyleSheet.absoluteFillObject },
-  compactContent: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: Spacing['2xs'] },
+  // Compact
+  compact: { width: 132, marginRight: Spacing.xs },
+  compactImage: { width: 132, height: 168, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: Colors.bgSurface },
 
-  // ── Default ───────────────────────────────────────────────────
-  defaultContainer: {
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.xl,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    marginBottom: Spacing.sm,
-  },
-  galleryStrip: { height: 150, flexDirection: 'row' },
-  galleryCell: { flex: 1, overflow: 'hidden', marginLeft: 1.5 },
-  galleryCellFirst: { marginLeft: 0 },
-  galleryEmpty: { backgroundColor: Colors.bgSubtle },
-  moreOverlay: {
-    position: 'absolute', right: 0, bottom: 0,
-    width: '33.3%', height: '100%',
-    backgroundColor: 'rgba(3,3,5,0.5)',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  // Tile
+  tile: { flex: 1, marginBottom: Spacing.lg },
+  tileImage: { aspectRatio: 4 / 5, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: Colors.bgSurface },
+  tileSave: { position: 'absolute', top: 8, right: 8 },
+  tileText: { marginTop: 10, gap: 1 },
 
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
-    gap: Spacing['2xs'],
-  },
-  infoText: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // Default
+  card: { marginBottom: Spacing.xl },
+  mosaic: { flexDirection: 'row', height: 232, gap: 3, borderRadius: Radius.xl, overflow: 'hidden' },
+  mosaicLead: { flex: 2, backgroundColor: Colors.bgSurface, overflow: 'hidden' },
+  mosaicSide: { flex: 1, gap: 3 },
+  mosaicCell: { flex: 1, backgroundColor: Colors.bgSurface, overflow: 'hidden' },
 
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.025)',
-  },
+  caption: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
+  captionText: { flex: 1, gap: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  name: { fontSize: 24, lineHeight: 28, flexShrink: 1 },
 
-  bottomRow: {
-    flexDirection: 'row',
-    gap: 5,
-    paddingHorizontal: Spacing.sm,
-    paddingBottom: Spacing.xs,
-    paddingTop: 6,
-    flexWrap: 'wrap',
-  },
-  priceTag: {
-    backgroundColor: Colors.accentMuted,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-  },
-  styleChip: {
-    backgroundColor: Colors.bgSubtle,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+  metaRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 12, paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
 });

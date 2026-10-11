@@ -1,310 +1,247 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity, type DimensionValue } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming, withSpring,
-  withDelay, withRepeat, withSequence, Easing, FadeIn, FadeInUp, FadeInDown,
+  useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence,
+  Easing, FadeIn, FadeInDown, useReducedMotion,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Spacing, Layout, Duration } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TButton } from '@/components/ui/TButton';
 import { Logo } from '@/components/ui/Logo';
+import { STYLES } from '@/constants/mock-data';
 
-const { width: W, height: H } = Dimensions.get('window');
+// Remote placeholder until the product hosts rights-cleared artist photography.
+const HERO_IMAGE = 'https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=1600&q=80';
+// Slugs from the shared STYLES taxonomy.
+const QUICK_STYLES = STYLES.filter((s) => ['fine-line', 'blackwork', 'realisme', 'japonais', 'old-school', 'neo-trad'].includes(s.slug));
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
-// Floating orb for aurora effect
-function FloatingOrb({ color, size, x, y, delay }: { color: string; size: number; x: DimensionValue; y: number; delay: number }) {
-  const translateY = useSharedValue(0);
-  const opacity = useSharedValue(0);
-
-  useEffect(() => {
-    opacity.value = withDelay(delay, withTiming(1, { duration: 1200 }));
-    translateY.value = withDelay(delay, withRepeat(
-      withSequence(
-        withTiming(-20, { duration: 4000, easing: Easing.inOut(Easing.sin) }),
-        withTiming(20, { duration: 4000, easing: Easing.inOut(Easing.sin) }),
-      ), -1, true
-    ));
-  }, [delay, opacity, translateY]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: opacity.value * 0.6,
-    transform: [{ translateY: translateY.value }],
-  }));
-
-  return (
-    <Animated.View style={[StyleSheet.absoluteFillObject, style]} pointerEvents="none">
-      <View style={{
-        position: 'absolute',
-        left: x,
-        top: y,
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: color,
-        filter: [{ blur: size * 0.5 }] as any,
-      }} />
-    </Animated.View>
-  );
-}
-
-// Stats pill showing social proof
-function StatPill({ value, label, delay }: { value: string; label: string; delay: number }) {
-  return (
-    <Animated.View entering={FadeInUp.delay(delay).springify()} style={styles.statPill}>
-      <TText variant="title2" weight="bold" style={{ color: Colors.accentGlow, letterSpacing: -1 }}>{value}</TText>
-      <TText variant="caption" color="secondary" style={{ marginTop: 1 }}>{label}</TText>
-    </Animated.View>
-  );
+function enter(delay: number, reduced: boolean) {
+  return reduced ? FadeIn.duration(1) : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
 }
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const reduced = useReducedMotion();
+  const wide = width >= 900;
+  const [photoFailed, setPhotoFailed] = useState(false);
 
-  // Ken Burns — main BG
-  const bgScale = useSharedValue(1);
-  const bgOpacity = useSharedValue(0);
-
-  // Particle dots
-  const dotOpacity = useSharedValue(0);
-
-  // CTA buttons
-  const btnScale1 = useSharedValue(0.92);
-  const btnScale2 = useSharedValue(0.88);
-  const btnOpacity1 = useSharedValue(0);
-  const btnOpacity2 = useSharedValue(0);
-
+  // Slow gallery-light drift on the hero photograph.
+  const drift = useSharedValue(1);
   useEffect(() => {
-    // Background fade in
-    bgOpacity.value = withTiming(1, { duration: 1000 });
-
-    // Ken Burns
-    bgScale.value = withRepeat(
+    if (reduced) return;
+    drift.value = withRepeat(
       withSequence(
-        withTiming(1.10, { duration: 12000, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1.0, { duration: 12000, easing: Easing.inOut(Easing.ease) })
-      ), -1, false
+        withTiming(1.06, { duration: 16000, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1, { duration: 16000, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
     );
+  }, [drift, reduced]);
+  const driftStyle = useAnimatedStyle(() => ({ transform: [{ scale: drift.value }] }));
 
-    // Buttons entrance
-    btnOpacity1.value = withDelay(600, withTiming(1, { duration: 500 }));
-    btnScale1.value = withDelay(600, withSpring(1, { damping: 12, stiffness: 200 }));
-    btnOpacity2.value = withDelay(800, withTiming(1, { duration: 500 }));
-    btnScale2.value = withDelay(800, withSpring(1, { damping: 12, stiffness: 200 }));
-    dotOpacity.value = withDelay(1200, withTiming(1, { duration: 800 }));
-  }, [bgOpacity, bgScale, btnOpacity1, btnOpacity2, btnScale1, btnScale2, dotOpacity]);
-
-  const bgStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: bgScale.value }],
-    opacity: bgOpacity.value,
-  }));
-
-  const btn1Style = useAnimatedStyle(() => ({
-    transform: [{ scale: btnScale1.value }],
-    opacity: btnOpacity1.value,
-  }));
-
-  const btn2Style = useAnimatedStyle(() => ({
-    transform: [{ scale: btnScale2.value }],
-    opacity: btnOpacity2.value,
-  }));
-
-  const handleStart = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/(tabs)/explore');
-  };
-
-  const handleSignIn = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(auth)/sign-in');
-  };
+  const explore = (style?: string) =>
+    router.push(style ? { pathname: '/(tabs)/explore', params: { style } } : '/(tabs)/explore');
 
   return (
     <View style={styles.container}>
-      {/* BG Image with Ken Burns */}
-      <Animated.View style={[StyleSheet.absoluteFill, bgStyle]}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1590246815015-e4e6de2a6873?w=1200' }}
-          style={styles.bg}
-          contentFit="cover"
-        />
+      {/* Photograph, lit from above */}
+      <Animated.View style={[styles.photo, wide && styles.photoWide, driftStyle]}>
+        {photoFailed ? (
+          // No photograph: a warm spotlight on the wall keeps the composition lit.
+          <LinearGradient
+            colors={['rgba(201,164,106,0.20)', 'rgba(201,164,106,0.05)', 'rgba(11,10,9,0)']}
+            locations={[0, 0.45, 1]}
+            start={{ x: 0.7, y: 0 }}
+            end={{ x: 0.3, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : (
+          <Image
+            source={{ uri: HERO_IMAGE }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={600}
+            onError={() => setPhotoFailed(true)}
+            accessibilityLabel="Tatoueur au travail dans un studio"
+          />
+        )}
       </Animated.View>
-
-      {/* Multi-layer gradient */}
       <LinearGradient
-        colors={['rgba(3,3,5,0.0)', 'rgba(3,3,5,0.40)', 'rgba(3,3,5,0.75)', Colors.bgPrimary]}
-        locations={[0, 0.3, 0.6, 1]}
+        colors={wide
+          ? ['rgba(11,10,9,0.96)', 'rgba(11,10,9,0.80)', 'rgba(11,10,9,0.15)']
+          : ['rgba(11,10,9,0.35)', 'rgba(11,10,9,0.10)', 'rgba(11,10,9,0.82)', Colors.bgPrimary]}
+        locations={wide ? [0, 0.42, 1] : [0, 0.28, 0.62, 0.88]}
+        start={wide ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 }}
+        end={wide ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
+        pointerEvents="none"
       />
 
-      {/* Aurora orbs */}
-      <FloatingOrb color={Colors.violet} size={300} x={'-20%'} y={H * 0.05} delay={400} />
-      <FloatingOrb color={Colors.accentWarm} size={200} x={'60%'} y={H * 0.15} delay={600} />
-      <FloatingOrb color={Colors.cyan} size={150} x={'75%'} y={H * 0.6} delay={800} />
-
-      {/* Top bar — logo */}
-      <Animated.View
-        entering={FadeIn.delay(200).duration(800)}
-        style={[styles.topBar, { paddingTop: insets.top + 12 }]}
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
       >
-        <Logo size="md" variant="full" animate />
-      </Animated.View>
+        <View style={styles.frame}>
+          {/* Masthead */}
+          <Animated.View entering={reduced ? undefined : FadeIn.duration(800)} style={styles.topBar}>
+            <Logo size="sm" variant="wordmark" />
+            <Pressable
+              onPress={() => router.push('/(auth)/sign-in')}
+              accessibilityRole="link"
+              hitSlop={10}
+              style={({ pressed }) => [styles.signInLink, pressed && { opacity: 0.6 }]}
+            >
+              <TText variant="bodySmall" weight="medium">Se connecter</TText>
+            </Pressable>
+          </Animated.View>
 
-      {/* Center — Hero headline */}
-      <View style={styles.hero} pointerEvents="none">
-        <Animated.View entering={FadeInDown.delay(350).duration(700).springify()}>
-          <TText
-            variant="displayXL"
-            weight="black"
-            style={styles.heroTitle}
-          >
-            L�art{'\n'}sur ta peau.
-          </TText>
-        </Animated.View>
-        <Animated.View entering={FadeInDown.delay(500).duration(600)}>
-          <TText variant="body" color="secondary" style={styles.heroSub}>
-            Trouve le tatoueur parfait.{'\n'}Réserve en quelques touches.
-          </TText>
-        </Animated.View>
-      </View>
+          <View style={styles.spacer} />
 
-      {/* Stats row */}
-      <Animated.View entering={FadeInUp.delay(700).springify()} style={styles.statsRow}>
-        <StatPill value="Styles" label="trouve le tien" delay={720} />
-        <View style={styles.statsDivider} />
-        <StatPill value="Artistes" label="d�couvre leur univers" delay={780} />
-        <View style={styles.statsDivider} />
-        <StatPill value="Projets" label="pr�pare ton tatouage" delay={840} />
-      </Animated.View>
-
-      {/* CTA section */}
-      <View style={[styles.actions, { paddingBottom: insets.bottom + Spacing.lg }]}>
-        {/* Primary CTA */}
-        <Animated.View style={btn1Style}>
-          <TouchableOpacity
-            onPress={handleStart}
-            activeOpacity={0.9}
-            style={styles.primaryBtn}
-          >
-            <LinearGradient
-              colors={[Colors.accentGlow, Colors.accentWarm, '#B8783A']}
-              locations={[0, 0.55, 1]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <TText variant="body" weight="bold" style={styles.primaryBtnText}>
-              Explorer les tatoueurs
-            </TText>
-            <View style={styles.primaryBtnArrow}>
-              <TText style={{ color: Colors.bgPrimary, fontSize: 16 }}>→</TText>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Secondary — artist CTA */}
-        <Animated.View style={btn2Style}>
-          <TouchableOpacity
-            onPress={handleSignIn}
-            activeOpacity={0.8}
-            style={styles.secondaryBtn}
-          >
-            <TText variant="bodySmall" color="secondary">
-              Déjà un compte ?{' '}
-              <TText variant="bodySmall" style={{ color: Colors.accentWarm }}>
-                Se connecter
+          {/* Editorial block */}
+          <View style={[styles.copy, wide && styles.copyWide]}>
+            <Animated.View entering={enter(120, reduced)} style={styles.kicker}>
+              <View style={styles.kickerRule} />
+              <TText variant="label" color="accentWarm" uppercase>
+                Tatoueurs · Studios · Guest spots
               </TText>
-            </TText>
-          </TouchableOpacity>
-        </Animated.View>
+            </Animated.View>
 
-        {/* Micro legal */}
-        <Animated.View entering={FadeIn.delay(1000).duration(600)}>
-          <TText variant="micro" color="tertiary" style={styles.legal}>
-            En continuant, tu acceptes nos CGU · Politique de confidentialité
-          </TText>
-        </Animated.View>
-      </View>
+            <Animated.View entering={enter(220, reduced)}>
+              <TText variant="displayXL" style={[styles.headline, !wide && styles.headlineMobile]} accessibilityRole="header">
+                Trouvez l’artiste{'\n'}
+                <TText variant="displayXL" italic color="accentGlow" style={!wide && styles.headlineMobile}>
+                  qui vous ressemble.
+                </TText>
+              </TText>
+            </Animated.View>
+
+            <Animated.View entering={enter(340, reduced)}>
+              <TText variant="body" color="secondary" style={styles.lede}>
+                Parcourez les portfolios par style et par ville, puis confiez votre projet directement
+                à l’artiste qui vous parle.
+              </TText>
+            </Animated.View>
+
+            {/* Quick entry by style */}
+            <Animated.View entering={enter(440, reduced)}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.styleRow}
+                style={styles.styleScroller}
+              >
+                {QUICK_STYLES.map((s) => (
+                  <Pressable
+                    key={s.slug}
+                    onPress={() => explore(s.slug)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Voir les artistes ${s.name}`}
+                    style={(state) => {
+                      const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                      return [styles.styleChip, (pressed || hovered) && styles.styleChipActive];
+                    }}
+                  >
+                    <TText variant="caption" weight="medium" style={{ fontSize: 13 }}>{s.name}</TText>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </Animated.View>
+
+            <Animated.View entering={enter(540, reduced)} style={styles.actions}>
+              <TButton
+                title="Explorer les artistes"
+                onPress={() => explore()}
+                icon={<Ionicons name="arrow-forward" size={17} color={Colors.textInverse} />}
+                iconPosition="right"
+                fullWidth={!wide}
+              />
+              <TButton
+                title="Je suis tatoueur·se"
+                variant="secondary"
+                onPress={() => router.push('/(auth)/sign-in')}
+                fullWidth={!wide}
+              />
+            </Animated.View>
+
+            <Animated.View entering={reduced ? undefined : FadeIn.delay(800).duration(600)} style={styles.legalRow}>
+              <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
+              <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link">
+                <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
+              </Pressable>
+              <TText variant="caption" color="tertiary"> et la </TText>
+              <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link">
+                <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
+              </Pressable>
+              <TText variant="caption" color="tertiary">.</TText>
+            </Animated.View>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary, overflow: 'hidden' },
-  bg: { width: W, height: H + 60, top: -30 },
+  photo: { ...StyleSheet.absoluteFillObject, bottom: '30%' },
+  photoWide: { left: '38%', bottom: 0 },
 
-  topBar: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0,
-    paddingHorizontal: Spacing.lg,
-    zIndex: 10,
-  },
+  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
+  frame: { flex: 1, width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  hero: {
-    position: 'absolute',
-    bottom: '42%',
-    left: 0, right: 0,
-    paddingHorizontal: Spacing.lg,
-  },
-  heroTitle: {
-    letterSpacing: -3,
-    lineHeight: 58,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
-  },
-  heroSub: {
-    lineHeight: 24,
-    letterSpacing: 0.2,
-  },
-
-  statsRow: {
-    position: 'absolute',
-    bottom: '30%',
-    left: 0, right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  signInLink: {
+    paddingHorizontal: 14,
+    height: 36,
     justifyContent: 'center',
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.xl,
-  },
-  statPill: { alignItems: 'center' },
-  statsDivider: { width: 1, height: 28, backgroundColor: Colors.borderSubtle },
-
-  actions: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.glassBorderBright,
+    backgroundColor: 'rgba(11,10,9,0.45)',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
 
-  primaryBtn: {
-    height: 58,
-    borderRadius: Radius.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
+  spacer: { flex: 1, minHeight: 220 },
+
+  copy: { width: '100%' },
+  copyWide: { maxWidth: 560, paddingBottom: Spacing['3xl'] },
+
+  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
+  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
+
+  headline: { marginBottom: Spacing.md },
+  headlineMobile: { fontSize: 46, lineHeight: 48, letterSpacing: -1.2 },
+  lede: { maxWidth: 440, marginBottom: Spacing.lg },
+
+  styleScroller: { marginHorizontal: -Layout.gutter, marginBottom: Spacing.lg },
+  styleRow: { paddingHorizontal: Layout.gutter, gap: 8 },
+  styleChip: {
+    height: 36,
+    paddingHorizontal: 14,
     justifyContent: 'center',
-    overflow: 'hidden',
-    ...GlowShadow.amberStrong,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.glassBorderBright,
+    backgroundColor: 'rgba(11,10,9,0.5)',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  primaryBtnText: {
-    color: Colors.bgPrimary,
-    letterSpacing: 0.3,
-    fontSize: 16,
-  },
-  primaryBtnArrow: {
-    position: 'absolute',
-    right: Spacing.md,
-  },
-  secondaryBtn: {
-    alignItems: 'center',
-    paddingVertical: Spacing['2xs'],
-  },
-  legal: {
-    textAlign: 'center',
-    lineHeight: 14,
-  },
+  styleChipActive: { borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber },
+
+  actions: { gap: 10, flexDirection: 'row', flexWrap: 'wrap', marginBottom: Spacing.md },
+
+  legalRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  underline: { textDecorationLine: 'underline' },
 });

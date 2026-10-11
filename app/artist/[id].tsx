@@ -1,26 +1,21 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
-  ScrollView, StyleSheet, View, TouchableOpacity,
-  Dimensions, Animated as RNAnimated,
+  StyleSheet, View, Pressable, Animated as RNAnimated, useWindowDimensions, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn, FadeInDown, FadeInUp,
-  useSharedValue, useAnimatedStyle, withSpring,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { TChip } from '@/components/ui/TChip';
-import { TDivider } from '@/components/ui/TDivider';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { TSkeleton } from '@/components/ui/TSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ArtPlaceholder, BOOKING_STATUS, styleName } from '@/components/ArtistCard';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
 import { Toast } from '@/components/ui/TToast';
 import { useAuthStore } from '@/store/auth-store';
@@ -28,77 +23,91 @@ import { fetchArtistPortfolio } from '@/lib/catalog';
 import { useArtist } from '@/hooks/use-artist';
 import type { Tables } from '@/lib/supabase';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const COVER_H = 320;
-const GALLERY_CELL = (SCREEN_W - Spacing.lg * 2 - 4) / 3;
+const GAP = 3;
 
-const STATUS_CONFIG = {
-  open:   { label: 'Ouvert aux demandes', variant: 'success' as const, dot: '#34D399', canRequest: true },
-  paused: { label: 'En pause',            variant: 'warning' as const, dot: '#FBBF24', canRequest: false },
-  closed: { label: 'Fermé',               variant: 'error'   as const, dot: '#F87171', canRequest: false },
-};
-
-// ─── FAQ accordion item
-function FaqItem({ question, answer, index }: { question: string; answer: string; index: number }) {
-  const [open, setOpen] = useState(false);
-  const rotation = useSharedValue(0);
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value * 180}deg` }],
-  }));
-
-  const toggle = () => {
-    rotation.value = withSpring(open ? 0 : 1, { damping: 12 });
-    setOpen(!open);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
+// ─── Pieces ───────────────────────────────────────────────────────────────────
+function RoundButton({ icon, label, onPress, disabled, active }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; disabled?: boolean; active?: boolean;
+}) {
   return (
-    <TouchableOpacity onPress={toggle} activeOpacity={0.85} style={styles.faqItem}>
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.7 }]}
+    >
+      <Ionicons name={icon} size={19} color={active ? Colors.accentGlow : Colors.textPrimary} />
+    </Pressable>
+  );
+}
+
+function Fact({ label, value, accent, dot }: { label: string; value: string; accent?: boolean; dot?: string }) {
+  return (
+    <View style={styles.fact}>
+      <TText variant="label" color="tertiary" uppercase>{label}</TText>
+      <View style={styles.factValue}>
+        {dot && <View style={[styles.dot, { backgroundColor: dot }]} />}
+        <TText variant="bodySmall" weight="medium" tabular numberOfLines={1} style={accent ? { color: Colors.accentGlow } : undefined}>
+          {value}
+        </TText>
+      </View>
+    </View>
+  );
+}
+
+function Section({ kicker, title, children }: { kicker: string; title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <TText variant="label" color="accentWarm" uppercase style={{ marginBottom: 6 }}>{kicker}</TText>
+      <TText variant="displayS" style={{ marginBottom: Spacing.sm }}>{title}</TText>
+      {children}
+    </View>
+  );
+}
+
+function FaqItem({ question, answer }: { question: string; answer: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Pressable
+      onPress={() => setOpen((o) => !o)}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      style={styles.faqItem}
+    >
       <View style={styles.faqRow}>
-        <TText variant="bodySmall" weight="semibold" style={{ flex: 1 }}>{question}</TText>
-        <Animated.View style={chevronStyle}>
-          <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
-        </Animated.View>
+        <TText variant="body" weight="medium" style={{ flex: 1 }}>{question}</TText>
+        <Ionicons name={open ? 'remove' : 'add'} size={18} color={Colors.textSecondary} />
       </View>
       {open && (
-        <Animated.View entering={FadeInDown.duration(200)}>
+        <Animated.View entering={FadeIn.duration(200)}>
           <TText variant="bodySmall" color="secondary" style={styles.faqAnswer}>{answer}</TText>
         </Animated.View>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
-// ─── Gallery cell
-function GalleryCell({ uri, onPress, index }: { uri: string; onPress: () => void; index: number }) {
-  const isTall = index % 4 === 0;
-  const scale = useSharedValue(1);
-  const scaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
+function ProfileSkeleton({ top }: { top: number }) {
   return (
-    <Animated.View
-      entering={FadeIn.delay(index * 60).duration(400)}
-      style={[styles.galleryCell, isTall && styles.galleryCellTall, scaleStyle]}
-    >
-      <TouchableOpacity
-        onPress={() => {
-          scale.value = withSpring(0.95, { damping: 10 }, () => { scale.value = withSpring(1); });
-          onPress();
-        }}
-        activeOpacity={1}
-        style={StyleSheet.absoluteFill}
-      >
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        <LinearGradient colors={['transparent', 'rgba(5,5,8,0.3)']} style={StyleSheet.absoluteFill} />
-      </TouchableOpacity>
-    </Animated.View>
+    <View style={[styles.container, { paddingTop: top }]}>
+      <TSkeleton height={380} radius={0} />
+      <View style={{ padding: Layout.gutter, gap: 12 }}>
+        <TSkeleton width="60%" height={34} />
+        <TSkeleton width="40%" height={14} />
+        <TSkeleton height={64} radius={Radius.lg} style={{ marginTop: 12 }} />
+      </View>
+    </View>
   );
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ArtistProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const { savedArtistIds, pendingIds, fetchSaved, toggle } = useSavedArtistsStore();
   const { isAuthenticated, user } = useAuthStore();
   useEffect(() => { void fetchSaved(user?.id); }, [user?.id, fetchSaved]);
@@ -106,36 +115,39 @@ export default function ArtistProfileScreen() {
   const { artist: loadedArtist, loading, error, retry } = useArtist(id);
   const [artistPosts, setArtistPosts] = useState<Tables<'posts'>[]>([]);
   const [faq, setFaq] = useState<{ question: string; answer: string }[]>([]);
-  const [portfolioError, setPortfolioError] = useState(false);
+  const [portfolioState, setPortfolioState] = useState<'loading' | 'ready' | 'error'>('loading');
   useEffect(() => {
     let active = true;
-    setArtistPosts([]); setFaq([]); setPortfolioError(false);
-    if (loadedArtist) fetchArtistPortfolio(loadedArtist.id).then(data => {
-      if (active) { setArtistPosts(data.posts); setFaq(data.faq); }
-    }).catch(() => { if (active) setPortfolioError(true); });
+    setArtistPosts([]); setFaq([]); setPortfolioState('loading');
+    if (loadedArtist) fetchArtistPortfolio(loadedArtist.id).then((data) => {
+      if (active) { setArtistPosts(data.posts); setFaq(data.faq); setPortfolioState('ready'); }
+    }).catch(() => { if (active) setPortfolioState('error'); });
     return () => { active = false; };
   }, [loadedArtist]);
-  const artist = useMemo(() => loadedArtist ? { ...loadedArtist, faq } : null, [loadedArtist, faq]);
+
+  const artist = useMemo(() => (loadedArtist ? { ...loadedArtist, faq } : null), [loadedArtist, faq]);
   const isSaved = artist ? savedArtistIds.has(artist.id) : false;
-  const booking = STATUS_CONFIG[artist?.bookingStatus ?? 'closed'];
+  const photos = useMemo(() => artistPosts.filter((p) => p.media_type === 'photo'), [artistPosts]);
 
-  const saveScale = useSharedValue(1);
+  // Layout
+  const contentW = Math.min(width, Layout.maxContent);
+  const wide = width >= 900;
+  const coverH = Math.round(Math.min(Math.max(height * 0.58, 360), 560));
+  const cols = contentW >= 1000 ? 4 : contentW >= 640 ? 3 : 2;
+  const cell = (contentW - Layout.gutter * 2 - GAP * (cols - 1)) / cols;
 
-  const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
-
+  // Scroll-linked header
   const scrollY = useRef(new RNAnimated.Value(0)).current;
-  const coverParallax = scrollY.interpolate({ inputRange: [0, COVER_H], outputRange: [0, -COVER_H * 0.35], extrapolate: 'clamp' });
-  const coverDim = scrollY.interpolate({ inputRange: [0, COVER_H * 0.5], outputRange: [0.5, 0.85], extrapolate: 'clamp' });
-  const headerBg = scrollY.interpolate({ inputRange: [COVER_H * 0.4, COVER_H * 0.8], outputRange: ['rgba(5,5,8,0)', 'rgba(5,5,8,0.97)'], extrapolate: 'clamp' });
-  const headerTitleOpacity = scrollY.interpolate({ inputRange: [COVER_H * 0.6, COVER_H * 0.9], outputRange: [0, 1], extrapolate: 'clamp' });
+  const coverParallax = scrollY.interpolate({ inputRange: [-200, 0, coverH], outputRange: [-60, 0, coverH * 0.3], extrapolate: 'clamp' });
+  const headerBg = scrollY.interpolate({ inputRange: [coverH * 0.55, coverH * 0.85], outputRange: ['rgba(11,10,9,0)', 'rgba(11,10,9,0.96)'], extrapolate: 'clamp' });
+  const headerTitleOpacity = scrollY.interpolate({ inputRange: [coverH * 0.7, coverH * 0.95], outputRange: [0, 1], extrapolate: 'clamp' });
 
   const handleSave = useCallback(async () => {
     if (!artist) return;
     if (!user) { router.push({ pathname: '/(auth)/sign-in', params: { next: `/artist/${artist.id}` } }); return; }
-    saveScale.value = withSpring(1.4, { damping: 4 }, () => { saveScale.value = withSpring(1); });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (!await toggle(user.id, artist.id)) Toast.error("Impossible d’enregistrer cet artiste. Réessayez.");
-  }, [artist, saveScale, toggle, user, router]);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!await toggle(user.id, artist.id)) Toast.error('Impossible d’enregistrer cet artiste. Réessayez.');
+  }, [artist, toggle, user, router]);
 
   const handleRequest = () => {
     if (!artist) return;
@@ -143,239 +155,215 @@ export default function ArtistProfileScreen() {
     router.push({ pathname: '/request/new', params: { artistId: artist.id } });
   };
 
-  if (!artist) return <View style={[styles.container, { padding: 24, paddingTop: insets.top + 24, gap: 16 }]}>
-    <TText variant="title2">{loading ? 'Chargement de l’artiste…' : error ?? 'Artiste introuvable'}</TText>
-    {!loading && <TButton title="Réessayer" onPress={retry} />}
-    <TButton title="Explorer les artistes" variant="glass" onPress={() => router.replace('/(tabs)/explore')} />
-  </View>;
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/explore'));
+
+  if (!artist && loading) return <ProfileSkeleton top={0} />;
+  if (!artist) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={{ paddingHorizontal: Spacing.sm, paddingTop: 6 }}>
+          <RoundButton icon="chevron-back" label="Retour" onPress={goBack} />
+        </View>
+        <EmptyState
+          icon="person-outline"
+          title={error ? 'Profil indisponible' : 'Artiste introuvable'}
+          description={error ? 'Le chargement a échoué. Vérifiez votre connexion puis réessayez.' : 'Ce profil n’existe pas ou n’est plus public.'}
+          ctaLabel={error ? 'Réessayer' : 'Explorer les artistes'}
+          onCta={error ? retry : () => router.replace('/(tabs)/explore')}
+        />
+      </View>
+    );
+  }
+
+  const status = BOOKING_STATUS[artist.bookingStatus];
+  const canRequest = artist.bookingStatus === 'open';
+  const stylesLabel = artist.styles.map(styleName);
+  const coverUri = artist.coverUrl || photos[0]?.media_url;
 
   return (
     <View style={styles.container}>
-      {/* ─── Floating header (appears on scroll) ─── */}
-      <RNAnimated.View style={[styles.floatingHeader, { paddingTop: insets.top, backgroundColor: headerBg }]}>
+      {/* ─── Floating header ─── */}
+      <RNAnimated.View style={[styles.floatingHeader, { paddingTop: insets.top + 6, backgroundColor: headerBg }]}>
         <View style={styles.floatingHeaderInner}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-          </TouchableOpacity>
+          <RoundButton icon="chevron-back" label="Retour" onPress={goBack} />
           <RNAnimated.View style={{ opacity: headerTitleOpacity, flex: 1, alignItems: 'center' }}>
-            <TText variant="title2" weight="bold" numberOfLines={1}>{artist.blaze}</TText>
+            <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{artist.blaze}</TText>
           </RNAnimated.View>
-          <Animated.View style={saveStyle}>
-            <TouchableOpacity onPress={handleSave} disabled={pendingIds.has(id)} style={styles.headerBtn}>
-              <Ionicons
-                name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                size={22}
-                color={isSaved ? Colors.accentGlow : Colors.textPrimary}
-              />
-            </TouchableOpacity>
-          </Animated.View>
+          <RoundButton
+            icon={isSaved ? 'bookmark' : 'bookmark-outline'}
+            label={isSaved ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+            onPress={handleSave}
+            disabled={pendingIds.has(artist.id)}
+            active={isSaved}
+          />
         </View>
       </RNAnimated.View>
 
       <RNAnimated.ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
         onScroll={RNAnimated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
         scrollEventThrottle={16}
       >
-        {/* ─── Cover with parallax ─── */}
-        <View style={styles.coverWrap}>
+        {/* ─── Cover ─── */}
+        <View style={[styles.cover, { height: coverH }]}>
           <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: coverParallax }] }]}>
-            <Image
-              source={{ uri: artist.coverUrl }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-            />
+            {coverUri ? (
+              <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={400} accessibilityLabel={`Travail de ${artist.blaze}`} />
+            ) : (
+              <ArtPlaceholder name={artist.blaze} size={Math.min(width * 0.45, 220)} />
+            )}
           </RNAnimated.View>
-          <RNAnimated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: coverDim }]} />
           <LinearGradient
-            colors={['rgba(5,5,8,0.4)', 'transparent', 'rgba(5,5,8,0.95)']}
-            locations={[0, 0.35, 1]}
+            colors={['rgba(11,10,9,0.45)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.55)', Colors.bgPrimary]}
+            locations={[0, 0.25, 0.7, 1]}
             style={StyleSheet.absoluteFill}
           />
-
-          {/* Buttons on cover (initial state, before header appears) */}
-          <View style={[styles.coverButtons, { paddingTop: insets.top + 8 }]}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.glassBtn}>
-              <Ionicons name="chevron-back" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Animated.View style={saveStyle}>
-              <TouchableOpacity onPress={handleSave} disabled={pendingIds.has(id)} style={styles.glassBtn}>
-                <Ionicons
-                  name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                  size={20}
-                  color={isSaved ? Colors.accentWarm : 'rgba(255,255,255,0.85)'}
-                />
-              </TouchableOpacity>
+          <View style={[styles.coverCopy, { maxWidth: Layout.maxContent }]}>
+            <Animated.View entering={FadeInDown.duration(600)}>
+              <View style={styles.kickerRow}>
+                <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="sm" />
+                <TText variant="label" color="accentWarm" uppercase numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {artist.city}{stylesLabel.length ? ` · ${stylesLabel.slice(0, 2).join(' · ')}` : ''}
+                </TText>
+              </View>
+              <View style={styles.nameRow}>
+                <TText variant="displayXL" numberOfLines={2} style={[styles.name, !wide && { fontSize: 48, lineHeight: 50 }]} accessibilityRole="header">
+                  {artist.blaze}
+                </TText>
+                {artist.isVerified && (
+                  <Ionicons name="checkmark-circle" size={22} color={Colors.accentWarm} style={{ marginLeft: 8, marginBottom: 8 }} accessibilityLabel="Profil vérifié" />
+                )}
+              </View>
             </Animated.View>
-          </View>
-
-          {/* Avatar pinned */}
-          <View style={styles.avatarPinned}>
-            <TAvatar
-              uri={artist.avatarUrl}
-              name={artist.blaze}
-              size="2xl"
-              isPremium={artist.tier === 'premium'}
-            />
           </View>
         </View>
 
-        {/* ─── Identity ─── */}
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.identity}>
-          <View style={styles.nameRow}>
-            <TText variant="title1" weight="bold" style={{ letterSpacing: -1 }}>{artist.blaze}</TText>
-            {artist.isVerified && (
-              <Ionicons name="checkmark-circle" size={20} color={Colors.info} style={{ marginLeft: 6 }} />
-            )}
-            {artist.tier === 'premium' && (
-              <TBadge label="PREMIUM" variant="premium" style={{ marginLeft: 8 }} />
-            )}
+        <View style={styles.body}>
+          {/* ─── Facts ─── */}
+          <View style={styles.facts}>
+            <Fact label="Statut" value={status.short} dot={status.color} />
+            <View style={styles.factDivider} />
+            <Fact label="Budget" value={artist.minBudget > 0 ? `dès ${artist.minBudget.toLocaleString('fr-FR')} €` : 'Sur devis'} accent={artist.minBudget > 0} />
+            <View style={styles.factDivider} />
+            <Fact label="Œuvres" value={portfolioState === 'ready' ? String(photos.length) : '—'} />
           </View>
-          <TText variant="bodySmall" color="secondary" style={{ marginTop: 2 }}>{artist.city}</TText>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusPill, { borderColor: booking.dot + '30' }]}>
-              <View style={[styles.statusDot, { backgroundColor: booking.dot }]} />
-              <TText variant="micro" color="secondary" uppercase>{booking.label}</TText>
-            </View>
-            {artist.minBudget > 0 && (
-              <TText variant="caption" style={{ color: Colors.accentWarm }}>
-                À partir de {artist.minBudget}€
-              </TText>
-            )}
-          </View>
-        </Animated.View>
 
-        {/* ─── Styles ─── */}
-        <Animated.View entering={FadeInDown.delay(150).springify()}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stylesRow}>
-            {artist.styles.map((s) => <TChip key={s} label={s} />)}
-            {artist.specialties.map((s) => <TChip key={s} label={s} />)}
-          </ScrollView>
-        </Animated.View>
-
-        <TDivider style={styles.divider} />
-
-        {/* ─── Bio ─── */}
-        <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.section}>
-          <TText variant="body" color="secondary" style={styles.bio}>{artist.bio}</TText>
-        </Animated.View>
-
-        <TDivider style={styles.divider} />
-
-        {/* ─── Gallery ─── */}
-        <Animated.View entering={FadeInDown.delay(250).springify()} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <TText variant="label" color="tertiary" uppercase>Portfolio</TText>
-            <TText variant="caption" color="tertiary">{artistPosts.length} œuvres</TText>
-          </View>
-          <View style={styles.gallery}>
-            {portfolioError && <TText color="secondary">Portfolio indisponible. Réessayez en rechargeant le profil.</TText>}
-            {!portfolioError && artistPosts.length === 0 && <TText color="secondary">Aucune publication pour le moment.</TText>}
-            {artistPosts.map((post, i) => (
-              <GalleryCell
-                key={post.id}
-                uri={post.media_url}
-                onPress={() => router.push(`/post/${post.id}`)}
-                index={i}
-              />
-            ))}
-          </View>
-        </Animated.View>
-
-        {/* ─── Rules ─── */}
-        {artist.rules && (
-          <Animated.View entering={FadeInDown.delay(300).springify()}>
-            <TDivider style={styles.divider} />
-            <View style={styles.section}>
-              <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing['2xs'] }}>
-                Règles de réservation
-              </TText>
-              <GlassCard variant="default" style={{ padding: Spacing.sm }}>
-                <TText variant="bodySmall" color="secondary" style={{ lineHeight: 22 }}>{artist.rules}</TText>
-              </GlassCard>
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ─── Process ─── */}
-        {artist.process && (
-          <Animated.View entering={FadeInDown.delay(320).springify()}>
-            <TDivider style={styles.divider} />
-            <View style={styles.section}>
-              <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing['2xs'] }}>
-                Mon processus
-              </TText>
-              <GlassCard variant="default" style={{ padding: Spacing.sm }}>
-                <TText variant="bodySmall" color="secondary" style={{ lineHeight: 22 }}>{artist.process}</TText>
-              </GlassCard>
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ─── Exclusions ─── */}
-        {artist.exclusions.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(340).springify()}>
-            <TDivider style={styles.divider} />
-            <View style={styles.section}>
-              <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing['2xs'] }}>
-                Je ne fais pas
-              </TText>
-              <View style={styles.exclusions}>
-                {artist.exclusions.map((e) => (
-                  <View key={e} style={styles.exclusionTag}>
-                    <Ionicons name="close" size={11} color={Colors.error} />
-                    <TText variant="caption" color="secondary" style={{ marginLeft: 4 }}>{e}</TText>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ─── FAQ ─── */}
-        {artist.faq.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(360).springify()}>
-            <TDivider style={styles.divider} />
-            <View style={styles.section}>
-              <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing.xs }}>
-                Questions fréquentes
-              </TText>
-              {artist.faq.map((item, i) => (
-                <FaqItem key={i} index={i} question={item.question} answer={item.answer} />
+          {/* ─── Styles ─── */}
+          {(stylesLabel.length > 0 || artist.specialties.length > 0) && (
+            <View style={styles.tags}>
+              {[...stylesLabel, ...artist.specialties].map((s) => (
+                <View key={s} style={styles.tag}><TText variant="caption" color="secondary">{s}</TText></View>
               ))}
             </View>
-          </Animated.View>
-        )}
+          )}
+
+          {/* ─── Bio ─── */}
+          {!!artist.bio && (
+            <TText variant="body" color="secondary" style={styles.bio}>{artist.bio}</TText>
+          )}
+        </View>
+
+        {/* ─── Portfolio ─── */}
+        <View style={[styles.body, styles.portfolio]}>
+          <View style={styles.portfolioHead}>
+            <TText variant="displayS">Portfolio</TText>
+            {portfolioState === 'ready' && photos.length > 0 && (
+              <TText variant="caption" color="tertiary" tabular>{photos.length} œuvre{photos.length > 1 ? 's' : ''}</TText>
+            )}
+          </View>
+
+          {portfolioState === 'loading' && (
+            <View style={styles.grid}>
+              {Array.from({ length: cols * 2 }).map((_, i) => (
+                <TSkeleton key={i} width={cell} height={cell * 1.25} radius={Radius.sm} />
+              ))}
+            </View>
+          )}
+          {portfolioState === 'error' && (
+            <EmptyState icon="images-outline" title="Portfolio indisponible" description="Le chargement a échoué." ctaLabel="Réessayer" onCta={retry} style={styles.inlineEmpty} />
+          )}
+          {portfolioState === 'ready' && photos.length === 0 && (
+            <EmptyState icon="images-outline" title="Pas encore de réalisations" description="Cet artiste n’a rien publié pour le moment." style={styles.inlineEmpty} />
+          )}
+          {portfolioState === 'ready' && photos.length > 0 && (
+            <View style={styles.grid}>
+              {photos.map((post, i) => {
+                // Every 5th piece spans two columns, like a featured print on the wall.
+                const feature = cols > 1 && i % 5 === 0 && i + 1 < photos.length;
+                const w = feature ? cell * 2 + GAP : cell;
+                return (
+                  <Pressable
+                    key={post.id}
+                    onPress={() => router.push(`/post/${post.id}`)}
+                    accessibilityRole="link"
+                    accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
+                    style={({ pressed }) => [styles.cell, { width: w, height: feature ? cell * 1.25 : cell * 1.25 }, pressed && { opacity: 0.85 }]}
+                  >
+                    <Image source={{ uri: post.media_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.body}>
+          {!!artist.process && (
+            <Section kicker="Méthode" title="Comment je travaille">
+              <TText variant="body" color="secondary" style={styles.prose}>{artist.process}</TText>
+            </Section>
+          )}
+          {!!artist.rules && (
+            <Section kicker="Avant de demander" title="Conditions">
+              <TText variant="body" color="secondary" style={styles.prose}>{artist.rules}</TText>
+            </Section>
+          )}
+          {artist.exclusions.length > 0 && (
+            <Section kicker="Limites" title="Je ne réalise pas">
+              {artist.exclusions.map((e) => (
+                <View key={e} style={styles.listRow}>
+                  <View style={styles.listDash} />
+                  <TText variant="body" color="secondary">{e}</TText>
+                </View>
+              ))}
+            </Section>
+          )}
+          {artist.faq.length > 0 && (
+            <Section kicker="Questions" title="Questions fréquentes">
+              {artist.faq.map((item) => <FaqItem key={item.question} question={item.question} answer={item.answer} />)}
+            </Section>
+          )}
+        </View>
       </RNAnimated.ScrollView>
 
-      {/* ─── Sticky CTA ─── */}
-      <Animated.View
-        entering={FadeInUp.delay(400).springify()}
-        style={[styles.stickyBar, { paddingBottom: insets.bottom + 8 }]}
-      >
-        {booking.canRequest ? (
-          <TButton
-            title="Envoyer une demande →"
-            variant="primary"
-            onPress={handleRequest}
-          />
-        ) : (
-          <View style={styles.closedBar}>
-            <View style={{ flex: 1 }}>
-              <TText variant="bodySmall" weight="semibold">
-                {artist.bookingStatus === 'paused' ? 'Temporairement en pause' : 'Plus de demandes'}
-              </TText>
-              <TText variant="caption" color="tertiary">
-                {artist.bookingStatus === 'paused'
-                  ? 'Recheck prochainement'
-                  : 'Ce tatoueur a fermé son carnet'}
-              </TText>
+      {/* ─── Sticky action bar ─── */}
+      <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={styles.stickyInner}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.factValue}>
+              <View style={[styles.dot, { backgroundColor: status.color }]} />
+              <TText variant="bodySmall" weight="medium">{status.label}</TText>
             </View>
-
+            <TText variant="caption" color="tertiary" numberOfLines={1}>
+              {canRequest
+                ? 'Devis établi par l’artiste'
+                : artist.bookingStatus === 'paused' ? 'Enregistrez le profil pour y revenir' : 'Ne prend pas de nouveaux projets'}
+            </TText>
           </View>
-        )}
-      </Animated.View>
+          {canRequest ? (
+            <TButton title="Demander un projet" onPress={handleRequest} fullWidth={false} />
+          ) : (
+            <TButton
+              title={isSaved ? 'Enregistré' : 'Enregistrer'}
+              variant="secondary"
+              onPress={handleSave}
+              fullWidth={false}
+              icon={<Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={16} color={isSaved ? Colors.accentGlow : Colors.textPrimary} />}
+            />
+          )}
+        </View>
+      </View>
     </View>
   );
 }
@@ -383,90 +371,71 @@ export default function ArtistProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
-  // Floating header
-  floatingHeader: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
-  },
+  floatingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100, paddingBottom: 8 },
   floatingHeaderInner: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing['2xs'], height: 56,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: Spacing.sm, width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-
-  // Cover
-  coverWrap: { height: COVER_H, overflow: 'hidden', position: 'relative' },
-  coverButtons: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
-  },
-  glassBtn: {
+  roundBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.40)',
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
-  },
-  avatarPinned: { position: 'absolute', bottom: -32, left: Spacing.lg },
-
-  // Identity
-  identity: { paddingHorizontal: Spacing.lg, paddingTop: 44, paddingBottom: Spacing.sm },
-  nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: Spacing.xs },
-  statusPill: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: Radius.full, borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)', gap: 5,
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-
-  // Styles
-  stylesRow: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, gap: 6 },
-
-  // Sections
-  divider: { marginHorizontal: Spacing.lg },
-  section: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
-  sectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: Spacing['2xs'],
-  },
-  bio: { lineHeight: 26 },
-
-  // Gallery
-  gallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
-  galleryCell: {
-    width: GALLERY_CELL, height: GALLERY_CELL,
-    overflow: 'hidden', borderRadius: Radius.xs,
-    backgroundColor: Colors.bgSurface,
-  },
-  galleryCellTall: { height: GALLERY_CELL * 1.65 },
-
-  // Exclusions
-  exclusions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  exclusionTag: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(248,113,113,0.08)',
-    paddingHorizontal: 8, paddingVertical: 4,
-    borderRadius: Radius.sm,
-    borderWidth: 1, borderColor: 'rgba(248,113,113,0.15)',
+    backgroundColor: 'rgba(11,10,9,0.55)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
   },
 
-  // FAQ
-  faqItem: {
+  cover: { overflow: 'hidden', justifyContent: 'flex-end' },
+  coverCopy: { width: '100%', alignSelf: 'center', paddingHorizontal: Layout.gutter, paddingBottom: Spacing.lg },
+  kickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.xs },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  name: { flexShrink: 1 },
+
+  body: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
+
+  facts: {
+    flexDirection: 'row', alignItems: 'stretch',
     paddingVertical: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
-  faqRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  faqAnswer: { marginTop: Spacing['2xs'], lineHeight: 20 },
+  fact: { flex: 1, gap: 6 },
+  factDivider: { width: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault, marginHorizontal: Spacing.sm },
+  factValue: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 
-  // Sticky CTA
-  stickyBar: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.sm,
-    backgroundColor: 'rgba(5,5,8,0.95)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: Spacing.md },
+  tag: {
+    paddingHorizontal: 12, height: 30, justifyContent: 'center',
+    borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
-  closedBar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+
+  bio: { marginTop: Spacing.md, maxWidth: Layout.maxReading },
+
+  portfolio: { marginTop: Spacing['2xl'] },
+  portfolioHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: Spacing.sm },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
+  cell: { overflow: 'hidden', borderRadius: Radius.sm, backgroundColor: Colors.bgSurface },
+  inlineEmpty: { flex: 0, paddingVertical: Spacing.xl },
+
+  section: {
+    marginTop: Spacing['2xl'], paddingTop: Spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+  },
+  prose: { maxWidth: Layout.maxReading },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  listDash: { width: 12, height: 1, backgroundColor: Colors.accentWarm },
+
+  faqItem: { paddingVertical: Spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault },
+  faqRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  faqAnswer: { marginTop: Spacing['2xs'], maxWidth: Layout.maxReading },
+
+  stickyBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingTop: 12, paddingHorizontal: Layout.gutter,
+    backgroundColor: 'rgba(11,10,9,0.96)',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+  },
+  stickyInner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
+  },
 });

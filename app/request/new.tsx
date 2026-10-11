@@ -472,7 +472,7 @@ export default function NewRequestScreen() {
           />
         ) : (
           <TButton
-            title="Envoyer la demande �’"
+            title="Envoyer la demande â†’"
             loading={submitting}
             onPress={handleSubmit}
             variant="primary"
