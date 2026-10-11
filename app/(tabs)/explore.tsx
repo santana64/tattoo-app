@@ -63,10 +63,13 @@ function resolveStyleSlug(param: string | string[] | undefined): string | null {
 }
 
 // ─── Small building blocks ────────────────────────────────────────────────────
-function Chip({ label, selected, onPress, dot }: { label: string; selected: boolean; onPress: () => void; dot?: string }) {
+function Chip({ label, selected, onPress, dot, onLayout }: {
+  label: string; selected: boolean; onPress: () => void; dot?: string; onLayout?: (x: number) => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
+      onLayout={onLayout ? (e) => onLayout(e.nativeEvent.layout.x) : undefined}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       style={(state) => {
@@ -159,6 +162,8 @@ export default function ExploreScreen() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  const chipRail = useRef<ScrollView>(null);
+  const chipX = useRef<Record<string, number>>({});
 
   // Follow deep links that change the style while the tab stays mounted.
   useEffect(() => {
@@ -223,6 +228,13 @@ export default function ExploreScreen() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Keep the selected style visible in the rail (e.g. after a deep link from the welcome screen).
+  const revealChip = useCallback((slug: string | null) => {
+    const x = slug ? chipX.current[slug] : 0;
+    if (x !== undefined) chipRail.current?.scrollTo({ x: Math.max(0, x - Layout.gutter), animated: true });
+  }, []);
+  useEffect(() => { revealChip(selectedStyle); }, [selectedStyle, revealChip]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -392,7 +404,7 @@ export default function ExploreScreen() {
         </View>
 
         {/* Styles */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.chipScroller}>
+        <ScrollView ref={chipRail} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.chipScroller}>
           <Chip label="Tous les styles" selected={!selectedStyle} onPress={() => setSelectedStyle(null)} />
           {STYLES.map((s) => (
             <Chip
@@ -400,6 +412,10 @@ export default function ExploreScreen() {
               label={s.name}
               selected={selectedStyle === s.slug}
               onPress={() => setSelectedStyle(selectedStyle === s.slug ? null : s.slug)}
+              onLayout={(x) => {
+                chipX.current[s.slug] = x;
+                if (s.slug === selectedStyle) revealChip(s.slug);
+              }}
             />
           ))}
         </ScrollView>

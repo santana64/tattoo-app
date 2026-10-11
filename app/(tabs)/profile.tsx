@@ -1,594 +1,567 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ScrollView, StyleSheet, View, TouchableOpacity,
-  Animated as RNAnimated, Dimensions, Linking,
+  ScrollView, StyleSheet, View, Pressable, Linking, Platform, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  FadeIn, FadeInDown, FadeInUp,
-  useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay,
-} from 'react-native-reanimated';
+import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow, Gradients } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { TChip } from '@/components/ui/TChip';
 import { TDivider } from '@/components/ui/TDivider';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { Logo } from '@/components/ui/Logo';
+import { TSkeleton } from '@/components/ui/TSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Toast } from '@/components/ui/TToast';
+import { ArtPlaceholder, BOOKING_STATUS, styleName } from '@/components/ArtistCard';
 import { useAuthStore } from '@/store/auth-store';
-import { ARTISTS, POSTS } from '@/constants/mock-data';
+import { useArtist } from '@/hooks/use-artist';
+import { fetchArtistPortfolio, isUuid } from '@/lib/catalog';
+import type { Tables } from '@/lib/supabase';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const COVER_H = 280;
-const GALLERY_GAP = 2;
-const GALLERY_CELL = (SCREEN_W - Spacing.sm * 2 - GALLERY_GAP * 2) / 3;
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+const GAP = 3;
+const ICON_COL = 34;
+const SIDE_W = 340;
 
-// ── Animated stat counter
-function StatCounter({ value, label, delay = 0, accent = false }: {
-  value: number; label: string; delay?: number; accent?: boolean;
+function enter(i: number, reduced: boolean) {
+  return reduced ? undefined : FadeInDown.delay(i * 60).duration(600).easing(EASE);
+}
+
+const haptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
+
+// ─── Building blocks ──────────────────────────────────────────────────────────
+type InteractionState = { pressed: boolean; hovered?: boolean };
+
+function RoundButton({ icon, label, onPress, onImage }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; onImage?: boolean;
 }) {
-  const animated = useRef(new RNAnimated.Value(0)).current;
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      RNAnimated.spring(animated, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 100 }).start();
-    }, delay);
-    return () => clearTimeout(timer);
-  }, []);
-  const scale = animated.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.4, 1.12, 1] });
-  const opacity = animated.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 1] });
   return (
-    <RNAnimated.View style={[styles.statItem, { transform: [{ scale }], opacity }]}>
-      <TText variant="title1" weight="bold" style={[styles.statValue, accent && { color: Colors.accentWarm }]}>
-        {value > 999 ? `${(value / 1000).toFixed(1)}k` : value}
-      </TText>
-      <TText variant="caption" color="tertiary">{label}</TText>
-    </RNAnimated.View>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={({ pressed }) => [styles.roundBtn, onImage && styles.roundBtnOnImage, pressed && { opacity: 0.7 }]}
+    >
+      <Ionicons name={icon} size={19} color={Colors.textPrimary} />
+    </Pressable>
   );
 }
 
-// ── Menu item with spring
-function MenuItem({ icon, label, onPress, accent = false, badge, subtitle, right }: {
-  icon: string; label: string; onPress: () => void;
-  accent?: boolean; badge?: number; subtitle?: string; right?: React.ReactNode;
+function ListRow({ icon, label, subtitle, detail, accent, onPress }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; subtitle?: string; detail?: string;
+  accent?: boolean; onPress: () => void;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <Animated.View style={animStyle}>
-      <TouchableOpacity
-        style={styles.menuItem}
-        onPress={() => {
-          scale.value = withSpring(0.97, { damping: 12 }, () => { scale.value = withSpring(1); });
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onPress();
-        }}
-        activeOpacity={1}
-      >
-        <View style={[styles.menuIconWrap, accent && styles.menuIconAccent]}>
-          <Ionicons name={icon as any} size={18} color={accent ? Colors.accentWarm : Colors.textSecondary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <TText variant="body" style={{ color: accent ? Colors.accentWarm : Colors.textPrimary }}>{label}</TText>
-          {subtitle && <TText variant="caption" color="tertiary" style={{ marginTop: 1 }}>{subtitle}</TText>}
-        </View>
-        {right}
-        {badge != null && badge > 0 && (
-          <View style={styles.menuBadge}>
-            <TText variant="micro" style={{ color: '#fff', fontSize: 9 }}>{badge}</TText>
-          </View>
-        )}
-        <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
-      </TouchableOpacity>
-    </Animated.View>
+    <Pressable
+      onPress={() => { haptic(); onPress(); }}
+      accessibilityRole="button"
+      accessibilityLabel={[label, subtitle, detail].filter(Boolean).join(', ')}
+      style={(state) => {
+        const { pressed, hovered } = state as InteractionState;
+        return [styles.row, (pressed || hovered) && styles.rowActive];
+      }}
+    >
+      <Ionicons name={icon} size={19} color={accent ? Colors.accentWarm : Colors.textSecondary} style={styles.rowIcon} />
+      <View style={styles.rowText}>
+        <TText variant="body" weight="medium" numberOfLines={1}>{label}</TText>
+        {!!subtitle && <TText variant="caption" color="tertiary" numberOfLines={1}>{subtitle}</TText>}
+      </View>
+      {!!detail && (
+        <TText variant="bodySmall" color={accent ? 'accentWarm' : 'tertiary'} numberOfLines={1}>{detail}</TText>
+      )}
+      <Ionicons name="chevron-forward" size={15} color={Colors.textTertiary} />
+    </Pressable>
   );
 }
 
-// ── Gallery cell with FadeIn
-function GalleryCell({ uri, onPress, index }: { uri: string; onPress: () => void; index: number }) {
-  const isTall = index % 5 === 0;
+function ListGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  const items = React.Children.toArray(children);
   return (
-    <Animated.View entering={FadeIn.delay(index * 40).duration(400)} style={[styles.galleryCell, isTall && styles.galleryCellTall]}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={StyleSheet.absoluteFill}>
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        <LinearGradient
-          colors={['transparent', 'rgba(3,3,5,0.35)']}
-          style={StyleSheet.absoluteFill}
-        />
-      </TouchableOpacity>
-    </Animated.View>
+    <View style={styles.group}>
+      <TText variant="label" color="tertiary" uppercase style={styles.groupTitle}>{title}</TText>
+      <View style={styles.groupBody}>
+        {items.map((child, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <TDivider inset={ICON_COL} />}
+            {child}
+          </React.Fragment>
+        ))}
+      </View>
+    </View>
   );
 }
 
-// ── Booking status row
-function BookingStatusRow({ status, onPress }: { status: 'open' | 'paused' | 'closed'; onPress?: () => void }) {
-  const statusConf = {
-    open:   { color: Colors.successLight,  label: 'Disponible', icon: 'checkmark-circle-outline' },
-    paused: { color: Colors.warningLight,  label: 'En pause',   icon: 'pause-circle-outline' },
-    closed: { color: Colors.errorLight,    label: 'Fermé',      icon: 'close-circle-outline' },
-  }[status];
-
+function Fact({ label, value, loading, dot }: { label: string; value: string; loading?: boolean; dot?: string }) {
   return (
-    <View style={styles.bookingStatusRow}>
-      <View style={[styles.bookingStatusDot, { backgroundColor: statusConf.color }]} />
-      <TText variant="caption" style={{ color: statusConf.color, fontWeight: '600' }}>{statusConf.label}</TText>
-      {onPress && (
-        <TouchableOpacity onPress={onPress}>
-          <TText variant="caption" style={{ color: Colors.accentWarm, marginLeft: 'auto' }}>Modifier →</TText>
-        </TouchableOpacity>
+    <View style={styles.fact} accessible accessibilityLabel={loading ? `${label}, chargement` : `${label} : ${value}`}>
+      <TText variant="label" color="tertiary" uppercase numberOfLines={1}>{label}</TText>
+      {loading ? (
+        <TSkeleton width={48} height={22} />
+      ) : (
+        <View style={styles.factValue}>
+          {dot && <View style={[styles.dot, { backgroundColor: dot }]} />}
+          <TText variant="title2" serif tabular numberOfLines={1} style={styles.factNumber}>{value}</TText>
+        </View>
       )}
     </View>
   );
 }
 
+function SignOutButton({ onSignOut }: { onSignOut: () => void }) {
+  return (
+    <View style={styles.signOut}>
+      <TButton
+        title="Se déconnecter"
+        variant="destructive"
+        size="md"
+        onPress={onSignOut}
+        icon={<Ionicons name="log-out-outline" size={17} color={Colors.errorLight} />}
+      />
+    </View>
+  );
+}
+
+function ProfileSkeleton({ top }: { top: number }) {
+  return (
+    <View style={[styles.container, { paddingTop: top + Spacing.md }]}>
+      <View style={[styles.frame, { gap: 14 }]}>
+        <TSkeleton width={96} height={96} radius={48} />
+        <TSkeleton width="55%" height={40} />
+        <TSkeleton width="35%" height={14} />
+        <TSkeleton height={72} radius={Radius.md} style={{ marginTop: Spacing.md }} />
+        <TSkeleton height={160} radius={Radius.md} />
+      </View>
+    </View>
+  );
+}
+
+const formatCount = (n: number) => n.toLocaleString('fr-FR');
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const reduced = useReducedMotion();
+  const { width } = useWindowDimensions();
   const { user, signOut } = useAuthStore();
   const isArtist = user?.role === 'artist';
-  const artist = isArtist ? {
-    id: user?.artistId ?? 'a1',
-    blaze: user?.artistBlaze ?? user?.displayName ?? 'Mon Blaze',
-    city: user?.city ?? '',
-    bio: '',
-    coverUrl: 'https://images.unsplash.com/photo-1590246814883-57c511e76523?w=800',
-    avatarUrl: user?.avatarUrl ?? '',
-    styles: user?.stylePreferences ?? [],
-    specialties: [] as string[],
-    bookingStatus: (user?.artistBookingStatus ?? 'open') as 'open' | 'paused' | 'closed',
-    minBudget: 0,
-    tier: user?.artistTier ?? 'normal',
-    isVerified: false,
-    stats: { posts: 0, profileViews: 0, requestsThisMonth: 0 },
-    exclusions: [] as string[],
-    faq: [] as {question: string; answer: string}[],
-    rules: '',
-  } : null;
-  const artistPosts = artist ? POSTS.filter((p) => p.artistId === artist.id) : [];
+  const artistId = isArtist ? user?.artistId ?? '' : '';
+  const isPremium = user?.artistTier === 'premium';
 
-  const scrollY = useRef(new RNAnimated.Value(0)).current;
-  const coverTranslate = scrollY.interpolate({
-    inputRange: [-100, 0, COVER_H],
-    outputRange: [60, 0, -COVER_H * 0.45],
-    extrapolate: 'clamp',
-  });
-  const coverScale = scrollY.interpolate({ inputRange: [-100, 0], outputRange: [1.25, 1], extrapolate: 'clamp' });
-  const avatarOpacity = scrollY.interpolate({ inputRange: [0, COVER_H * 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
-  const headerTitleOpacity = scrollY.interpolate({ inputRange: [COVER_H * 0.5, COVER_H * 0.8], outputRange: [0, 1], extrapolate: 'clamp' });
+  const { artist, loading: artistLoading } = useArtist(artistId);
 
-  // ── CLIENT VIEW
+  // Published work, refreshed each time the tab regains focus (e.g. after publishing).
+  const [posts, setPosts] = useState<Tables<'posts'>[]>([]);
+  const [portfolioState, setPortfolioState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [portfolioAttempt, setPortfolioAttempt] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      if (!isUuid(artistId)) { setPortfolioState('idle'); return undefined; }
+      let active = true;
+      setPortfolioState((s) => (s === 'ready' ? s : 'loading'));
+      fetchArtistPortfolio(artistId)
+        .then((data) => { if (active) { setPosts(data.posts); setPortfolioState('ready'); } })
+        .catch(() => { if (active) setPortfolioState('error'); });
+      return () => { active = false; };
+    }, [artistId, portfolioAttempt]),
+  );
+  const photos = useMemo(() => posts.filter((p) => p.media_type === 'photo'), [posts]);
+
+  // Layout
+  const frameW = Math.min(width, Layout.maxContent);
+  const wide = width >= 960;
+  const mainW = wide ? frameW - Layout.gutter * 2 - SIDE_W - Spacing['2xl'] : frameW - Layout.gutter * 2;
+  const cols = mainW >= 640 ? 4 : 3;
+  const cell = Math.floor((mainW - GAP * (cols - 1)) / cols);
+  const shown = photos.slice(0, cols * 3);
+
+  const handleSignOut = () => {
+    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    signOut().catch(() => Toast.error('Déconnexion impossible. Réessayez.'));
+  };
+
+  if (!user) return <ProfileSkeleton top={insets.top} />;
+
+  // ── Client ──────────────────────────────────────────────────────────────────
   if (!isArtist) {
+    const lists = (
+      <View>
+        <ListGroup title="Vos projets">
+          <ListRow icon="document-text-outline" label="Mes demandes" subtitle="Suivi et messages avec les artistes" onPress={() => router.push('/(tabs)/inbox')} />
+          <ListRow icon="bookmark-outline" label="Artistes enregistrés" onPress={() => router.push('/saved')} />
+          <ListRow icon="heart-outline" label="Réalisations aimées" onPress={() => router.push('/saved?tab=liked')} />
+        </ListGroup>
+        <ListGroup title="Compte">
+          <ListRow icon="person-outline" label="Informations personnelles" subtitle="Nom, ville" onPress={() => router.push('/settings/account')} />
+          <ListRow icon="notifications-outline" label="Notifications" onPress={() => router.push('/settings/notifications')} />
+          <ListRow icon="shield-outline" label="Confidentialité" onPress={() => router.push('/settings/privacy')} />
+        </ListGroup>
+        <ListGroup title="Assistance">
+          <ListRow icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
+          <ListRow
+            icon="star-outline"
+            label="Noter l’application"
+            onPress={() => { Linking.openURL('https://apps.apple.com/app/inkr/id000000000').catch(() => {}); }}
+          />
+        </ListGroup>
+      </View>
+    );
+
     return (
       <View style={styles.container}>
         <ScrollView
-          style={{ paddingTop: insets.top }}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
+          contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 110 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
-          <View style={styles.simpleHeader}>
-            <TText variant="title1" weight="bold">Mon profil</TText>
-            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerBtn}>
-              <Ionicons name="settings-outline" size={22} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Hero */}
-          <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.clientHero}>
-            <View style={styles.clientAvatarRing}>
-              <LinearGradient
-                colors={[Colors.accentGlow, Colors.accentWarm, '#B86030']}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.clientAvatarInner}>
-                <TAvatar name={user?.displayName} size="2xl" />
-              </View>
+          <View style={styles.frame}>
+            <View style={styles.topBar}>
+              <TText variant="label" color="accentWarm" uppercase>Mon compte</TText>
+              <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
             </View>
-            <TText variant="title1" weight="bold" style={{ marginTop: Spacing.sm, letterSpacing: -0.5 }}>
-              {user?.displayName ?? 'Utilisateur'}
-            </TText>
-            {user?.city && (
-              <TText variant="bodySmall" color="secondary" style={{ marginTop: 3 }}>
-                📍 {user.city}
-              </TText>
-            )}
-          </Animated.View>
 
-          {/* Quick actions */}
-          <Animated.View entering={FadeInDown.delay(180).springify()} style={styles.clientQuickActions}>
-            {[
-              { icon: 'document-text-outline', label: 'Demandes', count: 2, onPress: () => router.push('/(tabs)/inbox') },
-              { icon: 'bookmark-outline', label: 'Sauvegardés', count: 0, onPress: () => router.push('/saved') },
-              { icon: 'heart-outline', label: 'Aimés', count: 0, onPress: () => router.push('/saved?tab=liked') },
-            ].map((item) => (
-              <TouchableOpacity
-                key={item.label}
-                style={styles.clientQuickAction}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.onPress(); }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.clientActionIcon}>
-                  <Ionicons name={item.icon as any} size={22} color={Colors.accentWarm} />
-                </View>
-                <TText variant="bodySmall" weight="semibold" style={{ marginTop: 8 }}>{item.label}</TText>
-                {item.count > 0 && (
-                  <TText variant="micro" style={{ color: Colors.accentWarm, marginTop: 2 }}>
-                    {item.count} nouveau{item.count > 1 ? 'x' : ''}
+            <View style={[styles.columns, wide && styles.columnsWide]}>
+              <View style={styles.main}>
+                <Animated.View entering={enter(0, reduced)} style={styles.identity}>
+                  <TAvatar uri={user.avatarUrl} name={user.displayName} size="2xl" />
+                  <TText variant="displayL" numberOfLines={2} style={styles.identityName} accessibilityRole="header">
+                    {user.displayName || 'Votre profil'}
                   </TText>
-                )}
-              </TouchableOpacity>
-            ))}
-          </Animated.View>
+                  <TText variant="bodySmall" color="secondary" numberOfLines={1}>
+                    {[user.city, user.email].filter(Boolean).join(' · ')}
+                  </TText>
+                </Animated.View>
 
-          <TDivider style={{ marginHorizontal: Spacing.sm, marginVertical: Spacing.sm }} />
+                {/* Artist acquisition: one quiet block, no invented social proof */}
+                <Animated.View entering={enter(2, reduced)} style={styles.artistCta}>
+                  <TText variant="label" color="accentWarm" uppercase style={{ marginBottom: 6 }}>Espace artiste</TText>
+                  <TText variant="displayS">
+                    Vous êtes <TText variant="displayS" italic color="accentGlow">tatoueur</TText> ?
+                  </TText>
+                  <TText variant="bodySmall" color="secondary" style={styles.artistCtaBody}>
+                    Présentez votre portfolio, recevez des demandes détaillées et suivez vos rendez-vous au même endroit.
+                  </TText>
+                  <TButton
+                    title="Créer un espace artiste"
+                    variant="secondary"
+                    size="md"
+                    fullWidth={false}
+                    onPress={() => router.push('/(auth)/role-select')}
+                  />
+                </Animated.View>
 
-          {/* Settings menu */}
-          <Animated.View entering={FadeInDown.delay(260).springify()} style={styles.menuSection}>
-            <TText variant="label" color="tertiary" uppercase style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'], letterSpacing: 2 }}>
-              Mon compte
-            </TText>
-            <MenuItem icon="person-outline" label="Mon profil" subtitle="Modifier mes infos" onPress={() => router.push('/settings/account')} />
-            <MenuItem icon="notifications-outline" label="Notifications" onPress={() => router.push('/settings/notifications')} />
-            <MenuItem icon="shield-outline" label="Confidentialité" onPress={() => router.push('/settings/privacy')} />
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(320).springify()} style={[styles.menuSection, { marginTop: Spacing.sm }]}>
-            <TText variant="label" color="tertiary" uppercase style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'], letterSpacing: 2 }}>
-              Support
-            </TText>
-            <MenuItem icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
-            <MenuItem icon="star-outline" label="Noter l'application" onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Linking.openURL('https://apps.apple.com/app/inkr/id000000000').catch(() => {});
-            }} accent />
-          </Animated.View>
-
-          {/* Artist CTA card */}
-          <Animated.View entering={FadeInUp.delay(400).springify()} style={{ paddingHorizontal: Spacing.sm, paddingTop: Spacing.md }}>
-            <GlassCard variant="premium" style={styles.artistCTACard}>
-              <LinearGradient
-                colors={['rgba(212,168,100,0.10)', 'rgba(212,168,100,0.03)']}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.artistCTAIcon}>
-                <Ionicons name="color-palette" size={22} color={Colors.accentWarm} />
+                {!wide && <Animated.View entering={enter(3, reduced)}>{lists}</Animated.View>}
               </View>
-              <TText variant="title2" weight="bold" style={{ marginBottom: 6 }}>Tu es tatoueur ?</TText>
-              <TText variant="caption" color="secondary" style={{ marginBottom: Spacing.sm, lineHeight: 18 }}>
-                Rejoins plus de 2 400 artistes qui gèrent leurs clients avec INKR.
-              </TText>
-              <TButton title="Créer un compte tatoueur →" variant="glow" size="sm" onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push('/(auth)/role-select');
-              }} />
-            </GlassCard>
-          </Animated.View>
 
-          {/* Logout */}
-          <Animated.View entering={FadeIn.delay(600)} style={{ paddingHorizontal: Spacing.sm, paddingTop: Spacing.xl }}>
-            <TouchableOpacity
-              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); signOut(); }}
-              style={styles.logoutBtn}
-            >
-              <Ionicons name="log-out-outline" size={18} color={Colors.errorLight} />
-              <TText variant="bodySmall" style={{ color: Colors.errorLight, marginLeft: 8 }}>Déconnexion</TText>
-            </TouchableOpacity>
-          </Animated.View>
+              {wide && <View style={styles.side}>{lists}</View>}
+            </View>
+
+            <SignOutButton onSignOut={handleSignOut} />
+          </View>
         </ScrollView>
       </View>
     );
   }
 
-  // ── ARTIST VIEW
+  // ── Artist ──────────────────────────────────────────────────────────────────
+  const blaze = artist?.blaze ?? user.artistBlaze ?? user.displayName;
+  const city = artist?.city ?? user.city ?? '';
+  const stylesLabel = (artist?.styles ?? []).slice(0, 3).map(styleName);
+  const bookingKey = artist?.bookingStatus ?? user.artistBookingStatus;
+  const status = bookingKey ? BOOKING_STATUS[bookingKey] : null;
+  const coverUri = artist?.coverUrl || photos[0]?.media_url;
+  const coverH = wide ? 300 : 220;
+  const hasPublicProfile = isUuid(artistId);
+
+  const artistLists = (
+    <View>
+      <ListGroup title="Gérer">
+        <ListRow icon="mail-outline" label="Demandes" subtitle="Nouvelles demandes et échanges" onPress={() => router.push('/(tabs)/inbox')} />
+        <ListRow icon="calendar-outline" label="Agenda" subtitle="Rendez-vous à venir" onPress={() => router.push('/(tabs)/agenda')} />
+        <ListRow icon="analytics-outline" label="Statistiques" subtitle="Vues, demandes, acceptation" onPress={() => router.push('/analytics')} />
+        {isPremium && (
+          <ListRow icon="color-palette-outline" label="Personnalisation" subtitle="Sections et informations du profil" onPress={() => router.push('/customization')} />
+        )}
+        {isPremium && (
+          <ListRow icon="book-outline" label="Guide Premium" subtitle="Conseils pour votre profil" onPress={() => router.push('/premium-guide')} accent />
+        )}
+      </ListGroup>
+      <ListGroup title="Compte">
+        <ListRow
+          icon="card-outline"
+          label="Abonnement"
+          detail={isPremium ? 'Premium' : 'Gratuit'}
+          accent={!isPremium}
+          onPress={() => router.push('/settings/subscription')}
+        />
+        <ListRow icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
+        <ListRow icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
+      </ListGroup>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
-      {/* Floating header (appears on scroll) */}
-      <RNAnimated.View style={[styles.floatingHeader, { paddingTop: insets.top, opacity: headerTitleOpacity }]}>
-        <View style={styles.floatingHeaderInner}>
-          <TText variant="title2" weight="bold">{artist!.blaze}</TText>
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            <TouchableOpacity onPress={() => router.push('/analytics')} style={styles.headerBtn}>
-              <Ionicons name="bar-chart-outline" size={20} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.headerBtn}>
-              <Ionicons name="settings-outline" size={20} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </RNAnimated.View>
-
-      <RNAnimated.ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
-        onScroll={RNAnimated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-        scrollEventThrottle={16}
-      >
-        {/* Cover + parallax */}
-        <View style={styles.coverContainer}>
-          <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: coverTranslate }, { scale: coverScale }] }]}>
-            <Image source={{ uri: artist!.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          </RNAnimated.View>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 110 }} showsVerticalScrollIndicator={false}>
+        {/* ─── Cover: the latest work, lit like an exhibit ─── */}
+        <View style={[styles.cover, { height: coverH + insets.top }]}>
+          {coverUri ? (
+            <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} accessibilityLabel={`Travail de ${blaze}`} />
+          ) : (
+            <ArtPlaceholder name={blaze} size={96} />
+          )}
           <LinearGradient
-            colors={['transparent', 'rgba(3,3,5,0.25)', 'rgba(3,3,5,0.98)']}
-            locations={[0, 0.5, 1]}
+            colors={['rgba(11,10,9,0.55)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.6)', Colors.bgPrimary]}
+            locations={[0, 0.3, 0.75, 1]}
             style={StyleSheet.absoluteFill}
           />
-          {/* Top buttons */}
-          <View style={[styles.coverHeader, { paddingTop: insets.top + 8 }]}>
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity onPress={() => router.push('/analytics')} style={styles.coverBtn}>
-              <Ionicons name="bar-chart-outline" size={19} color="rgba(255,255,255,0.85)" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('/settings')} style={styles.coverBtn}>
-              <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.85)" />
-            </TouchableOpacity>
+          <View style={[styles.coverBar, { paddingTop: insets.top + 6 }]}>
+            <TText variant="label" uppercase style={{ color: Colors.textPrimary }}>Espace artiste</TText>
+            <View style={styles.coverActions}>
+              <RoundButton icon="bar-chart-outline" label="Statistiques" onPress={() => router.push('/analytics')} onImage />
+              <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} onImage />
+            </View>
           </View>
-          {/* Avatar */}
-          <RNAnimated.View style={[styles.coverAvatarWrap, { opacity: avatarOpacity }]}>
-            <TAvatar uri={artist!.avatarUrl} name={artist!.blaze} size="2xl" isPremium={artist!.tier === 'premium'} />
-          </RNAnimated.View>
         </View>
 
-        {/* Identity section */}
-        <Animated.View entering={FadeInDown.delay(150).springify()} style={styles.identitySection}>
-          <View style={styles.nameRow}>
-            <TText variant="title1" weight="bold" style={{ letterSpacing: -1 }}>{artist!.blaze}</TText>
-            {artist!.isVerified && <Ionicons name="checkmark-circle" size={20} color={Colors.infoLight} style={{ marginLeft: 6 }} />}
-            {artist!.tier === 'premium' && <TBadge label="PREMIUM" variant="premium" style={{ marginLeft: 8 }} />}
+        <View style={styles.frame}>
+          <View style={[styles.columns, wide && styles.columnsWide]}>
+            <View style={styles.main}>
+              {/* ─── Identity ─── */}
+              <Animated.View entering={enter(0, reduced)} style={styles.artistIdentity}>
+                <View style={styles.avatarRing}>
+                  <TAvatar uri={artist?.avatarUrl || user.avatarUrl} name={blaze} size="2xl" isPremium={isPremium} showBadge />
+                </View>
+                <View style={styles.kickerRow}>
+                  {isPremium && <TBadge label="Premium" variant="premium" />}
+                  {artist?.isVerified && (
+                    <View style={styles.verified}>
+                      <Ionicons name="checkmark-circle" size={14} color={Colors.accentWarm} />
+                      <TText variant="caption" color="secondary">Profil vérifié</TText>
+                    </View>
+                  )}
+                </View>
+                <TText variant={wide ? 'displayXL' : 'displayL'} numberOfLines={2} style={styles.identityName} accessibilityRole="header">
+                  {blaze}
+                </TText>
+                <TText variant="bodySmall" color="secondary" numberOfLines={1}>
+                  {[city, ...stylesLabel].filter(Boolean).join(' · ') || 'Complétez votre profil pour être trouvé'}
+                </TText>
+              </Animated.View>
+
+              {/* ─── Facts: real counters from the artist record ─── */}
+              <Animated.View entering={enter(1, reduced)} style={styles.facts}>
+                <Fact label="Publications" value={artist ? formatCount(artist.stats.posts) : '—'} loading={artistLoading} />
+                <TDivider vertical tone="default" style={styles.factDivider} />
+                <Fact label="Vues du profil" value={artist ? formatCount(artist.stats.profileViews) : '—'} loading={artistLoading} />
+                <TDivider vertical tone="default" style={styles.factDivider} />
+                <Fact label="Demandes du mois" value={artist ? formatCount(artist.stats.requestsThisMonth) : '—'} loading={artistLoading} />
+              </Animated.View>
+
+              {/* ─── Availability ─── */}
+              <Animated.View entering={enter(2, reduced)} style={styles.statusRow}>
+                <View style={{ flex: 1 }}>
+                  <TText variant="label" color="tertiary" uppercase>Disponibilité</TText>
+                  <View style={[styles.factValue, { marginTop: 6 }]}>
+                    {status && <View style={[styles.dot, { backgroundColor: status.color }]} />}
+                    <TText variant="body" weight="medium">{status?.label ?? 'Non renseignée'}</TText>
+                  </View>
+                </View>
+                <TButton
+                  title="Modifier"
+                  variant="secondary"
+                  size="sm"
+                  fullWidth={false}
+                  accessibilityLabel="Modifier la disponibilité"
+                  onPress={() => router.push('/(onboarding)/artist/step4')}
+                />
+              </Animated.View>
+
+              {/* ─── Primary actions ─── */}
+              <Animated.View entering={enter(3, reduced)} style={styles.actions}>
+                <TButton
+                  title="Publier"
+                  size="md"
+                  style={{ flex: 1 }}
+                  fullWidth={false}
+                  icon={<Ionicons name="add" size={18} color={Colors.textInverse} />}
+                  onPress={() => router.push('/create')}
+                  accessibilityLabel="Publier une réalisation"
+                />
+                <TButton
+                  title="Voir mon profil"
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1 }}
+                  fullWidth={false}
+                  disabled={!hasPublicProfile}
+                  onPress={() => router.push(`/artist/${artistId}`)}
+                  accessibilityLabel="Voir mon profil public"
+                />
+              </Animated.View>
+
+              {/* ─── Portfolio ─── */}
+              <View style={styles.portfolio}>
+                <View style={styles.portfolioHead}>
+                  <TText variant="displayS">Portfolio</TText>
+                  {portfolioState === 'ready' && photos.length > shown.length && hasPublicProfile && (
+                    <Pressable onPress={() => router.push(`/artist/${artistId}`)} accessibilityRole="link" hitSlop={8}>
+                      <TText variant="bodySmall" color="secondary" tabular style={styles.link}>
+                        Tout voir ({photos.length})
+                      </TText>
+                    </Pressable>
+                  )}
+                </View>
+
+                {portfolioState === 'loading' && (
+                  <View style={styles.grid}>
+                    {Array.from({ length: cols * 2 }).map((_, i) => (
+                      <TSkeleton key={i} width={cell} height={Math.round(cell * 1.25)} radius={Radius.sm} />
+                    ))}
+                  </View>
+                )}
+                {portfolioState === 'error' && (
+                  <EmptyState
+                    icon="cloud-offline-outline"
+                    title="Portfolio indisponible"
+                    description="Le chargement a échoué. Vérifiez votre connexion."
+                    ctaLabel="Réessayer"
+                    onCta={() => setPortfolioAttempt((n) => n + 1)}
+                    style={styles.inlineEmpty}
+                  />
+                )}
+                {(portfolioState === 'idle' || (portfolioState === 'ready' && photos.length === 0)) && (
+                  <EmptyState
+                    icon="images-outline"
+                    title="Votre mur est vide"
+                    description="Publiez une première réalisation : c’est ce que les clients regardent avant de vous écrire."
+                    ctaLabel="Publier une réalisation"
+                    onCta={() => router.push('/create')}
+                    style={styles.inlineEmpty}
+                  />
+                )}
+                {portfolioState === 'ready' && shown.length > 0 && (
+                  <View style={styles.grid}>
+                    {shown.map((post, i) => (
+                      <Pressable
+                        key={post.id}
+                        onPress={() => router.push(`/post/${post.id}`)}
+                        accessibilityRole="link"
+                        accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
+                        style={({ pressed }) => [styles.cell, { width: cell, height: Math.round(cell * 1.25) }, pressed && { opacity: 0.85 }]}
+                      >
+                        <Image source={{ uri: post.media_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              {!wide && artistLists}
+            </View>
+
+            {wide && <View style={styles.side}>{artistLists}</View>}
           </View>
-          <TText variant="bodySmall" color="secondary" style={{ marginTop: 3 }}>📍 {artist!.city}</TText>
-          {artist!.minBudget > 0 && (
-            <TText variant="caption" style={{ color: Colors.accentWarm, marginTop: 6, fontWeight: '600' }}>
-              Tatouages à partir de {artist!.minBudget}€
-            </TText>
-          )}
-          <TText variant="body" color="secondary" style={styles.bio}>{artist!.bio}</TText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: Spacing.xs }}>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {artist!.styles.map((s) => <TChip key={s} label={s} />)}
-            </View>
-          </ScrollView>
-        </Animated.View>
 
-        {/* Stats card */}
-        <Animated.View entering={FadeInDown.delay(220).springify()} style={styles.statsCardWrap}>
-          <GlassCard variant="elevated" style={{ flexDirection: 'row', paddingVertical: Spacing.sm }}>
-            <StatCounter value={artist!.stats.posts} label="Posts" delay={0} />
-            <View style={styles.statDivider} />
-            <StatCounter value={artist!.stats.profileViews} label="Vues profil" delay={80} />
-            <View style={styles.statDivider} />
-            <StatCounter value={artist!.stats.requestsThisMonth} label="Demandes" delay={160} accent />
-          </GlassCard>
-        </Animated.View>
-
-        {/* Quick actions */}
-        <Animated.View entering={FadeInDown.delay(280).springify()} style={styles.actionsRow}>
-          <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={() => router.push(`/artist/${artist!.id}`)}>
-            <Ionicons name="eye-outline" size={16} color={Colors.textSecondary} />
-            <TText variant="caption" color="secondary" style={{ marginLeft: 6 }}>Voir profil</TText>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtnPrimary, { flex: 1.2 }]} onPress={() => router.push('/create')}>
-            <LinearGradient
-              colors={[Colors.accentGlow, Colors.accentWarm, '#B06030']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Ionicons name="add" size={17} color={Colors.bgPrimary} />
-            <TText variant="caption" style={{ color: Colors.bgPrimary, marginLeft: 5, fontWeight: '700' }}>Publier</TText>
-          </TouchableOpacity>
-          {artist!.tier === 'premium' && (
-            <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={() => router.push('/customization')}>
-              <Ionicons name="color-palette-outline" size={16} color={Colors.textSecondary} />
-              <TText variant="caption" color="secondary" style={{ marginLeft: 5 }}>Perso</TText>
-            </TouchableOpacity>
-          )}
-        </Animated.View>
-
-        {/* Booking status */}
-        <Animated.View entering={FadeInDown.delay(320).springify()} style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm }}>
-          <GlassCard variant="default">
-            <BookingStatusRow
-              status={artist!.bookingStatus}
-              onPress={() => router.push('/(onboarding)/artist/step4')}
-            />
-          </GlassCard>
-        </Animated.View>
-
-        <TDivider style={{ marginHorizontal: Spacing.sm, marginBottom: Spacing.sm }} />
-
-        {/* Gallery */}
-        {artistPosts.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(380).springify()} style={styles.gallerySection}>
-            <View style={styles.gallerySectionHeader}>
-              <TText variant="label" color="tertiary" uppercase style={{ letterSpacing: 2 }}>Galerie · {artistPosts.length}</TText>
-              <TouchableOpacity onPress={() => router.push(`/artist/${artist!.id}`)}>
-                <TText variant="caption" style={{ color: Colors.accentWarm }}>Tout voir →</TText>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.galleryGrid}>
-              {artistPosts.map((post, i) => (
-                <GalleryCell key={post.id} uri={post.mediaUrl} onPress={() => router.push(`/post/${post.id}`)} index={i} />
-              ))}
-            </View>
-          </Animated.View>
-        )}
-
-        <TDivider style={{ marginHorizontal: Spacing.sm, marginVertical: Spacing.sm }} />
-
-        {/* Manage section */}
-        <Animated.View entering={FadeInDown.delay(440).springify()} style={styles.menuSection}>
-          <TText variant="label" color="tertiary" uppercase style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'], letterSpacing: 2 }}>
-            Gérer
-          </TText>
-          <MenuItem icon="analytics-outline" label="Analytics" subtitle="Vues, demandes, conversion" onPress={() => router.push('/analytics')} />
-          <MenuItem icon="calendar-outline" label="Agenda" subtitle="Rendez-vous à venir" onPress={() => router.push('/(tabs)/agenda')} />
-          <MenuItem icon="mail-outline" label="Inbox" subtitle="Demandes de tatouage" onPress={() => router.push('/(tabs)/inbox')} />
-          {artist!.tier === 'premium' && (
-            <MenuItem icon="book-outline" label="Manuel Premium" subtitle="Stratégie, tips, croissance" onPress={() => router.push('/premium-guide')} accent />
-          )}
-        </Animated.View>
-
-        <Animated.View entering={FadeInDown.delay(500).springify()} style={[styles.menuSection, { marginTop: Spacing.sm }]}>
-          <TText variant="label" color="tertiary" uppercase style={{ paddingHorizontal: Spacing.sm, marginBottom: Spacing['2xs'], letterSpacing: 2 }}>
-            Paramètres
-          </TText>
-          <MenuItem icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
-          <MenuItem
-            icon="card-outline"
-            label="Abonnement"
-            subtitle={artist!.tier === 'premium' ? 'Premium actif' : 'Passer Premium'}
-            onPress={() => router.push('/settings/subscription')}
-            accent={artist!.tier !== 'premium'}
-          />
-          <MenuItem icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
-        </Animated.View>
-
-        {/* Logout */}
-        <Animated.View entering={FadeIn.delay(600)} style={{ paddingHorizontal: Spacing.sm, paddingTop: Spacing.xl }}>
-          <TouchableOpacity
-            onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); signOut(); }}
-            style={styles.logoutBtn}
-          >
-            <Ionicons name="log-out-outline" size={18} color={Colors.errorLight} />
-            <TText variant="bodySmall" style={{ color: Colors.errorLight, marginLeft: 8 }}>Déconnexion</TText>
-          </TouchableOpacity>
-        </Animated.View>
-      </RNAnimated.ScrollView>
+          <SignOutButton onSignOut={handleSignOut} />
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
 
-  floatingHeader: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
-    backgroundColor: 'rgba(3,3,5,0.92)',
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
-  },
-  floatingHeaderInner: {
+  columns: {},
+  columnsWide: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'] },
+  main: { flex: 1, minWidth: 0 },
+  side: { width: SIDE_W, paddingTop: Spacing.lg },
+
+  topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm, height: 56,
+    paddingTop: Spacing.xs, paddingBottom: Spacing.sm,
   },
-  headerBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
-  simpleHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm, paddingVertical: Spacing['2xs'],
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
+  roundBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
+  roundBtnOnImage: { backgroundColor: 'rgba(11,10,9,0.55)', borderColor: Colors.glassBorderBright },
 
-  clientHero: { alignItems: 'center', paddingVertical: Spacing.xl },
-  clientAvatarRing: {
-    width: 88, height: 88, borderRadius: 44,
-    alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  clientAvatarInner: {
-    width: 82, height: 82, borderRadius: 41,
-    overflow: 'hidden', backgroundColor: Colors.bgSubtle,
-    alignItems: 'center', justifyContent: 'center',
-    margin: 3,
-  },
-  clientQuickActions: {
-    flexDirection: 'row', justifyContent: 'center', gap: Spacing.sm,
-    paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm,
-  },
-  clientQuickAction: {
-    flex: 1, alignItems: 'center', paddingVertical: Spacing.sm,
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.borderSubtle,
-  },
-  clientActionIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: Colors.glassAmber,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderGlow,
-  },
+  identity: { paddingTop: Spacing.md, paddingBottom: Spacing.xl, gap: 6 },
+  identityName: { marginTop: Spacing.sm },
 
-  coverContainer: { height: COVER_H, overflow: 'hidden', position: 'relative' },
-  coverHeader: {
+  // Artist cover
+  cover: { overflow: 'hidden', backgroundColor: Colors.bgSurface },
+  coverBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', paddingHorizontal: Spacing.sm, gap: 6,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter,
   },
-  coverBtn: {
-    width: 38, height: 38, backgroundColor: 'rgba(0,0,0,0.38)',
-    borderRadius: 19, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
-  },
-  coverAvatarWrap: { position: 'absolute', bottom: -28, left: Spacing.lg },
+  coverActions: { flexDirection: 'row', gap: 8 },
 
-  identitySection: { paddingHorizontal: Spacing.lg, paddingTop: 44, paddingBottom: Spacing.sm },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  bio: { marginTop: Spacing.xs, lineHeight: 23 },
+  artistIdentity: { marginTop: -56, gap: 6 },
+  avatarRing: {
+    alignSelf: 'flex-start', borderRadius: 52, padding: 4, backgroundColor: Colors.bgPrimary,
+  },
+  kickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: Spacing.xs, minHeight: 4 },
+  verified: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 
-  statsCardWrap: { paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm },
-  statItem: { flex: 1, alignItems: 'center', gap: 4 },
-  statValue: { letterSpacing: -1 },
-  statDivider: { width: 1, backgroundColor: Colors.borderSubtle, marginVertical: 4 },
+  facts: {
+    flexDirection: 'row', alignItems: 'stretch',
+    marginTop: Spacing.lg, paddingVertical: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
+  },
+  fact: { flex: 1, gap: 6, minWidth: 0 },
+  factDivider: { marginHorizontal: Spacing.sm },
+  factValue: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  factNumber: { fontSize: 24, lineHeight: 28 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 
-  actionsRow: { flexDirection: 'row', paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm, gap: 8 },
-  actionBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 44,
-    backgroundColor: Colors.bgSurface, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.borderDefault,
+  statusRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
   },
-  actionBtnPrimary: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 44,
-    borderRadius: Radius.md, overflow: 'hidden',
-    ...GlowShadow.amber,
-  },
+  actions: { flexDirection: 'row', gap: 10, marginTop: Spacing.lg },
 
-  bookingStatusRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2,
-  },
-  bookingStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  portfolio: { marginTop: Spacing['2xl'] },
+  portfolioHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: Spacing.sm },
+  link: { textDecorationLine: 'underline' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
+  cell: { overflow: 'hidden', borderRadius: Radius.sm, backgroundColor: Colors.bgSurface },
+  inlineEmpty: { flex: 0, paddingVertical: Spacing.xl, paddingHorizontal: 0 },
 
-  gallerySection: { paddingHorizontal: Spacing.sm, marginBottom: Spacing.sm },
-  gallerySectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: Spacing['2xs'],
+  artistCta: {
+    paddingTop: Spacing.lg, paddingBottom: Spacing.xl,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GALLERY_GAP },
-  galleryCell: {
-    width: GALLERY_CELL, height: GALLERY_CELL,
-    backgroundColor: Colors.bgSurface, overflow: 'hidden',
-    borderRadius: Radius.sm,
-  },
-  galleryCellTall: { height: GALLERY_CELL * 1.65 },
+  artistCtaBody: { marginTop: Spacing['2xs'], marginBottom: Spacing.md, maxWidth: Layout.maxReading },
 
-  menuSection: { paddingHorizontal: Spacing.sm },
-  menuItem: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 13, paddingHorizontal: Spacing['2xs'],
-    gap: Spacing.sm,
+  // Grouped lists
+  group: { marginTop: Spacing.xl },
+  groupTitle: { marginBottom: Spacing['2xs'] },
+  groupBody: {
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
-  menuIconWrap: {
-    width: 36, height: 36, borderRadius: Radius.sm,
-    backgroundColor: Colors.bgSurface, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault,
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    minHeight: 56, paddingVertical: 10,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  menuIconAccent: { backgroundColor: Colors.glassAmber, borderColor: Colors.borderGlow },
-  menuBadge: {
-    backgroundColor: Colors.error, borderRadius: 8,
-    minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
-  },
+  rowActive: { backgroundColor: Colors.glassBg },
+  rowIcon: { width: ICON_COL - 12 },
+  rowText: { flex: 1, minWidth: 0, gap: 1 },
 
-  artistCTACard: { padding: Spacing.md, overflow: 'hidden' },
-  artistCTAIcon: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: Colors.glassAmber, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderGlow, marginBottom: Spacing.xs,
-  },
-
-  logoutBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 14, borderRadius: Radius.lg,
-    backgroundColor: 'rgba(239,68,68,0.06)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)',
-  },
+  signOut: { marginTop: Spacing['2xl'], maxWidth: 360, width: '100%', alignSelf: 'center' },
 });

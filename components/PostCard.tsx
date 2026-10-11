@@ -1,16 +1,16 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withSequence,
-  withTiming, FadeIn, interpolate, Extrapolation,
+  useSharedValue, useAnimatedStyle, withSpring, withSequence, useReducedMotion,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Radius, GlowShadow, FontSize } from '@/constants/theme';
+import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
+import { BOOKING_STATUS, styleName } from './ArtistCard';
 
 export interface PostCardData {
   id: string;
@@ -19,12 +19,15 @@ export interface PostCardData {
   artistCity: string;
   artistAvatarUrl: string | null;
   artistIsPremium: boolean;
+  /** Shown as a status line under the full variant when provided. */
+  artistBookingStatus?: 'open' | 'paused' | 'closed';
   mediaUrl: string;
+  /** When unknown, the URL extension is used to detect videos. */
+  mediaType?: 'photo' | 'video';
   caption: string | null;
   styles: string[];
   likesCount: number;
   isLiked: boolean;
-  isTrending?: boolean;
 }
 
 interface PostCardProps {
@@ -34,269 +37,248 @@ interface PostCardProps {
   onArtistPress?: () => void;
   onQuickBook?: () => void;
   variant?: 'full' | 'half' | 'wide';
+  /** Fixed image height, used by multi-column layouts to align rows. Defaults to the variant ratio. */
+  imageHeight?: number;
 }
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CARD_PADDING = 12;
-
-const IMAGE_HEIGHTS = {
-  full: SCREEN_WIDTH * (5 / 4),
-  half: (SCREEN_WIDTH / 2 - CARD_PADDING * 1.5) * 1.3,
-  wide: SCREEN_WIDTH * 0.65,
+const ASPECT: Record<NonNullable<PostCardProps['variant']>, number> = {
+  full: 4 / 5,
+  half: 4 / 5,
+  wide: 16 / 10,
 };
 
-export function PostCard({ post, onLike, onPress, onArtistPress, onQuickBook, variant = 'full' }: PostCardProps) {
-  const heartScale   = useSharedValue(1);
-  const cardScale    = useSharedValue(1);
-  const likeOpacity  = useSharedValue(post.isLiked ? 1 : 0);
-  const imageScale   = useSharedValue(1);
-  const glowOpacity  = useSharedValue(0);
-  const tiltX        = useSharedValue(0);
-  const tiltY        = useSharedValue(0);
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|m3u8)(\?|#|$)/i;
 
-  const imageHeight = IMAGE_HEIGHTS[variant];
+/** True when a media URL cannot be rendered by <Image>. */
+export function isVideoMedia(url: string | null | undefined, mediaType?: 'photo' | 'video') {
+  return mediaType === 'video' || (!!url && VIDEO_EXT.test(url));
+}
 
-  const handleLike = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    heartScale.value = withSequence(
-      withSpring(1.7, { damping: 3, stiffness: 400 }),
-      withSpring(1,   { damping: 5, stiffness: 350 }),
-    );
-    likeOpacity.value = withTiming(post.isLiked ? 0 : 1, { duration: 100 });
-    if (!post.isLiked) {
-      glowOpacity.value = withSequence(
-        withTiming(1, { duration: 80 }),
-        withTiming(0, { duration: 600 }),
-      );
-    }
-    onLike?.();
-  }, [post.isLiked, onLike]);
+/** Quiet stand-in for video posts: the feed only renders still photography. */
+export function VideoPlaceholder({ compact = false, note }: { compact?: boolean; note?: string }) {
+  const ring = compact ? 40 : 56;
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.video]} accessibilityLabel="Vidéo">
+      <LinearGradient
+        colors={['rgba(201,164,106,0.10)', 'rgba(201,164,106,0.01)']}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.videoRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
+        <Ionicons name="play" size={compact ? 15 : 20} color={Colors.accentGlow} style={{ marginLeft: 2 }} />
+      </View>
+      <TText variant="caption" color="secondary" style={{ marginTop: Spacing['2xs'] }}>Vidéo</TText>
+      {!!note && !compact && (
+        <TText variant="caption" color="tertiary" style={styles.videoNote}>{note}</TText>
+      )}
+    </View>
+  );
+}
 
-  const handlePressIn = () => {
-    cardScale.value  = withSpring(0.972, { damping: 20, stiffness: 300 });
-    imageScale.value = withSpring(1.04,  { damping: 20, stiffness: 200 });
-  };
-  const handlePressOut = () => {
-    cardScale.value  = withSpring(1, { damping: 14 });
-    imageScale.value = withSpring(1, { damping: 14 });
-  };
+function LikeButton({
+  liked, count, onPress, onImage, small,
+}: { liked: boolean; count?: number; onPress: () => void; onImage?: boolean; small?: boolean }) {
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(1);
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const cardStyle    = useAnimatedStyle(() => ({ transform: [{ scale: cardScale.value }] }));
-  const heartStyle   = useAnimatedStyle(() => ({ transform: [{ scale: heartScale.value }] }));
-  const imageStyle   = useAnimatedStyle(() => ({ transform: [{ scale: imageScale.value }] }));
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: likeOpacity.value }));
-  const glowStyle    = useAnimatedStyle(() => ({ opacity: glowOpacity.value }));
+  const press = useCallback(() => {
+    if (!reduced) scale.value = withSequence(withSpring(1.15, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
+  }, [onPress, reduced, scale]);
 
-  const isHalf = variant === 'half';
+  const iconColor = liked ? Colors.accentGlow : onImage ? Colors.textPrimary : Colors.textSecondary;
+  const label = liked ? 'Retirer le j’aime' : 'Aimer cette réalisation';
 
   return (
-    <Animated.View entering={FadeIn.duration(400)} style={[styles.container, cardStyle, variant === 'full' && GlowShadow.white]}>
-
-      {/* Trending badge */}
-      {post.isTrending && !isHalf && (
-        <Animated.View entering={FadeIn.delay(200)} style={styles.trendingBadge}>
-          <TText variant="micro" style={styles.trendingText} uppercase>🔥 Trending</TText>
-        </Animated.View>
+    <Pressable
+      onPress={press}
+      accessibilityRole="button"
+      accessibilityLabel={count ? `${label}, ${count} j’aime` : label}
+      accessibilityState={{ selected: liked }}
+      hitSlop={6}
+      style={({ pressed }) => [
+        onImage ? [styles.likeOnImage, small && styles.likeOnImageSmall] : styles.likeInline,
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <Animated.View style={anim}>
+        <Ionicons name={liked ? 'heart' : 'heart-outline'} size={small ? 16 : 19} color={iconColor} />
+      </Animated.View>
+      {!onImage && count !== undefined && count > 0 && (
+        <TText variant="caption" color="secondary" tabular>{count.toLocaleString('fr-FR')}</TText>
       )}
+    </Pressable>
+  );
+}
 
-      {/* Image */}
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={[styles.imageWrap, { height: imageHeight }]}
-      >
-        <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
-          <Image
-            source={{ uri: post.mediaUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={{ duration: 400, effect: 'cross-dissolve' }}
-          />
-        </Animated.View>
+export function PostCard({
+  post, onLike, onPress, onArtistPress, onQuickBook, variant = 'full', imageHeight,
+}: PostCardProps) {
+  const reduced = useReducedMotion();
+  const lift = useSharedValue(1);
+  const liftStyle = useAnimatedStyle(() => ({ transform: [{ scale: lift.value }] }));
 
-        {/* Gradient overlay */}
-        <LinearGradient
-          colors={['transparent', 'rgba(3,3,5,0.5)', 'rgba(3,3,5,0.92)']}
-          locations={[0.35, 0.65, 1]}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
+  const pressIn = () => { if (!reduced) lift.value = withSpring(0.985, SpringConfig.snappy); };
+  const pressOut = () => { if (!reduced) lift.value = withSpring(1, SpringConfig.gentle); };
+  const like = useCallback(() => onLike?.(), [onLike]);
 
-        {/* Like flash glow */}
-        <Animated.View
-          style={[StyleSheet.absoluteFill, styles.likeGlow, glowStyle]}
-          pointerEvents="none"
-        />
+  const isHalf = variant === 'half';
+  const isVideo = isVideoMedia(post.mediaUrl, post.mediaType);
+  const stylesLabel = post.styles.slice(0, 2).map(styleName).join(' · ');
+  const meta = [post.artistCity, stylesLabel].filter(Boolean).join(' · ');
+  const mediaLabel = `Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
+  const status = post.artistBookingStatus ? BOOKING_STATUS[post.artistBookingStatus] : null;
+  const mediaSize = imageHeight ? { height: imageHeight } : { aspectRatio: ASPECT[variant] };
 
-        {/* Heart overlay */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.heartOverlay, overlayStyle]} pointerEvents="none">
-          <Ionicons name="heart" size={80} color="rgba(255,255,255,0.95)" />
-        </Animated.View>
-
-        {/* Artist info overlay — full/wide only */}
-        {!isHalf && (
-          <TouchableOpacity style={styles.artistOverlay} onPress={onArtistPress} activeOpacity={0.8}>
-            <TAvatar
-              uri={post.artistAvatarUrl}
-              name={post.artistName}
-              size="sm"
-              isPremium={post.artistIsPremium}
-            />
-            <View style={{ marginLeft: 8, flex: 1 }}>
-              <TText variant="bodySmall" weight="semibold" style={styles.overlayText}>{post.artistName}</TText>
-              <TText variant="caption" style={styles.overlaySubText}>{post.artistCity}</TText>
-            </View>
-          </TouchableOpacity>
-        )}
-
-        {/* Like button */}
-        <TouchableOpacity onPress={handleLike} style={[styles.likeBtn, isHalf && styles.likeBtnHalf]} activeOpacity={0.8}>
-          <Animated.View style={heartStyle}>
-            <Ionicons
-              name={post.isLiked ? 'heart' : 'heart-outline'}
-              size={isHalf ? 16 : 20}
-              color={post.isLiked ? '#F87171' : 'rgba(255,255,255,0.75)'}
-            />
-          </Animated.View>
-          {!isHalf && (
-            <TText variant="caption" style={styles.likeCount}>{post.likesCount}</TText>
-          )}
-        </TouchableOpacity>
-
-        {/* Quick book pill — full/wide only */}
-        {!isHalf && onQuickBook && (
-          <TouchableOpacity onPress={onQuickBook} style={styles.quickBookBtn} activeOpacity={0.85}>
-            <LinearGradient
-              colors={['rgba(212,168,100,0.9)', 'rgba(192,128,58,0.9)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+  return (
+    <View style={styles.card}>
+      {/* ── The work ── */}
+      <Animated.View style={[styles.media, isHalf ? styles.mediaHalf : styles.mediaLarge, mediaSize, liftStyle]}>
+        <Pressable
+          onPress={onPress}
+          onPressIn={pressIn}
+          onPressOut={pressOut}
+          accessibilityRole="link"
+          accessibilityLabel={mediaLabel}
+          style={({ pressed }) => [StyleSheet.absoluteFill, reduced && pressed && { opacity: 0.85 }]}
+        >
+          {isVideo ? (
+            <VideoPlaceholder compact={isHalf} />
+          ) : (
+            <Image
+              source={{ uri: post.mediaUrl }}
               style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={reduced ? 0 : 300}
             />
-            <Ionicons name="calendar-outline" size={12} color={Colors.bgPrimary} />
-            <TText variant="micro" style={{ color: Colors.bgPrimary, fontWeight: '700', marginLeft: 4 }} uppercase>
-              Réserver
-            </TText>
-          </TouchableOpacity>
+          )}
+        </Pressable>
+        {isHalf && onLike && (
+          <View style={styles.likeCorner}>
+            <LikeButton liked={post.isLiked} onPress={like} onImage small />
+          </View>
         )}
-      </TouchableOpacity>
+      </Animated.View>
 
-      {/* Style tags — full only */}
-      {variant === 'full' && post.styles.length > 0 && (
-        <View style={styles.tagsRow}>
-          {post.styles.slice(0, 3).map((s) => (
-            <View key={s} style={styles.tag}>
-              <TText variant="micro" color="secondary" uppercase style={{ letterSpacing: 0.8 }}>{s}</TText>
+      {/* ── Wall label ── */}
+      {isHalf ? (
+        <Pressable
+          onPress={onArtistPress}
+          accessibilityRole="link"
+          accessibilityLabel={`Voir le profil de ${post.artistName}`}
+          style={({ pressed }) => [styles.halfLabel, pressed && { opacity: 0.7 }]}
+        >
+          <TText variant="bodySmall" weight="medium" numberOfLines={1}>{post.artistName}</TText>
+          {!!meta && <TText variant="caption" color="tertiary" numberOfLines={1}>{meta}</TText>}
+        </Pressable>
+      ) : (
+        <View style={styles.label}>
+          <View style={styles.labelRow}>
+            <Pressable
+              onPress={onArtistPress}
+              accessibilityRole="link"
+              accessibilityLabel={`Voir le profil de ${post.artistName}`}
+              style={({ pressed }) => [styles.artist, pressed && { opacity: 0.7 }]}
+            >
+              <TAvatar uri={post.artistAvatarUrl} name={post.artistName} size="sm" />
+              <View style={styles.artistText}>
+                <TText variant="title2" serif numberOfLines={1} style={styles.artistName}>{post.artistName}</TText>
+                {!!meta && <TText variant="caption" color="secondary" numberOfLines={1}>{meta}</TText>}
+              </View>
+            </Pressable>
+            {onLike && <LikeButton liked={post.isLiked} count={post.likesCount} onPress={like} />}
+          </View>
+
+          {!!post.caption && (
+            <TText
+              variant="bodySmall"
+              color="secondary"
+              numberOfLines={variant === 'wide' ? 1 : 2}
+              style={styles.caption}
+            >
+              {post.caption}
+            </TText>
+          )}
+
+          {variant === 'full' && (status || onQuickBook) && (
+            <View style={styles.actionRow}>
+              {status ? (
+                <View style={styles.status}>
+                  <View style={[styles.statusDot, { backgroundColor: status.color }]} />
+                  <TText variant="caption" color="secondary">{status.label}</TText>
+                </View>
+              ) : <View />}
+              {onQuickBook && (
+                <Pressable
+                  onPress={onQuickBook}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Demander un projet à ${post.artistName}`}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.requestLink, pressed && { opacity: 0.7 }]}
+                >
+                  <TText variant="bodySmall" weight="medium" color="accentGlow">Demander un projet</TText>
+                  <Ionicons name="arrow-forward" size={14} color={Colors.accentGlow} />
+                </Pressable>
+              )}
             </View>
-          ))}
+          )}
         </View>
       )}
-
-      {/* Half artist pill */}
-      {isHalf && (
-        <TouchableOpacity style={styles.halfArtistRow} onPress={onArtistPress} activeOpacity={0.8}>
-          <TText variant="caption" weight="semibold" numberOfLines={1} style={{ color: Colors.textSecondary }}>{post.artistName}</TText>
-        </TouchableOpacity>
-      )}
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: Spacing.sm,
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.xl,
+  card: { width: '100%' },
+
+  media: {
+    width: '100%',
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderSubtle,
+    backgroundColor: Colors.bgSurface,
   },
-  imageWrap: {
-    overflow: 'hidden',
-    borderRadius: Radius.xl,
+  mediaLarge: { borderRadius: Radius.xl },
+  mediaHalf: { borderRadius: Radius.lg },
+
+  video: { backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
+  videoRing: {
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+    backgroundColor: 'rgba(11,10,9,0.4)',
   },
-  likeGlow: {
-    backgroundColor: 'rgba(240,90,90,0.12)',
+  videoNote: { marginTop: 4, textAlign: 'center', maxWidth: 240 },
+
+  likeCorner: { position: 'absolute', top: Spacing['2xs'], right: Spacing['2xs'] },
+  likeOnImage: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(11,10,9,0.55)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
   },
-  heartOverlay: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  likeOnImageSmall: { width: 36, height: 36, borderRadius: 18 },
+  likeInline: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    minWidth: 40, height: 40, paddingHorizontal: 4,
+    justifyContent: 'flex-end',
   },
-  artistOverlay: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    left: Spacing.sm,
-    right: 90,
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  halfLabel: { paddingTop: 10, gap: 1 },
+
+  label: { paddingTop: 14 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  artist: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
+  artistText: { flex: 1, gap: 1 },
+  artistName: { fontSize: 21, lineHeight: 24 },
+  caption: { marginTop: Spacing['2xs'], maxWidth: 640 },
+
+  actionRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 12, paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  overlayText: {
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  overlaySubText: { color: 'rgba(255,255,255,0.55)' },
-  likeBtn: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    right: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.40)',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  likeBtnHalf: {
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-  },
-  likeCount: { color: 'rgba(255,255,255,0.85)' },
-  quickBookBtn: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    right: 76,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-    overflow: 'hidden',
-  },
-  trendingBadge: {
-    position: 'absolute',
-    top: Spacing['2xs'],
-    left: Spacing['2xs'],
-    zIndex: 10,
-    backgroundColor: 'rgba(240,90,60,0.85)',
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-  },
-  trendingText: { color: '#FFFFFF', fontSize: 9 },
-  tagsRow: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 10,
-  },
-  tag: {
-    backgroundColor: Colors.bgSubtle,
-    borderRadius: Radius.full,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  halfArtistRow: {
-    paddingHorizontal: Spacing['2xs'],
-    paddingVertical: 8,
-  },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  requestLink: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
 });

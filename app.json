@@ -10,8 +10,8 @@
     "icon": "./assets/images/icon.png",
     "scheme": "inkr",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#030305",
-    "primaryColor": "#D4A864",
+    "backgroundColor": "#0B0A09",
+    "primaryColor": "#C9A46A",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -32,7 +32,7 @@
       "package": "com.inkr.tattoo",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#030305",
+        "backgroundColor": "#0B0A09",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -60,9 +60,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#030305",
+          "backgroundColor": "#0B0A09",
           "dark": {
-            "backgroundColor": "#030305"
+            "backgroundColor": "#0B0A09"
           }
         }
       ],

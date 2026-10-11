@@ -4,15 +4,31 @@ import { Colors } from '@/constants/theme';
 
 interface TDividerProps {
   style?: ViewStyle;
+  /** Left inset, e.g. to align with the text of an icon row. */
+  inset?: number;
+  /** `subtle` (default) between rows, `default` between sections. */
+  tone?: 'subtle' | 'default';
+  /** Vertical hairline instead of horizontal. */
+  vertical?: boolean;
 }
 
-export function TDivider({ style }: TDividerProps) {
-  return <View style={[styles.divider, style]} />;
+/** Hairline separator. Decorative: hidden from assistive technologies. */
+export function TDivider({ style, inset = 0, tone = 'subtle', vertical = false }: TDividerProps) {
+  return (
+    <View
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        vertical ? styles.vertical : styles.horizontal,
+        { backgroundColor: tone === 'default' ? Colors.borderDefault : Colors.borderSubtle },
+        inset ? { marginLeft: inset } : undefined,
+        style,
+      ]}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
-  },
+  horizontal: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
+  vertical: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
 });

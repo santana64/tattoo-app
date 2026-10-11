@@ -44,7 +44,7 @@ export function TSkeleton({ width = '100%', height = 16, radius = Radius.sm, sty
 export function PostCardSkeleton() {
   return (
     <View style={skStyles.card}>
-      <TSkeleton height={320} radius={Radius.md} />
+      <TSkeleton height={360} radius={Radius.xl} />
       <View style={skStyles.footer}>
         <TSkeleton width={36} height={36} radius={18} />
         <View style={{ flex: 1, marginLeft: 10, gap: 6 }}>
@@ -59,7 +59,7 @@ export function PostCardSkeleton() {
 export function ArtistCardSkeleton() {
   return (
     <View style={skStyles.artistCard}>
-      <TSkeleton height={100} radius={Radius.md} />
+      <TSkeleton height={232} radius={Radius.xl} />
       <View style={skStyles.artistFooter}>
         <TSkeleton width={44} height={44} radius={22} />
         <View style={{ flex: 1, marginLeft: 10, gap: 6 }}>
@@ -93,9 +93,8 @@ const skStyles = StyleSheet.create({
   artistCard: { marginBottom: 16 },
   artistFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   requestCard: {
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.md,
-    padding: 16,
-    marginBottom: 10,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderDefault,
   },
 });

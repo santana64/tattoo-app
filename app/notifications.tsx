@@ -1,23 +1,23 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
-  FlatList, StyleSheet, View, TouchableOpacity, RefreshControl,
+  FlatList, StyleSheet, View, Pressable, RefreshControl, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn, FadeInDown,
-  useSharedValue, useAnimatedStyle, withSpring,
-} from 'react-native-reanimated';
+import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { format, isToday, isYesterday } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { THeader } from '@/components/ui/THeader';
+import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useNotificationStore, AppNotification } from '@/store/notification-store';
 import { useAuthStore } from '@/store/auth-store';
+
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
 // ─── Notification type config ─────────────────────────────────────────────────
 type NotifType =
@@ -29,49 +29,14 @@ type NotifType =
   | 'like'
   | 'system';
 
-const NOTIF_CONFIG: Record<NotifType, { icon: string; color: string; bg: string; border: string }> = {
-  new_request: {
-    icon: 'document-text',
-    color: Colors.infoLight,
-    bg: Colors.glassViolet,
-    border: Colors.borderViolet,
-  },
-  message: {
-    icon: 'chatbubble',
-    color: Colors.accentWarm,
-    bg: Colors.glassAmber,
-    border: Colors.borderGlow,
-  },
-  accepted: {
-    icon: 'checkmark-circle',
-    color: Colors.successLight,
-    bg: 'rgba(16,185,129,0.10)',
-    border: 'rgba(52,211,153,0.25)',
-  },
-  declined: {
-    icon: 'close-circle',
-    color: Colors.errorLight,
-    bg: 'rgba(239,68,68,0.10)',
-    border: 'rgba(239,68,68,0.25)',
-  },
-  appointment: {
-    icon: 'calendar',
-    color: Colors.violetLight,
-    bg: Colors.glassViolet,
-    border: Colors.borderViolet,
-  },
-  like: {
-    icon: 'heart',
-    color: '#F87171',
-    bg: 'rgba(248,113,113,0.10)',
-    border: 'rgba(248,113,113,0.25)',
-  },
-  system: {
-    icon: 'information-circle',
-    color: Colors.textSecondary,
-    bg: Colors.bgSurface,
-    border: Colors.borderDefault,
-  },
+const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
+  new_request: { icon: 'document-text-outline', color: Colors.accentWarm, label: 'Demande' },
+  message:     { icon: 'chatbubble-outline', color: Colors.textPrimary, label: 'Message' },
+  accepted:    { icon: 'checkmark', color: Colors.success, label: 'Acceptée' },
+  declined:    { icon: 'close', color: Colors.error, label: 'Refusée' },
+  appointment: { icon: 'calendar-outline', color: Colors.accentWarm, label: 'Rendez-vous' },
+  like:        { icon: 'heart-outline', color: Colors.accentGlow, label: 'J’aime' },
+  system:      { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
 };
 
 function resolveNotifType(n: AppNotification): NotifType {
@@ -86,9 +51,16 @@ function resolveNotifType(n: AppNotification): NotifType {
 }
 
 function formatGroupDate(date: Date): string {
-  if (isToday(date)) return "Aujourd'hui";
+  if (isToday(date)) return 'Aujourd’hui';
   if (isYesterday(date)) return 'Hier';
-  return format(date, 'EEEE d MMMM', { locale: fr });
+  const label = format(date, 'EEEE d MMMM', { locale: fr });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** Mirrors the routing in handleNotifPress, only to decide whether to show a chevron. */
+function isNavigable(n: AppNotification) {
+  const data = n.data as { request_id?: unknown; appointment_id?: unknown } | null;
+  return !!(data?.request_id || data?.appointment_id);
 }
 
 // ─── Notification item ────────────────────────────────────────────────────────
@@ -101,64 +73,76 @@ function NotifItem({
   index: number;
   onPress: () => void;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const notifType = resolveNotifType(item);
-  const conf = NOTIF_CONFIG[notifType];
+  const reduced = useReducedMotion();
+  const conf = NOTIF_CONFIG[resolveNotifType(item)];
+  const unread = !item.isRead;
+  const navigable = isNavigable(item);
 
   const handlePress = () => {
-    scale.value = withSpring(0.97, { damping: 15 }, () => {
-      scale.value = withSpring(1, { damping: 14 });
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   };
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 45).springify()} style={animStyle}>
-      <TouchableOpacity
-        style={[styles.notifItem, !item.isRead && styles.notifItemUnread]}
+    <Animated.View entering={reduced || index > 9 ? undefined : FadeInDown.delay(index * 40).duration(500).easing(EASE)}>
+      <Pressable
         onPress={handlePress}
-        activeOpacity={1}
+        accessibilityRole="button"
+        accessibilityLabel={`${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
+        style={(state) => {
+          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+          return [styles.item, (pressed || hovered) && styles.itemPressed];
+        }}
       >
-        {/* Unread accent bar */}
-        {!item.isRead && <View style={styles.unreadBar} />}
-
-        {/* Icon */}
-        <View style={[styles.notifIcon, { backgroundColor: conf.bg, borderColor: conf.border }]}>
-          <Ionicons name={conf.icon as any} size={18} color={conf.color} />
+        <View style={[styles.icon, unread && styles.iconUnread]}>
+          <Ionicons name={conf.icon} size={17} color={conf.color} />
         </View>
 
-        {/* Content */}
-        <View style={styles.notifContent}>
-          <TText
-            variant="bodySmall"
-            weight={item.isRead ? 'regular' : 'semibold'}
-            style={{ lineHeight: 20 }}
-          >
-            {item.title}
-          </TText>
-          <TText
-            variant="caption"
-            color="tertiary"
-            numberOfLines={2}
-            style={{ marginTop: 2, lineHeight: 17 }}
-          >
-            {item.body}
-          </TText>
-          <TText variant="micro" color="tertiary" style={{ marginTop: 5 }}>
-            {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
-          </TText>
+        <View style={styles.content}>
+          <View style={styles.titleRow}>
+            <TText
+              variant="bodySmall"
+              weight={unread ? 'semibold' : 'medium'}
+              color={unread ? 'primary' : 'secondary'}
+              style={{ flex: 1 }}
+              numberOfLines={2}
+            >
+              {item.title}
+            </TText>
+            <TText variant="caption" color="tertiary" tabular>
+              {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
+            </TText>
+          </View>
+          {!!item.body && (
+            <TText variant="caption" color="tertiary" numberOfLines={2} style={styles.body}>
+              {item.body}
+            </TText>
+          )}
         </View>
 
-        <Ionicons
-          name="chevron-forward"
-          size={14}
-          color={Colors.textTertiary}
-          style={{ marginLeft: 4 }}
-        />
-      </TouchableOpacity>
+        <View style={styles.trailing}>
+          {unread && <View style={styles.unreadDot} />}
+          {navigable && <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />}
+        </View>
+      </Pressable>
     </Animated.View>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <View accessibilityLabel="Chargement des notifications">
+      <TSkeleton width={80} height={11} style={{ marginTop: Spacing.lg, marginBottom: Spacing.sm }} />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View key={i} style={styles.skeletonRow}>
+          <TSkeleton width={40} height={40} radius={20} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <TSkeleton width="65%" height={13} />
+            <TSkeleton width="90%" height={11} />
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -166,6 +150,7 @@ function NotifItem({
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const { notifications, isLoading, fetch, markRead, markAllRead, subscribe, unsubscribe } =
     useNotificationStore();
@@ -175,10 +160,10 @@ export default function NotificationsScreen() {
     fetch(user.id);
     subscribe(user.id);
     return () => unsubscribe();
-  }, [user?.id]);
+  }, [user?.id, fetch, subscribe, unsubscribe]);
 
   // Group by date label
-  const grouped = React.useMemo(() => {
+  const grouped = useMemo(() => {
     const map: Map<string, AppNotification[]> = new Map();
     [...notifications]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -205,86 +190,95 @@ export default function NotificationsScreen() {
     }
   };
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ── Header ── */}
-      <Animated.View entering={FadeIn.duration(350)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title1" weight="bold" style={{ letterSpacing: -0.5 }}>
-          Notifications
+  const handleMarkAll = () => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (user?.id) markAllRead(user.id);
+  };
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <THeader showBack />
+        <EmptyState
+          icon="notifications-outline"
+          title="Restez informé"
+          description="Connectez-vous pour suivre vos demandes, messages et rendez-vous."
+          ctaLabel="Se connecter"
+          onCta={() => router.push('/(auth)/sign-in')}
+        />
+      </View>
+    );
+  }
+
+  const header = (
+    <Animated.View entering={reduced ? undefined : FadeInDown.duration(600).easing(EASE)} style={styles.masthead}>
+      <TText variant="displayM" accessibilityRole="header">
+        Vos <TText variant="displayM" italic color="accentGlow">notifications</TText>
+      </TText>
+      <View style={styles.summaryRow}>
+        <TText variant="bodySmall" color="tertiary" tabular accessibilityLiveRegion="polite" style={{ flex: 1 }}>
+          {unreadCount > 0
+            ? `${unreadCount} non lue${unreadCount > 1 ? 's' : ''}`
+            : notifications.length > 0 ? 'Tout est lu' : 'Demandes, messages et rendez-vous'}
         </TText>
         {unreadCount > 0 && (
-          <TouchableOpacity
-            style={styles.markAllBtn}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              if (user?.id) markAllRead(user.id);
-            }}
+          <Pressable
+            onPress={handleMarkAll}
+            accessibilityRole="button"
+            accessibilityLabel="Tout marquer comme lu"
+            hitSlop={8}
+            style={({ pressed }) => [styles.markAll, pressed && { opacity: 0.6 }]}
           >
-            <TText variant="caption" style={{ color: Colors.accentWarm }}>Tout lire</TText>
-          </TouchableOpacity>
+            <Ionicons name="checkmark-done-outline" size={16} color={Colors.textSecondary} />
+            <TText variant="caption" weight="medium" color="secondary">Tout marquer comme lu</TText>
+          </Pressable>
         )}
-        {unreadCount === 0 && <View style={styles.headerSpacer} />}
-      </Animated.View>
+      </View>
+    </Animated.View>
+  );
 
-      {/* ── Unread summary pill ── */}
-      {unreadCount > 0 && (
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.unreadSummary}>
-          <LinearGradient
-            colors={['rgba(212,168,100,0.12)', 'rgba(212,168,100,0.03)']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.unreadDot} />
-          <TText variant="caption" style={{ color: Colors.accentWarm, fontWeight: '600' }}>
-            {unreadCount} notification{unreadCount > 1 ? 's' : ''} non lue{unreadCount > 1 ? 's' : ''}
-          </TText>
-        </Animated.View>
-      )}
-
-      {/* ── List ── */}
+  return (
+    <View style={styles.container}>
+      <THeader showBack />
       <FlatList
         data={grouped}
         keyExtractor={([key]) => key}
         renderItem={({ item: [groupDate, items], index: gIndex }) => (
-          <Animated.View entering={FadeInDown.delay(gIndex * 55).springify()}>
-            {/* Date group header */}
+          <View>
             <View style={styles.groupHeader}>
-              <TText variant="label" color="tertiary" uppercase style={{ letterSpacing: 1.5 }}>
-                {groupDate}
-              </TText>
-              <View style={styles.groupLine} />
+              <TText variant="label" color="tertiary" uppercase>{groupDate}</TText>
             </View>
-            {/* Items in this group */}
             {items.map((notif, i) => (
               <NotifItem
                 key={notif.id}
                 item={notif}
-                index={i}
+                index={gIndex === 0 ? i : 99}
                 onPress={() => handleNotifPress(notif)}
               />
             ))}
-          </Animated.View>
+          </View>
         )}
-        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 90 }]}
+        style={styles.list}
+        contentContainerStyle={[styles.frame, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={header}
         refreshControl={
           <RefreshControl
-            refreshing={isLoading}
+            refreshing={isLoading && notifications.length > 0}
             onRefresh={() => { if (user?.id) fetch(user.id); }}
             tintColor={Colors.accentWarm}
             colors={[Colors.accentWarm]}
           />
         }
         ListEmptyComponent={
-          <EmptyState
-            icon="notifications-outline"
-            title="Aucune notification"
-            description="Tes notifications apparaîtront ici."
-            style={{ marginTop: 80 }}
-          />
+          isLoading ? <ListSkeleton /> : (
+            <EmptyState
+              icon="notifications-outline"
+              title="Rien de nouveau"
+              description="Les réponses des artistes, vos messages et vos rendez-vous apparaîtront ici."
+              style={styles.empty}
+            />
+          )
         }
       />
     </View>
@@ -293,117 +287,46 @@ export default function NotificationsScreen() {
 
 // ─── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  list: { flex: 1 },
+  frame: { width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center', paddingHorizontal: Layout.gutter },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xs'],
-    paddingBottom: Spacing['2xs'],
-    paddingTop: Spacing['2xs'],
-    gap: Spacing['2xs'],
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerSpacer: {
-    flex: 1,
-  },
-  markAllBtn: {
-    marginLeft: 'auto',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    backgroundColor: Colors.glassAmber,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-  },
+  masthead: { paddingTop: Spacing.md, paddingBottom: Spacing.sm },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 6, minHeight: 40 },
+  markAll: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 },
 
-  // Unread summary
-  unreadSummary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: Spacing.sm,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 10,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.accentGlow,
-  },
-
-  // List
-  list: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
-  },
-
-  // Group header
   groupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing['2xs'],
-    marginTop: Spacing.sm,
-  },
-  groupLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
+    paddingTop: Spacing.lg, paddingBottom: Spacing['2xs'],
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
   },
 
-  // Notification item
-  notifItem: {
+  item: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing['2xs'],
-    borderRadius: Radius.lg,
-    marginBottom: 4,
-    gap: Spacing.sm,
-    backgroundColor: Colors.bgCard,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderSubtle,
-    position: 'relative',
-    overflow: 'hidden',
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderSubtle,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  notifItemUnread: {
-    borderColor: Colors.borderDefault,
-  },
-  unreadBar: {
-    position: 'absolute',
-    left: 0,
-    top: 8,
-    bottom: 8,
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.accentWarm,
-  },
-  notifIcon: {
+  itemPressed: { backgroundColor: Colors.glassBg },
+  icon: {
     width: 40,
     height: 40,
-    borderRadius: Radius.md,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    flexShrink: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
-  notifContent: {
-    flex: 1,
-  },
+  iconUnread: { borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber },
+  content: { flex: 1, paddingTop: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs },
+  body: { marginTop: 3 },
+  trailing: { width: 14, alignSelf: 'center', alignItems: 'center', gap: 6 },
+  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accentWarm },
+
+  skeletonRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: Spacing.sm },
+
+  empty: { paddingTop: Spacing['2xl'] },
 });

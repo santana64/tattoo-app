@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -102,6 +102,7 @@ function useLift() {
 export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages }: ArtistCardProps) {
   const router = useRouter();
   const lift = useLift();
+  const { width: windowWidth } = useWindowDimensions();
   const open = useCallback(() => router.push(`/artist/${artist.id}`), [artist.id, router]);
   const save = useCallback(() => onSave?.(artist.id), [artist.id, onSave]);
 
@@ -112,7 +113,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
   // ── Featured: a single lit artwork, full bleed ─────────────────
   if (variant === 'featured') {
     return (
-      <Animated.View style={[styles.featured, lift.style]}>
+      <Animated.View style={[styles.featured, windowWidth >= 900 && styles.featuredWide, lift.style]}>
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={{ flex: 1 }}>
           {images[0] ? (
             <Image source={{ uri: images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
@@ -264,6 +265,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
     backgroundColor: Colors.bgSurface,
   },
+  // Wide screens: a cinematic banner instead of a portrait print.
+  featuredWide: { aspectRatio: 21 / 9, maxHeight: 460 },
   featuredTop: {
     position: 'absolute', top: Spacing.sm, left: Spacing.sm, right: Spacing.sm,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

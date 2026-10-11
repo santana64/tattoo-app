@@ -2,104 +2,46 @@ import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  TextInput,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import { Colors, Spacing, Radius, Layout, Duration } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TButton } from '@/components/ui/TButton';
+import { TInput } from '@/components/ui/TInput';
 import { Logo } from '@/components/ui/Logo';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
-// ── Animated glass social button ──────────────────────────────
-function SocialButton({
-  onPress,
-  disabled,
-  children,
-  delay = 0,
-}: {
-  onPress: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-  delay?: number;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+const FORM_MAX_WIDTH = 480;
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+// Format check only: the provider remains the source of truth.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-  const handlePressIn = () => {
-    scale.value = withSpring(0.97, { damping: 18, stiffness: 400 });
-  };
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 18, stiffness: 400 });
-  };
-
-  return (
-    <Animated.View entering={FadeInDown.delay(delay).springify()} style={animStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled}
-        style={styles.socialButton}
-      >
-        {children}
-      </Pressable>
-    </Animated.View>
-  );
+function enter(delay: number, reduced: boolean) {
+  return reduced ? undefined : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
 }
 
-// ── Aurora orb ────────────────────────────────────────────────
-function AuroraOrb({
-  size,
-  color,
-  style,
-}: {
-  size: number;
-  color: string;
-  style?: object;
-}) {
-  return (
-    <View
-      pointerEvents="none"
-      style={[
-        {
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color,
-        },
-        style,
-      ]}
-    />
-  );
-}
+type InteractionState = { pressed: boolean; hovered?: boolean };
 
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const reduced = useReducedMotion();
   const { signInWithEmail, signInWithApple, signInWithGoogle, error: profileError, refreshProfile, signOut } = useAuthStore();
   const [email, setEmail] = useState('');
-  const [showEmailForm, setShowEmailForm] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
-  const [emailFocused, setEmailFocused] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
 
   const handleApple = async () => {
     setLoading('apple');
@@ -124,393 +66,314 @@ export default function SignInScreen() {
       Toast.error(error);
     } else {
       setEmailSent(true);
-      Toast.success('Lien envoyé ! Vérifie ta boîte mail.');
+      Toast.success('Lien envoyé. Vérifiez votre boîte mail.');
     }
   };
 
+  const emailValid = EMAIL_PATTERN.test(email.trim());
+  const emailError = emailTouched && !emailValid
+    ? (email.trim() ? 'Cette adresse e-mail semble incomplète.' : 'Saisissez votre adresse e-mail.')
+    : undefined;
+
+  const submitEmail = () => {
+    setEmailTouched(true);
+    if (!emailValid) return;
+    void handleEmail();
+  };
+
+  const canGoBack = router.canGoBack();
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      {/* Aurora orbs — decorative background atmosphere */}
-      <AuroraOrb
-        size={280}
-        color={`rgba(139,92,246,0.06)`}
-        style={{ top: -60, right: -80 }}
-      />
-      <AuroraOrb
-        size={220}
-        color={`rgba(212,168,100,0.055)`}
-        style={{ bottom: 120, left: -70 }}
+    <View style={styles.container}>
+      {/* A single warm spotlight from above — no orbs, no glow loops. */}
+      <LinearGradient
+        colors={['rgba(201,164,106,0.10)', 'rgba(201,164,106,0.03)', 'rgba(11,10,9,0)']}
+        locations={[0, 0.4, 1]}
+        style={styles.spotlight}
+        pointerEvents="none"
       />
 
-      {/* Back button */}
-      <TouchableOpacity
-        onPress={() => router.back()}
-        style={[styles.backBtn, { marginTop: Spacing['3xs'] }]}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-      </TouchableOpacity>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scroll,
+            { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.column}>
+            {/* Masthead */}
+            <Animated.View entering={reduced ? undefined : FadeIn.duration(800)} style={styles.topBar}>
+              {canGoBack ? (
+                <Pressable
+                  onPress={() => router.back()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retour"
+                  hitSlop={8}
+                  style={(state) => {
+                    const { pressed, hovered } = state as InteractionState;
+                    return [styles.backButton, (pressed || hovered) && styles.backButtonActive];
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+                </Pressable>
+              ) : null}
+              <Logo size="sm" variant="wordmark" />
+            </Animated.View>
 
-      <View style={[styles.content, { paddingBottom: insets.bottom + Spacing.lg }]}>
+            <View style={styles.spacer} />
 
-        {/* Header — Logo + tagline */}
-        <Animated.View entering={FadeInDown.delay(0).duration(500)} style={styles.header}>
-          <Logo variant="full" size="lg" animate />
-          <TText
-            variant="bodySmall"
-            color="secondary"
-            style={styles.tagline}
-          >
-            L’art du tatouage, réinventé.
-          </TText>
-        </Animated.View>
+            {/* Editorial block */}
+            <Animated.View entering={enter(120, reduced)} style={styles.kicker}>
+              <View style={styles.kickerRule} />
+              <TText variant="label" color="accentWarm" uppercase>Connexion · Inscription</TText>
+            </Animated.View>
 
-        {/* Auth methods */}
-        <View style={styles.methods}>
+            <Animated.View entering={enter(220, reduced)}>
+              <TText variant="displayL" style={styles.headline} accessibilityRole="header">
+                Entrez dans{'\n'}
+                <TText variant="displayL" italic color="accentGlow">l’atelier.</TText>
+              </TText>
+              <TText variant="body" color="secondary" style={styles.lede}>
+                Un seul compte pour suivre vos artistes, confier vos projets et retrouver vos
+                rendez-vous. Aucun mot de passe à retenir.
+              </TText>
+            </Animated.View>
 
-          {profileError && (
-            <View style={styles.emailFormCard}>
-              <TText color="secondary">{profileError}</TText>
-              <TouchableOpacity onPress={() => void refreshProfile()}>
-                <TText>Réessayer le chargement</TText>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => void signOut().catch(() => Toast.error('Déconnexion impossible. Réessaie.'))}>
-                <TText>Utiliser un autre compte</TText>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Apple */}
-          <SocialButton onPress={handleApple} disabled={!!loading} delay={80}>
-            <Ionicons name="logo-apple" size={20} color={Colors.textPrimary} />
-            <TText variant="bodySmall" weight="semibold" style={styles.socialLabel}>
-              Continuer avec Apple
-            </TText>
-          </SocialButton>
-
-          {/* Google */}
-          <SocialButton onPress={handleGoogle} disabled={!!loading} delay={160}>
-            <TText
-              variant="bodySmall"
-              weight="bold"
-              style={[styles.googleG, { color: Colors.accentWarm }]}
-            >
-              G
-            </TText>
-            <TText variant="bodySmall" weight="semibold" style={styles.socialLabel}>
-              Continuer avec Google
-            </TText>
-          </SocialButton>
-
-          {/* Divider */}
-          <Animated.View entering={FadeInDown.delay(240)} style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <TText variant="caption" color="tertiary" style={styles.dividerLabel}>ou</TText>
-            <View style={styles.dividerLine} />
-          </Animated.View>
-
-          {/* Email — toggle / form / sent */}
-          <Animated.View entering={FadeInDown.delay(320).springify()}>
-            {emailSent ? (
-              // ── Email sent success card ──
-              <Animated.View
-                entering={FadeInDown.springify().damping(12).stiffness(200)}
-                style={styles.emailSentCard}
-              >
-                <View style={styles.emailSentIconWrap}>
-                  <Ionicons name="mail-open-outline" size={32} color={Colors.success} />
+            {/* Profile could not be loaded after sign-in */}
+            {profileError ? (
+              <Animated.View entering={enter(0, reduced)} style={styles.notice} accessibilityLiveRegion="polite">
+                <View style={styles.noticeHead}>
+                  <View style={styles.noticeDot} />
+                  <TText variant="bodySmall" weight="medium">Profil indisponible</TText>
                 </View>
-                <TText
-                  variant="bodySmall"
-                  weight="semibold"
-                  style={{ color: Colors.textPrimary, marginTop: Spacing['2xs'] }}
-                >
-                  Lien de connexion envoyé
-                </TText>
-                <TText
-                  variant="caption"
-                  color="secondary"
-                  style={styles.emailSentSubtext}
-                >
-                  Vérifie ta boîte mail pour{' '}
-                  <TText variant="caption" weight="semibold" style={{ color: Colors.accentWarm }}>
-                    {email}
-                  </TText>
-                </TText>
+                <TText variant="caption" color="secondary" style={styles.noticeText}>{profileError}</TText>
+                <View style={styles.noticeActions}>
+                  <TButton
+                    title="Réessayer"
+                    variant="secondary"
+                    size="sm"
+                    fullWidth={false}
+                    onPress={() => void refreshProfile()}
+                  />
+                  <TButton
+                    title="Utiliser un autre compte"
+                    variant="ghost"
+                    size="sm"
+                    fullWidth={false}
+                    onPress={() => void signOut().catch(() => Toast.error('Déconnexion impossible. Réessayez.'))}
+                  />
+                </View>
               </Animated.View>
-            ) : showEmailForm ? (
-              // ── Email input form ──
-              <Animated.View
-                entering={FadeIn.duration(280)}
-                style={styles.emailFormCard}
-              >
-                {/* Input */}
-                <View
-                  style={[
-                    styles.inputWrap,
-                    emailFocused && styles.inputWrapFocused,
-                  ]}
-                >
-                  <Ionicons
-                    name="mail-outline"
-                    size={16}
-                    color={emailFocused ? Colors.accentWarm : Colors.textTertiary}
-                    style={{ marginRight: Spacing['2xs'] }}
+            ) : null}
+
+            {emailSent ? (
+              // ── Link sent ───────────────────────────────────────
+              <Animated.View entering={enter(0, reduced)} style={styles.sentPanel} accessibilityLiveRegion="polite">
+                <View style={styles.iconRing}>
+                  <Ionicons name="mail-open-outline" size={20} color={Colors.accentWarm} />
+                </View>
+                <TText variant="displayS" style={styles.sentTitle} accessibilityRole="header">
+                  Vérifiez votre{' '}
+                  <TText variant="displayS" italic color="accentGlow">boîte mail</TText>
+                </TText>
+                <TText variant="bodySmall" color="secondary" style={styles.sentText}>
+                  Nous avons envoyé un lien de connexion à{' '}
+                  <TText variant="bodySmall" weight="medium">{email.trim()}</TText>.
+                </TText>
+                <TText variant="caption" color="tertiary" style={styles.sentText}>
+                  Ouvrez-le depuis cet appareil pour terminer la connexion. Pensez à vérifier
+                  vos courriers indésirables.
+                </TText>
+                <View style={styles.sentActions}>
+                  <TButton
+                    title="Renvoyer le lien"
+                    variant="secondary"
+                    size="md"
+                    fullWidth={false}
+                    loading={loading === 'email'}
+                    onPress={handleEmail}
                   />
-                  <TextInput
-                    style={styles.textInput}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="ton@email.com"
-                    placeholderTextColor={Colors.textTertiary}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    autoFocus
-                    onFocus={() => setEmailFocused(true)}
-                    onBlur={() => setEmailFocused(false)}
+                  <TButton
+                    title="Changer d’adresse"
+                    variant="ghost"
+                    size="md"
+                    fullWidth={false}
+                    disabled={loading === 'email'}
+                    onPress={() => setEmailSent(false)}
                   />
                 </View>
-
-                {/* CTA */}
-                <TouchableOpacity
-                  onPress={handleEmail}
-                  disabled={!email.trim() || loading === 'email'}
-                  activeOpacity={0.85}
-                  style={[styles.ctaWrap, (!email.trim() || loading === 'email') && { opacity: 0.5 }]}
-                >
-                  <LinearGradient
-                    colors={[Colors.accentGlow, Colors.accentWarm, '#A06030']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[styles.ctaGradient, GlowShadow.amberStrong]}
-                  >
-                    <TText variant="bodySmall" weight="bold" style={styles.ctaLabel}>
-                      {loading === 'email' ? 'Envoi en cours…' : 'Recevoir un lien de connexion'}
-                    </TText>
-                    {loading !== 'email' && (
-                      <Ionicons name="arrow-forward" size={16} color={Colors.textInverse} />
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
               </Animated.View>
             ) : (
-              // ── Email toggle button ──
-              <SocialButton onPress={() => setShowEmailForm(true)} delay={0}>
-                <Ionicons name="mail-outline" size={20} color={Colors.textSecondary} />
-                <TText variant="bodySmall" color="secondary" weight="semibold" style={styles.socialLabel}>
-                  Continuer avec un email
-                </TText>
-              </SocialButton>
+              <>
+                {/* ── Providers ──────────────────────────────────── */}
+                <Animated.View entering={enter(340, reduced)} style={styles.providers}>
+                  <TButton
+                    title="Continuer avec Apple"
+                    variant="secondary"
+                    onPress={handleApple}
+                    loading={loading === 'apple'}
+                    disabled={!!loading}
+                    icon={<Ionicons name="logo-apple" size={19} color={Colors.textPrimary} />}
+                  />
+                  <TButton
+                    title="Continuer avec Google"
+                    variant="secondary"
+                    onPress={handleGoogle}
+                    loading={loading === 'google'}
+                    disabled={!!loading}
+                    icon={<Ionicons name="logo-google" size={17} color={Colors.textPrimary} />}
+                  />
+                </Animated.View>
+
+                <Animated.View entering={enter(420, reduced)} style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <TText variant="caption" color="tertiary">ou par e-mail</TText>
+                  <View style={styles.dividerLine} />
+                </Animated.View>
+
+                {/* ── Email magic link ───────────────────────────── */}
+                <Animated.View entering={enter(500, reduced)}>
+                  <TInput
+                    label="Adresse e-mail"
+                    value={email}
+                    onChangeText={setEmail}
+                    onBlur={() => { if (email.trim()) setEmailTouched(true); }}
+                    placeholder="vous@exemple.fr"
+                    error={emailError}
+                    helper="Nous vous envoyons un lien de connexion par e-mail."
+                    keyboardType="email-address"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="send"
+                    onSubmitEditing={submitEmail}
+                    editable={loading !== 'email'}
+                  />
+                  <TButton
+                    title="Recevoir le lien de connexion"
+                    onPress={submitEmail}
+                    loading={loading === 'email'}
+                    disabled={!!loading && loading !== 'email'}
+                  />
+                </Animated.View>
+              </>
             )}
-          </Animated.View>
 
-
-        </View>
-
-        {/* Legal */}
-        <Animated.View entering={FadeIn.delay(480)}>
-          <TText variant="caption" color="tertiary" style={styles.legal}>
-            En continuant, tu acceptes nos{' '}
-            <Pressable onPress={() => router.push('/legal/terms')} hitSlop={4}>
-              <TText variant="caption" style={styles.legalLink}>Conditions générales</TText>
-            </Pressable>
-            {' '}et notre{' '}
-            <Pressable onPress={() => router.push('/legal/privacy-policy')} hitSlop={4}>
-              <TText variant="caption" style={styles.legalLink}>Politique de confidentialité</TText>
-            </Pressable>
-            .
-          </TText>
-        </Animated.View>
-      </View>
-    </KeyboardAvoidingView>
+            {/* Legal */}
+            <Animated.View
+              entering={reduced ? undefined : FadeIn.delay(700).duration(600)}
+              style={styles.legalRow}
+            >
+              <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
+              <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" hitSlop={6}>
+                <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
+              </Pressable>
+              <TText variant="caption" color="tertiary"> et la </TText>
+              <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" hitSlop={6}>
+                <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
+              </Pressable>
+              <TText variant="caption" color="tertiary">.</TText>
+            </Animated.View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
-    paddingHorizontal: Spacing.lg,
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingTop: Spacing.xl,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  flex: { flex: 1 },
+  spotlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 420 },
 
-  // ── Header ──────────────────────────────────────────────────
-  header: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing['2xs'],
-  },
-  tagline: {
-    fontStyle: 'italic',
-    letterSpacing: 0.3,
-    color: Colors.textSecondary,
-    marginTop: Spacing['3xs'],
-  },
+  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
+  column: { flex: 1, width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
 
-  // ── Methods ─────────────────────────────────────────────────
-  methods: {
-    gap: Spacing['2xs'],
-  },
-
-  // ── Social button — glassmorphism ────────────────────────────
-  socialButton: {
-    flexDirection: 'row',
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, minHeight: 40 },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 54,
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
-    gap: Spacing['2xs'],
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  socialLabel: {
-    letterSpacing: 0.2,
-  },
-  googleG: {
-    fontSize: 18,
-    lineHeight: 20,
-    width: 20,
-    textAlign: 'center',
-  },
+  backButtonActive: { backgroundColor: Colors.glassBgMid },
 
-  // ── Divider ─────────────────────────────────────────────────
+  spacer: { flex: 1, minHeight: Spacing['2xl'], maxHeight: 160 },
+
+  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
+  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
+  headline: { marginBottom: Spacing.sm },
+  lede: { maxWidth: 440, marginBottom: Spacing.xl },
+
+  notice: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
+    borderRadius: Radius.lg,
+    padding: Spacing.sm,
+    marginBottom: Spacing.lg,
+    backgroundColor: Colors.bgElevated,
+  },
+  noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  noticeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.warning },
+  noticeText: { marginTop: 6 },
+  noticeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: Spacing.xs },
+
+  providers: { gap: 10 },
+
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: Spacing['3xs'],
-    gap: Spacing['2xs'],
+    gap: Spacing.xs,
+    marginVertical: Spacing.lg,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: Colors.borderSubtle,
-  },
-  dividerLabel: {
-    letterSpacing: 0.5,
-  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
 
-  // ── Email form card ──────────────────────────────────────────
-  emailFormCard: {
-    backgroundColor: Colors.glassBg,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    padding: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  inputWrap: {
-    flexDirection: 'row',
+  sentPanel: {
     alignItems: 'center',
-    height: 48,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bgSurface,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
-  inputWrapFocused: {
-    borderBottomColor: Colors.accentWarm,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius['2xl'],
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
+    backgroundColor: Colors.bgElevated,
   },
-  textInput: {
-    flex: 1,
-    color: Colors.textPrimary,
-    fontSize: 15,
-    letterSpacing: 0.2,
-  },
-  ctaWrap: {
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-  },
-  ctaGradient: {
-    flexDirection: 'row',
+  iconRing: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 52,
-    gap: Spacing['2xs'],
-    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
+    marginBottom: Spacing.md,
   },
-  ctaLabel: {
-    color: Colors.textInverse,
-    letterSpacing: 0.3,
-  },
-
-  // ── Email sent card ──────────────────────────────────────────
-  emailSentCard: {
-    alignItems: 'center',
-    padding: Spacing.lg,
-    backgroundColor: Colors.glassBg,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: `rgba(16,185,129,0.20)`,
-    gap: Spacing['3xs'],
-  },
-  emailSentIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: `rgba(16,185,129,0.10)`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing['3xs'],
-  },
-  emailSentSubtext: {
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 2,
-  },
-
-  // ── Dev shortcuts ────────────────────────────────────────────
-  devRow: {
-    marginTop: Spacing.xs,
-    alignItems: 'center',
-    gap: Spacing['3xs'],
-  },
-  devLabel: {
-    textAlign: 'center',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    fontSize: 10,
-  },
-  devButtons: {
+  sentTitle: { textAlign: 'center', marginBottom: Spacing['2xs'] },
+  sentText: { textAlign: 'center', maxWidth: 360, marginBottom: Spacing['2xs'] },
+  sentActions: {
     flexDirection: 'row',
-    gap: Spacing['2xs'],
-  },
-  devBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing['3xs'],
-    paddingHorizontal: Spacing.xs,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: Spacing.sm,
   },
 
-  // ── Legal ────────────────────────────────────────────────────
-  legal: {
-    textAlign: 'center',
-    lineHeight: 18,
+  legalRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: Spacing.xl,
   },
-  legalLink: {
-    color: Colors.accentWarm,
-  },
+  underline: { textDecorationLine: 'underline' },
 });

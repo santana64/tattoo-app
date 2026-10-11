@@ -1,23 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, StyleSheet, TouchableOpacity, ScrollView, Dimensions,
-  Share, ActionSheetIOS, Platform, Alert, ActivityIndicator,
+  View, StyleSheet, Pressable, ScrollView,
+  Share, ActionSheetIOS, Platform, Alert, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSequence, withSpring, FadeIn, FadeInDown,
+  useSharedValue, useAnimatedStyle, withSequence, withSpring, FadeIn, FadeInDown, Easing, useReducedMotion,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout, SpringConfig } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { THeader } from '@/components/ui/THeader';
+import { TSkeleton } from '@/components/ui/TSkeleton';
+import { BOOKING_STATUS, styleName } from '@/components/ArtistCard';
+import { VideoPlaceholder, isVideoMedia } from '@/components/PostCard';
 import { useFeedStore } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
@@ -26,12 +27,42 @@ import type { Artist } from '@/constants/mock-data';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const STATUS_CONFIG = {
-  open:   { dot: '#34D399', label: 'Disponible' },
-  paused: { dot: '#FBBF24', label: 'En pause' },
-  closed: { dot: '#F87171', label: 'Fermé' },
-};
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+const WIDE = 900;
+const SIDE_W = 400;
+
+/** Shared layout maths: the work gets the room, the label sits beside it on wide screens. */
+function useArtworkFrame() {
+  const { width, height } = useWindowDimensions();
+  const wide = width >= WIDE;
+  const frameW = Math.min(width, Layout.maxContent);
+  const artW = wide ? frameW - Layout.gutter * 2 - SIDE_W - Spacing['2xl'] : width;
+  const artH = wide
+    ? Math.round(Math.min(height - 160, artW * 1.25, 860))
+    : Math.round(Math.min(width * 1.25, height * 0.72));
+  return { wide, artH };
+}
+
+function DetailSkeleton() {
+  const { wide, artH } = useArtworkFrame();
+  return (
+    <View style={styles.container} accessibilityLabel="Chargement de la publication">
+      <THeader showBack />
+      <View style={[styles.frame, wide && styles.frameWide]}>
+        <View style={wide ? styles.artColWide : undefined}>
+          <TSkeleton height={artH} radius={wide ? Radius.xl : 0} />
+        </View>
+        <View style={[styles.side, wide && styles.sideWide]}>
+          <TSkeleton width={120} height={11} />
+          <TSkeleton width="75%" height={32} style={{ marginTop: 12 }} />
+          <TSkeleton height={44} radius={Radius.sm} style={{ marginTop: Spacing.lg }} />
+          <TSkeleton width="90%" height={14} style={{ marginTop: Spacing.lg }} />
+          <TSkeleton width="60%" height={14} style={{ marginTop: 8 }} />
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -57,15 +88,55 @@ export default function PostDetailScreen() {
     void load();
     return () => { active = false; };
   }, [id, attempt]);
-  if (loading) return <View style={[styles.container, { justifyContent: 'center' }]}><ActivityIndicator color={Colors.accentWarm} accessibilityLabel="Chargement de la publication" /></View>;
-  if (!resource) return <View style={styles.container}><EmptyState title={error ? 'Publication inaccessible' : 'Publication introuvable'} description={error ? 'La connexion a échoué. Tu peux réessayer.' : 'Cette publication a été retirée ou ce lien est invalide.'} ctaLabel={error ? 'Réessayer' : 'Explorer'} onCta={() => error ? setAttempt((n) => n + 1) : router.replace('/(tabs)/explore')} /></View>;
+
+  if (loading) return <DetailSkeleton />;
+  if (!resource) {
+    return (
+      <View style={styles.container}>
+        <THeader showBack />
+        <EmptyState
+          icon={error ? 'cloud-offline-outline' : 'image-outline'}
+          title={error ? 'Publication inaccessible' : 'Publication introuvable'}
+          description={error
+            ? 'Le chargement a échoué. Vérifiez votre connexion puis réessayez.'
+            : 'Cette publication a été retirée ou ce lien n’est plus valide.'}
+          ctaLabel={error ? 'Réessayer' : 'Explorer les artistes'}
+          onCta={() => error ? setAttempt((n) => n + 1) : router.replace('/(tabs)/explore')}
+        />
+      </View>
+    );
+  }
   return <PostContent key={id} row={resource.post} artist={resource.artist} />;
+}
+
+function ActionButton({ icon, label, onPress, active, count, disabled, children }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void;
+  active?: boolean; count?: number; disabled?: boolean; children?: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: !!active, disabled: !!disabled }}
+      hitSlop={4}
+      style={({ pressed }) => [styles.action, pressed && { opacity: 0.6 }]}
+    >
+      {children ?? <Ionicons name={icon} size={21} color={active ? Colors.accentGlow : Colors.textSecondary} />}
+      {count !== undefined && (
+        <TText variant="bodySmall" weight="medium" color="secondary" tabular>{count.toLocaleString('fr-FR')}</TText>
+      )}
+    </Pressable>
+  );
 }
 
 function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | null }) {
   const id = row.id;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
+  const { wide, artH } = useArtworkFrame();
   const { user } = useAuthStore();
   const [isLiked, setLiked] = useState(false);
   const [isSaved, setSaved] = useState(false);
@@ -73,7 +144,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const [busy, setBusy] = useState(false);
   const [membershipReady, setMembershipReady] = useState(false);
   const post = { id, mediaUrl: row.media_url, caption: row.caption, styles: row.styles ?? [], likes };
-  const status = artist ? STATUS_CONFIG[artist.bookingStatus] : null;
+  const status = artist ? BOOKING_STATUS[artist.bookingStatus] : null;
   useEffect(() => {
     let active = true;
     setMembershipReady(false); setLiked(false); setSaved(false);
@@ -83,9 +154,9 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       supabase.from('saved_posts').select('post_id').eq('post_id', id).eq('user_id', user.id).maybeSingle(),
     ]).then(([like, save]) => {
       if (!active) return;
-      if (like.error || save.error) { Toast.error('Impossible de charger tes favoris.'); return; }
+      if (like.error || save.error) { Toast.error('Impossible de charger vos favoris.'); return; }
       setLiked(!!like.data); setSaved(!!save.data); setMembershipReady(true);
-    }).catch(() => { if (active) Toast.error('Impossible de charger tes favoris.'); });
+    }).catch(() => { if (active) Toast.error('Impossible de charger vos favoris.'); });
     return () => { active = false; };
   }, [id, user?.id]);
 
@@ -118,25 +189,28 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
             : { ...p, isSaved: !current }),
         };
       });
-    } catch { Toast.error('Modification non enregistrée. Réessaie.'); }
+    } catch { Toast.error('Modification non enregistrée. Réessayez.'); }
     finally { setBusy(false); }
   };
+  const pop = (value: typeof heartScale) => {
+    if (!reduced) value.value = withSequence(withSpring(1.15, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
+  };
   const handleLike = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    heartScale.value = withSequence(withSpring(1.5, { damping: 3 }), withSpring(1, { damping: 6 }));
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pop(heartScale);
     void mutate('like');
   };
 
   const handleSave = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    saveScale.value = withSequence(withSpring(1.4, { damping: 4 }), withSpring(1, { damping: 6 }));
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pop(saveScale);
     void mutate('save');
   };
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Découvre ce tatouage sur INKR : ${post.caption ?? ''}${Platform.OS === 'web' ? ` ${window.location.origin}/post/${id}` : ''}`,
+        message: `Découvrez ce tatouage sur INKR : ${post.caption ?? ''}${Platform.OS === 'web' ? ` ${window.location.origin}/post/${id}` : ''}`,
       });
     } catch {}
   };
@@ -145,7 +219,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     if (!user?.id) { router.push('/(auth)/sign-in'); return; }
     Alert.alert(
       'Signaler ce contenu',
-      'Pourquoi tu veux signaler ce post ?',
+      'Pourquoi signalez-vous cette publication ?',
       [
         { text: 'Spam', onPress: () => submitReport('spam') },
         { text: 'Contenu inapproprié', onPress: () => submitReport('inappropriate') },
@@ -167,7 +241,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       if (error) throw error;
       Toast.success('Signalement envoyé. Merci.');
     } catch {
-      Toast.error('Le signalement n’a pas été envoyé. Réessaie.');
+      Toast.error('Le signalement n’a pas été envoyé. Réessayez.');
     }
   };
 
@@ -190,156 +264,160 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     }
   };
 
+  const enter = (delay: number) => (reduced ? undefined : FadeInDown.delay(delay).duration(600).easing(EASE));
+  const isVideo = isVideoMedia(row.media_url, row.media_type);
+  const stylesLabel = post.styles.slice(0, 3).map(styleName).join(' · ');
+  const firstName = artist?.blaze.split(' ')[0] ?? '';
+  const canRequest = artist?.bookingStatus === 'open';
+  const openRequest = () => artist && router.push({ pathname: '/request/new', params: { artistId: artist.id } });
+  const openArtist = () => artist && router.push(`/artist/${artist.id}`);
+
+  const cta = artist ? (
+    canRequest ? (
+      <TButton title={`Demander un projet à ${firstName}`} variant="primary" onPress={openRequest} />
+    ) : (
+      <TButton title={`Voir le profil de ${firstName}`} variant="secondary" onPress={openArtist} />
+    )
+  ) : null;
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Floating header */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="semibold">Post</TText>
-        <TouchableOpacity style={styles.headerBtn} onPress={handleOptions}>
-          <Ionicons name="ellipsis-horizontal" size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </Animated.View>
+    <View style={styles.container}>
+      <THeader
+        showBack
+        rightElement={
+          <Pressable
+            onPress={handleOptions}
+            accessibilityRole="button"
+            accessibilityLabel="Plus d’options"
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color={Colors.textPrimary} />
+          </Pressable>
+        }
+      />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}>
-        {/* Full image */}
-        <Animated.View entering={FadeIn.duration(500)} style={styles.imageWrap}>
-          <Image
-            source={{ uri: post.mediaUrl }}
-            style={[styles.image, { height: SCREEN_W * 1.25 }]}
-            contentFit="cover"
-          />
-          <LinearGradient
-            colors={['rgba(5,5,8,0.5)', 'transparent', 'rgba(5,5,8,0.7)']}
-            locations={[0, 0.3, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-
-        {/* Actions bar */}
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.actionsBar}>
-          {/* Like */}
-          <TouchableOpacity onPress={handleLike} style={styles.actionItem}>
-            <Animated.View style={heartStyle}>
-              <Ionicons
-                name={isLiked ? 'heart' : 'heart-outline'}
-                size={26}
-                color={isLiked ? '#F87171' : Colors.textSecondary}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: wide ? Spacing['3xl'] : insets.bottom + (artist ? 110 : 40) }}
+      >
+        <View style={[styles.frame, wide && styles.frameWide]}>
+          {/* ── The work, matted like a print ── */}
+          <Animated.View
+            entering={reduced ? undefined : FadeIn.duration(500)}
+            style={[styles.art, { height: artH }, wide && styles.artColWide, wide && styles.artWide]}
+          >
+            {isVideo ? (
+              <VideoPlaceholder note="La lecture n’est pas encore disponible sur cette page." />
+            ) : (
+              <Image
+                source={{ uri: post.mediaUrl }}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                transition={reduced ? 0 : 300}
+                accessibilityLabel={post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
               />
-            </Animated.View>
-            <TText variant="caption" color="secondary" style={{ marginLeft: 5 }}>
-              {post.likes}
-            </TText>
-          </TouchableOpacity>
-
-          {/* Save */}
-          <TouchableOpacity onPress={handleSave} style={styles.actionItem}>
-            <Animated.View style={saveStyle}>
-              <Ionicons
-                name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                size={24}
-                color={isSaved ? Colors.accentWarm : Colors.textSecondary}
-              />
-            </Animated.View>
-          </TouchableOpacity>
-
-          {/* Share */}
-          <TouchableOpacity onPress={handleShare} style={styles.actionItem}>
-            <Ionicons name="arrow-redo-outline" size={23} color={Colors.textSecondary} />
-          </TouchableOpacity>
-
-          <View style={{ flex: 1 }} />
-
-          {/* Report */}
-          <TouchableOpacity style={styles.actionItem} onPress={handleReport}>
-            <Ionicons name="flag-outline" size={20} color={Colors.textTertiary} />
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Caption */}
-        {post.caption ? (
-          <Animated.View entering={FadeInDown.delay(150).springify()} style={styles.captionWrap}>
-            <TText variant="body" color="secondary" style={{ lineHeight: 24 }}>{post.caption}</TText>
+            )}
           </Animated.View>
-        ) : null}
 
-        {/* Style tags */}
-        {post.styles.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.tagsRow}>
-            {post.styles.map((s) => (
-              <View key={s} style={styles.styleTag}>
-                <TText variant="micro" color="secondary" uppercase>{s}</TText>
-              </View>
-            ))}
-          </Animated.View>
-        )}
-
-        {/* Artist card */}
-        {artist && (
-          <Animated.View entering={FadeInDown.delay(250).springify()} style={styles.artistSection}>
-            <GlassCard variant="elevated" style={styles.artistCard}>
-              <TouchableOpacity
-                onPress={() => router.push(`/artist/${artist.id}`)}
-                activeOpacity={0.85}
-                style={styles.artistInner}
-              >
-                <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="xl" isPremium={artist.tier === 'premium'} />
-                <View style={styles.artistInfo}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <TText variant="bodySmall" weight="semibold">{artist.blaze}</TText>
-                    {artist.isVerified && (
-                      <Ionicons name="checkmark-circle" size={14} color={Colors.info} />
-                    )}
-                  </View>
-                  <TText variant="caption" color="secondary">{artist.city}</TText>
-                  <View style={styles.artistStatus}>
-                    <View style={[styles.statusDot, { backgroundColor: status!.dot }]} />
-                    <TText variant="micro" color="secondary">{status!.label}</TText>
-                  </View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
-              </TouchableOpacity>
-
-              {/* Styles */}
-              {artist.styles.length > 0 && (
-                <View style={styles.artistStyles}>
-                  {artist.styles.slice(0, 3).map((s) => (
-                    <View key={s} style={styles.artistStyleTag}>
-                      <TText variant="micro" color="secondary" uppercase>{s}</TText>
-                    </View>
-                  ))}
-                </View>
+          {/* ── Wall label ── */}
+          <View style={[styles.side, wide && styles.sideWide]}>
+            <Animated.View entering={enter(80)}>
+              {!!stylesLabel && (
+                <TText variant="label" color="accentWarm" uppercase numberOfLines={1}>{stylesLabel}</TText>
               )}
-            </GlassCard>
-          </Animated.View>
-        )}
+              <TText variant="displayM" accessibilityRole="header" style={styles.title}>
+                {artist ? (
+                  <>Pièce signée <TText variant="displayM" italic color="accentGlow">{artist.blaze}</TText></>
+                ) : 'Réalisation'}
+              </TText>
+            </Animated.View>
+
+            {/* Actions */}
+            <Animated.View entering={enter(140)} style={styles.actions}>
+              <ActionButton
+                icon="heart-outline"
+                label={isLiked ? 'Retirer le j’aime' : 'Aimer cette réalisation'}
+                onPress={handleLike}
+                active={isLiked}
+                count={post.likes}
+              >
+                <Animated.View style={heartStyle}>
+                  <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={21} color={isLiked ? Colors.accentGlow : Colors.textSecondary} />
+                </Animated.View>
+              </ActionButton>
+              <ActionButton
+                icon="bookmark-outline"
+                label={isSaved ? 'Retirer des enregistrements' : 'Enregistrer cette réalisation'}
+                onPress={handleSave}
+                active={isSaved}
+              >
+                <Animated.View style={saveStyle}>
+                  <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={isSaved ? Colors.accentGlow : Colors.textSecondary} />
+                </Animated.View>
+              </ActionButton>
+              <ActionButton icon="arrow-redo-outline" label="Partager" onPress={handleShare} />
+              <View style={{ flex: 1 }} />
+              <ActionButton icon="flag-outline" label="Signaler cette publication" onPress={handleReport}>
+                <Ionicons name="flag-outline" size={18} color={Colors.textTertiary} />
+              </ActionButton>
+            </Animated.View>
+
+            {/* Caption */}
+            {!!post.caption && (
+              <Animated.View entering={enter(200)}>
+                <TText variant="body" color="secondary" style={styles.caption}>{post.caption}</TText>
+              </Animated.View>
+            )}
+
+            {/* Artist */}
+            {artist && status && (
+              <Animated.View entering={enter(260)} style={styles.artistSection}>
+                <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing.sm }}>L’artiste</TText>
+                <Pressable
+                  onPress={openArtist}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Voir le profil de ${artist.blaze}, ${artist.city}, ${status.label}`}
+                  style={({ pressed }) => [styles.artistRow, pressed && { opacity: 0.7 }]}
+                >
+                  <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
+                  <View style={styles.artistInfo}>
+                    <View style={styles.nameRow}>
+                      <TText variant="title1" serif numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
+                      {artist.isVerified && (
+                        <Ionicons name="checkmark-circle" size={15} color={Colors.accentWarm} accessibilityLabel="Profil vérifié" />
+                      )}
+                    </View>
+                    <TText variant="caption" color="secondary" numberOfLines={1}>
+                      {artist.city}{artist.styles.length ? ` · ${artist.styles.slice(0, 2).map(styleName).join(' · ')}` : ''}
+                    </TText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+                </Pressable>
+                <View style={styles.statusRow}>
+                  <View style={[styles.dot, { backgroundColor: status.color }]} />
+                  <TText variant="caption" color="secondary">{status.label}</TText>
+                  {artist.minBudget > 0 && (
+                    <TText variant="caption" tabular style={styles.budget}>
+                      dès {artist.minBudget.toLocaleString('fr-FR')} €
+                    </TText>
+                  )}
+                </View>
+              </Animated.View>
+            )}
+
+            {wide && cta && <View style={{ marginTop: Spacing.lg }}>{cta}</View>}
+          </View>
+        </View>
       </ScrollView>
 
-      {/* Sticky CTA */}
-      {artist && artist.bookingStatus === 'open' && (
+      {/* Sticky CTA on phones and tablets */}
+      {!wide && cta && (
         <Animated.View
-          entering={FadeInDown.delay(300).springify()}
-          style={[styles.stickyBar, { paddingBottom: insets.bottom + 8 }]}
+          entering={reduced ? undefined : FadeInDown.delay(300).duration(500).easing(EASE)}
+          style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}
         >
-          <TButton
-            title={`Demander un tatoo à ${artist.blaze.split(' ')[0]}`}
-            variant="primary"
-            onPress={() => router.push({ pathname: '/request/new', params: { artistId: artist.id } })}
-          />
-        </Animated.View>
-      )}
-      {artist && artist.bookingStatus !== 'open' && (
-        <Animated.View
-          entering={FadeInDown.delay(300).springify()}
-          style={[styles.stickyBar, { paddingBottom: insets.bottom + 8 }]}
-        >
-          <TButton
-            title={`Voir le profil de ${artist.blaze.split(' ')[0]}`}
-            variant="glass"
-            onPress={() => router.push(`/artist/${artist.id}`)}
-          />
+          <View style={styles.stickyInner}>{cta}</View>
         </Animated.View>
       )}
     </View>
@@ -348,45 +426,55 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing['2xs'], height: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+
+  headerBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  imageWrap: { overflow: 'hidden' },
-  image: { width: SCREEN_W, backgroundColor: Colors.bgSurface },
-  actionsBar: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  frameWide: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'],
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
   },
-  actionItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6 },
-  captionWrap: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
-  styleTag: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.full,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderSubtle,
+
+  art: { width: '100%', overflow: 'hidden', backgroundColor: Colors.bgInk },
+  artColWide: { flex: 1, width: undefined },
+  artWide: { borderRadius: Radius.xl, backgroundColor: Colors.bgElevated },
+
+  side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg },
+  sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
+
+  title: { marginTop: 8 },
+
+  actions: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'],
+    marginTop: Spacing.lg, paddingVertical: 4,
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
   },
-  artistSection: { paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm },
-  artistCard: { padding: Spacing.sm },
-  artistInner: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  action: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 44, height: 44, paddingHorizontal: 6 },
+
+  caption: { marginTop: Spacing.lg, maxWidth: Layout.maxReading },
+
+  artistSection: {
+    marginTop: Spacing.xl, paddingTop: Spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+  },
+  artistRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   artistInfo: { flex: 1, gap: 2 },
-  artistStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  artistStyles: { flexDirection: 'row', gap: 6, marginTop: Spacing.xs, paddingTop: Spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle },
-  artistStyleTag: {
-    backgroundColor: Colors.bgSubtle,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8, paddingVertical: 4,
-  },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  artistName: { fontSize: 24, lineHeight: 28, flexShrink: 1 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: Spacing.sm },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  budget: { marginLeft: 'auto', color: Colors.accentGlow },
+
   stickyBar: {
-    paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
-    backgroundColor: 'rgba(5,5,8,0.95)',
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle,
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingHorizontal: Layout.gutter, paddingTop: 12,
+    backgroundColor: 'rgba(11,10,9,0.96)',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
+  stickyInner: { width: '100%', maxWidth: Layout.maxReading, alignSelf: 'center' },
 });

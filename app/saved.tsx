@@ -1,196 +1,237 @@
-import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, FlatList, Dimensions } from 'react-native';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, StyleSheet, Pressable, FlatList, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
+import { THeader } from '@/components/ui/THeader';
+import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { useAppStore } from '@/store/app-store';
-import { useFeedStore } from '@/store/feed-store';
-import { POSTS, ARTISTS } from '@/constants/mock-data';
+import { BOOKING_STATUS } from '@/components/ArtistCard';
+import { VideoPlaceholder, isVideoMedia } from '@/components/PostCard';
+import { useFeedStore, type FeedPost } from '@/store/feed-store';
+import { useAuthStore } from '@/store/auth-store';
+import { useSavedArtistsStore } from '@/store/saved-artists-store';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const CELL = (SCREEN_W - Spacing.sm * 2 - 2) / 3;
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+const GAP = Spacing.xs;
 
 type Tab = 'saved' | 'liked';
+
+const TABS: { value: Tab; label: string }[] = [
+  { value: 'saved', label: 'Enregistrées' },
+  { value: 'liked', label: 'Aimées' },
+];
+
+type SavedArtist = { id: string; blaze: string; avatarUrl: string | null; bookingStatus: FeedPost['artistBookingStatus'] };
+
+function WorkTile({ post, width, index }: { post: FeedPost; width: number; index: number }) {
+  const router = useRouter();
+  const reduced = useReducedMotion();
+  const isVideo = isVideoMedia(post.mediaUrl);
+  return (
+    <Animated.View
+      entering={reduced || index > 11 ? undefined : FadeIn.delay(index * 40).duration(400)}
+      style={{ width }}
+    >
+      <Pressable
+        onPress={() => router.push(`/post/${post.id}`)}
+        accessibilityRole="link"
+        accessibilityLabel={`Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`}
+        style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+      >
+        <View style={[styles.tile, { height: Math.round(width * 1.25) }]}>
+          {isVideo ? (
+            <VideoPlaceholder compact />
+          ) : (
+            <Image source={{ uri: post.mediaUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={reduced ? 0 : 250} />
+          )}
+        </View>
+        <TText variant="caption" weight="medium" numberOfLines={1} style={styles.tileName}>{post.artistName}</TText>
+        {!!post.artistCity && <TText variant="caption" color="tertiary" numberOfLines={1}>{post.artistCity}</TText>}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function GridSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
+  return (
+    <View style={styles.gridRow}>
+      {Array.from({ length: cols * 2 }).map((_, i) => (
+        <View key={i} style={{ width: cellW, marginBottom: Spacing.lg }}>
+          <TSkeleton height={Math.round(cellW * 1.25)} radius={Radius.md} />
+          <TSkeleton width="55%" height={11} style={{ marginTop: 10 }} />
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function SavedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
+  const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ tab?: string }>();
 
   const [activeTab, setActiveTab] = useState<Tab>(
     params.tab === 'liked' ? 'liked' : 'saved'
   );
 
-  // App store — mock posts / saved artists
-  const { savedPostIds, savedArtistIds } = useAppStore();
-  // Feed store — real saved posts
-  const { savedPostIds: feedSavedIds, posts: feedPosts } = useFeedStore();
+  const { user } = useAuthStore();
+  // Feed store — real saved / liked memberships for the loaded publications.
+  const { savedPostIds, likedPostIds, posts: feedPosts, isLoading: feedLoading } = useFeedStore();
+  // Saved artists — real memberships from Supabase.
+  const { savedArtistIds, fetchSaved } = useSavedArtistsStore();
+  useEffect(() => { void fetchSaved(user?.id); }, [fetchSaved, user?.id]);
 
-  const savedPosts = useMemo(() => {
-    // Combine mock + real saved
-    const mockSaved = POSTS.filter((p) => savedPostIds.has(p.id));
-    const feedSaved = feedPosts.filter((p) => feedSavedIds.has(p.id));
-    // Merge deduplicated by id
-    const ids = new Set<string>();
-    return [...feedSaved.map(p => ({
-      id: p.id,
-      mediaUrl: p.mediaUrl,
-      artistName: p.artistName,
-      artistAvatarUrl: p.artistAvatarUrl ?? '',
-      likes: p.likesCount,
-    })), ...mockSaved.map(p => ({
-      id: p.id,
-      mediaUrl: p.mediaUrl,
-      artistName: p.artist.blaze,
-      artistAvatarUrl: p.artist.avatarUrl,
-      likes: p.likes,
-    }))].filter((p) => {
-      if (ids.has(p.id)) return false;
-      ids.add(p.id);
-      return true;
-    });
-  }, [savedPostIds, feedSavedIds, feedPosts]);
+  const savedPosts = useMemo(() => feedPosts.filter((p) => savedPostIds.has(p.id)), [feedPosts, savedPostIds]);
+  const likedPosts = useMemo(() => feedPosts.filter((p) => likedPostIds.has(p.id)), [feedPosts, likedPostIds]);
 
-  const likedPosts = useMemo(() => {
-    return POSTS.filter((p) => p.isLiked).map(p => ({
-      id: p.id,
-      mediaUrl: p.mediaUrl,
-      artistName: p.artist.blaze,
-      artistAvatarUrl: p.artist.avatarUrl,
-      likes: p.likes,
-    }));
-  }, []);
-
-  const savedArtists = useMemo(
-    () => ARTISTS.filter((a) => savedArtistIds.has(a.id)),
-    [savedArtistIds]
-  );
+  // Artist details come from the loaded feed; saved artists without a loaded post are not listed here.
+  const savedArtists = useMemo<SavedArtist[]>(() => {
+    const byId = new Map<string, SavedArtist>();
+    for (const p of feedPosts) {
+      if (savedArtistIds.has(p.artistId) && !byId.has(p.artistId)) {
+        byId.set(p.artistId, { id: p.artistId, blaze: p.artistName, avatarUrl: p.artistAvatarUrl, bookingStatus: p.artistBookingStatus });
+      }
+    }
+    return [...byId.values()];
+  }, [feedPosts, savedArtistIds]);
 
   const activePosts = activeTab === 'saved' ? savedPosts : likedPosts;
 
-  const renderPost = ({ item, index }: { item: typeof activePosts[0]; index: number }) => (
-    <Animated.View entering={FadeIn.delay(index * 30).duration(300)}>
-      <TouchableOpacity
-        onPress={() => router.push(`/post/${item.id}`)}
-        activeOpacity={0.85}
-        style={styles.cell}
-      >
-        <Image source={{ uri: item.mediaUrl }} style={styles.cellImg} contentFit="cover" />
-        <LinearGradient
-          colors={['transparent', 'rgba(3,3,5,0.6)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.cellMeta}>
-          <TText variant="micro" style={{ color: 'rgba(255,255,255,0.7)' }} numberOfLines={1}>
-            {item.artistName}
-          </TText>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
+  // ── Responsive grid
+  const innerW = Math.min(width, Layout.maxContent) - Layout.gutter * 2;
+  const cols = innerW >= 1000 ? 5 : innerW >= 760 ? 4 : innerW >= 520 ? 3 : 2;
+  const cellW = Math.floor((innerW - GAP * (cols - 1)) / cols);
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="semibold">Mes tatouages</TText>
-        <View style={{ width: 40 }} />
+  const selectTab = useCallback((tab: Tab) => {
+    if (tab === activeTab) return;
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setActiveTab(tab);
+  }, [activeTab]);
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <THeader showBack />
+        <EmptyState
+          icon="bookmark-outline"
+          title="Retrouvez vos favoris"
+          description="Connectez-vous pour enregistrer des réalisations et suivre vos artistes."
+          ctaLabel="Se connecter"
+          onCta={() => router.push('/(auth)/sign-in')}
+        />
+      </View>
+    );
+  }
+
+  const header = (
+    <View>
+      <Animated.View entering={reduced ? undefined : FadeInDown.duration(600).easing(EASE)} style={styles.masthead}>
+        <TText variant="displayM" accessibilityRole="header">
+          Vos <TText variant="displayM" italic color="accentGlow">favoris</TText>
+        </TText>
+        <TText variant="bodySmall" color="tertiary" style={{ marginTop: 4 }}>
+          Les pièces et les artistes que vous gardez sous la main.
+        </TText>
       </Animated.View>
 
       {/* Tabs */}
-      <Animated.View entering={FadeInDown.delay(80).springify()} style={styles.tabs}>
-        {(['saved', 'liked'] as Tab[]).map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveTab(tab); }}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-          >
-            <Ionicons
-              name={tab === 'saved' ? 'bookmark' : 'heart'}
-              size={15}
-              color={activeTab === tab ? Colors.accentWarm : Colors.textTertiary}
-            />
-            <TText
-              variant="bodySmall"
-              weight={activeTab === tab ? 'semibold' : 'regular'}
-              style={{ color: activeTab === tab ? Colors.accentWarm : Colors.textTertiary, marginLeft: 6 }}
+      <View style={styles.tabs} accessibilityRole="tablist">
+        {TABS.map((t) => {
+          const selected = activeTab === t.value;
+          const count = t.value === 'saved' ? savedPosts.length : likedPosts.length;
+          return (
+            <Pressable
+              key={t.value}
+              onPress={() => selectTab(t.value)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`${t.label}, ${count}`}
+              style={[styles.tab, selected && styles.tabActive]}
             >
-              {tab === 'saved' ? 'Sauvegardés' : 'Aimés'}
-            </TText>
-            <View style={[styles.tabBadge, activeTab === tab && styles.tabBadgeActive]}>
-              <TText variant="micro" style={{ color: activeTab === tab ? Colors.bgPrimary : Colors.textTertiary, fontSize: 10 }}>
-                {tab === 'saved' ? savedPosts.length : likedPosts.length}
+              <TText variant="bodySmall" weight={selected ? 'semibold' : 'medium'} color={selected ? 'primary' : 'tertiary'}>
+                {t.label}
               </TText>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </Animated.View>
+              <TText variant="caption" tabular color={selected ? 'accentWarm' : 'tertiary'}>{count}</TText>
+            </Pressable>
+          );
+        })}
+      </View>
 
-      {/* Saved Artists (only on saved tab) */}
+      {/* Saved artists */}
       {activeTab === 'saved' && savedArtists.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(140).springify()} style={styles.artistsSection}>
-          <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
-            Artistes sauvegardés · {savedArtists.length}
-          </TText>
-          <FlatList
-            horizontal
-            data={savedArtists}
-            keyExtractor={(a) => a.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: Spacing.sm, gap: Spacing.xs }}
-            renderItem={({ item: artist }) => (
-              <TouchableOpacity
-                onPress={() => router.push(`/artist/${artist.id}`)}
-                activeOpacity={0.85}
-                style={styles.artistPill}
-              >
-                <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" isPremium={artist.tier === 'premium'} />
-                <TText variant="micro" color="secondary" style={{ marginTop: 5 }} numberOfLines={1}>
-                  {artist.blaze}
-                </TText>
-                <View style={[styles.artistStatusDot, {
-                  backgroundColor: artist.bookingStatus === 'open' ? Colors.successLight : Colors.textTertiary,
-                }]} />
-              </TouchableOpacity>
-            )}
-          />
-        </Animated.View>
+        <View style={styles.artistsSection}>
+          <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Artistes enregistrés</TText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.rail}>
+            {savedArtists.map((artist) => {
+              const status = BOOKING_STATUS[artist.bookingStatus] ?? BOOKING_STATUS.closed;
+              return (
+                <Pressable
+                  key={artist.id}
+                  onPress={() => router.push(`/artist/${artist.id}`)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`${artist.blaze}, ${status.label}`}
+                  style={({ pressed }) => [styles.artistChip, pressed && { opacity: 0.7 }]}
+                >
+                  <View style={styles.avatarRing}>
+                    <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
+                  </View>
+                  <TText variant="caption" weight="medium" numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
+                  <View style={styles.statusRow}>
+                    <View style={[styles.dot, { backgroundColor: status.color }]} />
+                    <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
 
-      {/* Posts grid */}
-      <TText variant="label" color="tertiary" uppercase style={[styles.sectionLabel, { paddingHorizontal: Spacing.sm }]}>
-        {activeTab === 'saved' ? 'Posts sauvegardés' : 'Posts aimés'} · {activePosts.length}
-      </TText>
+      {activePosts.length > 0 && (
+        <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
+          {activeTab === 'saved' ? 'Réalisations enregistrées' : 'Réalisations aimées'}
+        </TText>
+      )}
+    </View>
+  );
 
+  return (
+    <View style={styles.container}>
+      <THeader showBack />
       <FlatList
+        key={`${activeTab}-${cols}`}
         data={activePosts}
         keyExtractor={(p) => p.id}
-        renderItem={renderPost}
-        numColumns={3}
-        contentContainerStyle={{ paddingHorizontal: Spacing.sm, paddingBottom: insets.bottom + 90, gap: 2 }}
-        columnWrapperStyle={{ gap: 2 }}
+        renderItem={({ item, index }) => <WorkTile post={item} width={cellW} index={index} />}
+        numColumns={cols}
+        columnWrapperStyle={styles.columnWrapper}
+        style={styles.list}
+        contentContainerStyle={[styles.frame, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={header}
         ListEmptyComponent={
-          <EmptyState
-            icon={activeTab === 'saved' ? 'bookmark-outline' : 'heart-outline'}
-            title={activeTab === 'saved' ? 'Aucun post sauvegardé' : 'Aucun post aimé'}
-            description={activeTab === 'saved'
-              ? 'Sauvegarde des posts depuis le feed pour les retrouver ici.'
-              : 'Like des posts depuis le feed ou les profils artistes.'}
-            style={{ marginTop: 40 }}
-          />
+          feedLoading && feedPosts.length === 0 ? (
+            <GridSkeleton cols={cols} cellW={cellW} />
+          ) : (
+            <EmptyState
+              icon={activeTab === 'saved' ? 'bookmark-outline' : 'heart-outline'}
+              title={activeTab === 'saved' ? 'Aucune réalisation enregistrée' : 'Aucune réalisation aimée'}
+              description={activeTab === 'saved'
+                ? 'Touchez le signet sur la page d’une réalisation pour la retrouver ici.'
+                : 'Les pièces que vous aimez dans le fil apparaîtront ici.'}
+              ctaLabel="Parcourir le fil"
+              onCta={() => router.push('/(tabs)')}
+              style={styles.empty}
+            />
+          )
         }
       />
     </View>
@@ -199,64 +240,42 @@ export default function SavedScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  list: { flex: 1 },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs,
-  },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  masthead: { paddingTop: Spacing.md, paddingBottom: Spacing.lg },
 
   tabs: {
-    flexDirection: 'row',
-    marginHorizontal: Spacing.sm,
-    marginBottom: Spacing.sm,
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    padding: 4,
-    gap: 4,
+    flexDirection: 'row', gap: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+    marginBottom: Spacing.lg,
   },
   tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: Radius.md,
-    gap: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    height: 44, marginBottom: -StyleSheet.hairlineWidth,
+    borderBottomWidth: 2, borderBottomColor: 'transparent',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  tabActive: {
-    backgroundColor: Colors.bgElevated,
-    borderWidth: 1,
-    borderColor: 'rgba(212,168,100,0.2)',
-  },
-  tabBadge: {
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: Colors.bgElevated,
-    alignItems: 'center', justifyContent: 'center',
-    marginLeft: 2,
-  },
-  tabBadgeActive: { backgroundColor: Colors.accentWarm },
+  tabActive: { borderBottomColor: Colors.accentWarm },
 
-  sectionLabel: { letterSpacing: 1.5, marginBottom: Spacing['2xs'], marginTop: Spacing['2xs'] },
+  sectionLabel: { marginBottom: Spacing.sm },
 
-  artistsSection: { marginBottom: Spacing.xs },
-  artistPill: { width: 68, alignItems: 'center' },
-  artistStatusDot: {
-    position: 'absolute', bottom: 28, right: 4,
-    width: 9, height: 9, borderRadius: 4.5,
-    borderWidth: 1.5, borderColor: Colors.bgPrimary,
+  artistsSection: { marginBottom: Spacing.xl },
+  railScroller: { marginHorizontal: -Layout.gutter },
+  rail: { gap: Spacing.xs, paddingHorizontal: Layout.gutter },
+  artistChip: { width: 76, alignItems: 'center' },
+  avatarRing: {
+    padding: 3, borderRadius: 30,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
+  artistName: { marginTop: 8, maxWidth: 72, textAlign: 'center' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 
-  cell: {
-    width: CELL, height: CELL,
-    backgroundColor: Colors.bgSurface,
-    overflow: 'hidden',
-    borderRadius: 2,
-  },
-  cellImg: { ...StyleSheet.absoluteFillObject },
-  cellMeta: {
-    position: 'absolute', bottom: 4, left: 4, right: 4,
-  },
+  columnWrapper: { gap: GAP, marginBottom: Spacing.lg },
+  gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
+  tile: { width: '100%', borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.bgSurface },
+  tileName: { marginTop: 10 },
+
+  empty: { paddingTop: Spacing['2xl'] },
 });

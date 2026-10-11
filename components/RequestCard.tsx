@@ -1,197 +1,218 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, TouchableOpacity, type TouchableOpacityProps } from 'react-native';
+import { View, StyleSheet, Pressable, Platform, type PressableProps } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { format, isSameYear, isToday, isValid, parseISO } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
-import { TBadge } from './ui/TBadge';
-import type { TattooRequest } from '@/constants/mock-data';
-import { STATUS_LABELS, PROJECT_TYPE_LABELS, SIZE_LABELS } from '@/constants/mock-data';
+import type { TattooRequest, RequestStatus } from '@/store/request-store';
+import { PROJECT_TYPE_LABELS } from '@/constants/mock-data';
+
+// ─── Shared request vocabulary (used by inbox, request detail, conversation) ──
+
+export type RequestViewer = 'artist' | 'client';
+
+/** Status display: 6px dot + label. Waiting = warning, open/positive = success. */
+export const REQUEST_STATUS: Record<RequestStatus, { label: string; artistLabel?: string; color: string }> = {
+  submitted:            { label: 'En attente de réponse', artistLabel: 'Nouvelle demande', color: Colors.warning },
+  clarification_needed: { label: 'Précision demandée', color: Colors.warning },
+  accepted:             { label: 'Acceptée', color: Colors.success },
+  confirmed:            { label: 'Rendez-vous confirmé', color: Colors.success },
+  declined:             { label: 'Refusée', color: Colors.error },
+  completed:            { label: 'Terminée', color: Colors.textSecondary },
+  archived:             { label: 'Archivée', color: Colors.textTertiary },
+};
+
+export const requestStatusLabel = (status: RequestStatus, viewAs: RequestViewer) => {
+  const s = REQUEST_STATUS[status] ?? REQUEST_STATUS.archived;
+  return viewAs === 'artist' && s.artistLabel ? s.artistLabel : s.label;
+};
+
+export const SIZE_RANGE: Record<TattooRequest['sizeCategory'], string> = {
+  xs: 'moins de 3 cm',
+  s:  '3 à 7 cm',
+  m:  '7 à 15 cm',
+  l:  '15 à 25 cm',
+  xl: '25 cm et plus',
+};
+
+export const COLOR_LABEL: Record<TattooRequest['colorPreference'], string> = {
+  black_grey:    'Noir et gris',
+  color:         'Couleur',
+  artist_choice: 'Au choix de l’artiste',
+};
+
+export const FLEX_LABEL: Record<TattooRequest['flexibilityLevel'], string> = {
+  precise:    'Projet précis',
+  open:       'Ouvert aux suggestions',
+  full_trust: 'Carte blanche à l’artiste',
+};
+
+export const projectTypeLabel = (type: string) => PROJECT_TYPE_LABELS[type] ?? type;
+
+const euros = (n: number) => n.toLocaleString('fr-FR');
+
+export function formatBudget(r: Pick<TattooRequest, 'budgetMin' | 'budgetMax' | 'budgetUnknown'>): string {
+  if (r.budgetUnknown) return 'À définir';
+  const { budgetMin: min, budgetMax: max } = r;
+  if (min == null && max == null) return 'Non précisé';
+  if (min != null && max != null) return min === max ? `${euros(min)} €` : `${euros(min)} – ${euros(max)} €`;
+  return min != null ? `dès ${euros(min)} €` : `jusqu’à ${euros(max as number)} €`;
+}
+
+/** Compact list date: time today, "12 oct." this year, "12/10/24" otherwise. */
+export function formatListDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = parseISO(iso);
+  if (!isValid(d)) return '';
+  if (isToday(d)) return format(d, 'HH:mm', { locale: fr });
+  if (isSameYear(d, new Date())) return format(d, 'd MMM', { locale: fr });
+  return format(d, 'dd/MM/yy', { locale: fr });
+}
+
+export function RequestStatusLine({ status, viewAs, strong }: { status: RequestStatus; viewAs: RequestViewer; strong?: boolean }) {
+  const s = REQUEST_STATUS[status] ?? REQUEST_STATUS.archived;
+  return (
+    <View style={styles.statusLine}>
+      <View style={[styles.statusDot, { backgroundColor: s.color }]} />
+      <TText variant="caption" weight={strong ? 'medium' : 'regular'} color={strong ? 'primary' : 'secondary'}>
+        {requestStatusLabel(status, viewAs)}
+      </TText>
+    </View>
+  );
+}
+
+// ─── Card: one editorial row in the inbox ─────────────────────────────────────
 
 interface RequestCardProps {
   request: TattooRequest;
-  viewAs: 'artist' | 'client';
-  onPressIn?: TouchableOpacityProps['onPressIn'];
-  onPressOut?: TouchableOpacityProps['onPressOut'];
+  viewAs: RequestViewer;
+  onPressIn?: PressableProps['onPressIn'];
+  onPressOut?: PressableProps['onPressOut'];
 }
-
-const STATUS_CONFIG: Record<TattooRequest['status'], {
-  variant: 'default' | 'success' | 'warning' | 'error' | 'info' | 'accent';
-  dot: string;
-  bg: string;
-}> = {
-  submitted:             { variant: 'accent',   dot: '#60A5FA', bg: 'rgba(96,165,250,0.06)' },
-  accepted:              { variant: 'success',  dot: '#34D399', bg: 'rgba(52,211,153,0.06)' },
-  declined:              { variant: 'error',    dot: '#F87171', bg: 'rgba(248,113,113,0.05)' },
-  clarification_needed:  { variant: 'warning',  dot: '#FBBF24', bg: 'rgba(251,191,36,0.05)'  },
-  completed:             { variant: 'info',     dot: '#818CF8', bg: 'rgba(129,140,248,0.05)' },
-  archived:              { variant: 'default',  dot: Colors.textTertiary, bg: 'transparent'  },
-};
-
-const PROJECT_ICONS: Record<string, string> = {
-  new:       'add-circle-outline',
-  cover_up:  'color-wand-outline',
-  touch_up:  'brush-outline',
-  extension: 'expand-outline',
-};
 
 export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestCardProps) {
   const router = useRouter();
-  const config = STATUS_CONFIG[request.status];
-  const isNew = request.status === 'submitted' && viewAs === 'artist';
-
+  const reduced = useReducedMotion();
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const handlePress = useCallback(() => {
-    scale.value = withSpring(0.97, { damping: 12 }, () => { scale.value = withSpring(1); });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const needsAction = viewAs === 'artist' && request.status === 'submitted';
+  const name = (viewAs === 'artist' ? request.clientName : request.artistName) ?? '';
+  const avatar = viewAs === 'artist' ? request.clientAvatarUrl : request.artistAvatarUrl;
+  const place = viewAs === 'client' ? request.artistCity : undefined;
+  const summary = [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase()]
+    .filter(Boolean).join(' · ');
+  const date = formatListDate(request.submittedAt);
+  const budget = formatBudget(request);
+  const statusLabel = requestStatusLabel(request.status, viewAs);
+
+  const open = useCallback(() => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(`/request/${request.id}`);
-  }, [request.id]);
+  }, [request.id, router]);
 
   return (
-    <Animated.View entering={FadeIn.duration(350)} style={animStyle}>
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={handlePress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        style={[styles.container, { backgroundColor: config.bg || Colors.bgElevated }, isNew && styles.containerNew]}
+    <Animated.View style={animStyle}>
+      <Pressable
+        onPress={open}
+        onPressIn={(e) => {
+          if (!reduced) scale.value = withSpring(0.985, SpringConfig.snappy);
+          onPressIn?.(e);
+        }}
+        onPressOut={(e) => {
+          scale.value = withSpring(1, SpringConfig.gentle);
+          onPressOut?.(e);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}, ${summary}, ${statusLabel}${date ? `, envoyée le ${date}` : ''}`}
+        accessibilityHint="Ouvre le détail de la demande"
+        style={(state) => {
+          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+          return [styles.row, (pressed || hovered) && styles.rowActive];
+        }}
       >
-        {/* New request accent line */}
-        {isNew && <View style={styles.newBar} />}
+        <TAvatar uri={avatar} name={name} size="lg" />
 
-        {/* Top row */}
-        <View style={styles.topRow}>
-          <TAvatar uri={request.clientAvatar} name={request.clientName} size="lg" />
-
-          <View style={styles.body}>
-            <View style={styles.nameRow}>
-              <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={{ flex: 1 }}>
-                {request.clientName}
+        <View style={styles.body}>
+          <View style={styles.titleRow}>
+            <TText variant="title2" serif numberOfLines={1} style={styles.name}>
+              {name}
+            </TText>
+            {!!date && (
+              <TText variant="caption" color="tertiary" tabular>
+                {date}
               </TText>
-              <TText variant="caption" color="tertiary">
-                {new Date(request.submittedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-              </TText>
-            </View>
-
-            {/* Project type + zone */}
-            <View style={styles.detailRow}>
-              <Ionicons
-                name={(PROJECT_ICONS[request.projectType] ?? 'add-circle-outline') as any}
-                size={12}
-                color={Colors.textTertiary}
-              />
-              <TText variant="caption" color="secondary" numberOfLines={1}>
-                {PROJECT_TYPE_LABELS[request.projectType]} · {request.bodyZone}
-              </TText>
-            </View>
-
-            {/* Budget + size */}
-            <View style={styles.detailRow}>
-              <Ionicons name="cash-outline" size={12} color={Colors.textTertiary} />
-              <TText variant="caption" color="secondary">
-                {request.budgetMin}–{request.budgetMax}€
-              </TText>
-              <TText variant="caption" color="tertiary"> · </TText>
-              <TText variant="caption" color="secondary">
-                {SIZE_LABELS[request.sizeCategory]?.split('·')[0]?.trim()}
-              </TText>
-            </View>
+            )}
           </View>
-        </View>
 
-        {/* Description */}
-        {request.description ? (
-          <TText
-            variant="caption"
-            color="tertiary"
-            numberOfLines={2}
-            style={styles.description}
-          >
-            {request.description}
+          <TText variant="caption" color="secondary" numberOfLines={1}>
+            {summary}{place ? ` · ${place}` : ''}
           </TText>
-        ) : null}
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: config.dot }]} />
-            <TBadge label={STATUS_LABELS[request.status]} variant={config.variant} />
-          </View>
-          {isNew && (
-            <View style={styles.newPill}>
-              <TText variant="micro" style={{ color: Colors.accent }}>Nouvelle →</TText>
+          {!!request.description && (
+            <TText variant="bodySmall" color="tertiary" numberOfLines={2} style={styles.description}>
+              {request.description}
+            </TText>
+          )}
+
+          <View style={styles.footer}>
+            <RequestStatusLine status={request.status} viewAs={viewAs} strong={needsAction} />
+            <View style={styles.footerRight}>
+              <TText variant="caption" color="secondary" tabular>{budget}</TText>
+              {request.status === 'accepted' && viewAs === 'client' && (
+                <Pressable
+                  onPress={() => router.push(`/conversation/${request.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Écrire à ${name}`}
+                  hitSlop={10}
+                  style={({ pressed }) => [styles.messageLink, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="chatbubble-outline" size={13} color={Colors.accentWarm} />
+                  <TText variant="caption" weight="medium" color="accentWarm">Écrire</TText>
+                </Pressable>
+              )}
             </View>
-          )}
-          {request.status === 'accepted' && viewAs === 'client' && (
-            <TouchableOpacity
-              onPress={() => router.push(`/conversation/${request.id}`)}
-              style={styles.messageBtn}
-            >
-              <Ionicons name="chatbubble-outline" size={14} color={Colors.accentWarm} />
-              <TText variant="micro" style={{ color: Colors.accentWarm, marginLeft: 4 }}>Message</TText>
-            </TouchableOpacity>
-          )}
+          </View>
         </View>
-      </TouchableOpacity>
+      </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    borderRadius: Radius.lg,
-    padding: Spacing.sm,
-    marginBottom: Spacing['2xs'],
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    overflow: 'hidden',
-    gap: Spacing['2xs'],
-  },
-  containerNew: {
-    borderColor: 'rgba(96,165,250,0.25)',
-    ...GlowShadow.white,
-  },
-  newBar: {
-    position: 'absolute', left: 0, top: 0, bottom: 0,
-    width: 3,
-    backgroundColor: '#60A5FA',
-    borderTopLeftRadius: Radius.lg,
-    borderBottomLeftRadius: Radius.lg,
-  },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xs'] },
-  body: { flex: 1, gap: 4 },
-  nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  description: {
-    paddingTop: Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-  },
-  footer: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-  },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  newPill: {
-    paddingHorizontal: 8, paddingVertical: 3,
-    backgroundColor: 'rgba(96,165,250,0.10)',
-    borderRadius: Radius.full,
-    borderWidth: 1, borderColor: 'rgba(96,165,250,0.20)',
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing['2xs'],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderDefault,
+    borderRadius: Radius.sm,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer', transitionDuration: '160ms' } as object : null),
   },
-  messageBtn: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 10, paddingVertical: 5,
-    backgroundColor: 'rgba(200,168,130,0.08)',
-    borderRadius: Radius.full,
-    borderWidth: 1, borderColor: 'rgba(200,168,130,0.20)',
+  rowActive: { backgroundColor: Colors.glassBg },
+
+  body: { flex: 1, gap: 3, minWidth: 0 },
+  titleRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.xs },
+  name: { flex: 1, fontSize: 21, lineHeight: 26 },
+  description: { marginTop: 4 },
+
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+    marginTop: Spacing['2xs'],
   },
+  footerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  messageLink: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 28 },
 });

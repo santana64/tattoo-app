@@ -1,517 +1,314 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
-  FlatList, StyleSheet, View, TouchableOpacity,
-  ScrollView, RefreshControl,
+  FlatList, StyleSheet, View, Pressable, ScrollView, RefreshControl, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeIn, FadeInDown, FadeInRight,
-  useSharedValue, useAnimatedStyle, withSpring, withTiming,
-  interpolate, Extrapolation,
-} from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { RequestCard } from '@/components/RequestCard';
+import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { useRequestStore } from '@/store/request-store';
+import { RequestCard, REQUEST_STATUS } from '@/components/RequestCard';
+import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import type { TattooRequest } from '@/constants/mock-data';
 
-// ─── Filter definitions ────────────────────────────────────────────────────────
-type FilterValue = TattooRequest['status'] | 'all';
+const LIST_MAX = 760;
+const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
-const STATUS_FILTERS: {
-  label: string;
-  value: FilterValue;
-  color?: string;
-  icon?: string;
-}[] = [
-  { label: 'Tous',      value: 'all',       icon: 'apps-outline' },
-  { label: 'Nouveau',   value: 'submitted', color: '#60A5FA', icon: 'flash-outline' },
-  { label: 'Accepté',   value: 'accepted',  color: '#34D399', icon: 'checkmark-circle-outline' },
-  { label: 'À préciser', value: 'clarification_needed', color: Colors.accentWarm, icon: 'time-outline' },
-  { label: 'Archivé',   value: 'archived',  color: Colors.textTertiary, icon: 'archive-outline' },
+// ─── Filters ──────────────────────────────────────────────────────────────────
+type FilterValue = RequestStatus | 'all';
+
+const STATUS_FILTERS: { value: FilterValue; artistLabel: string; clientLabel: string }[] = [
+  { value: 'all',                  artistLabel: 'Toutes',     clientLabel: 'Toutes' },
+  { value: 'submitted',            artistLabel: 'Nouvelles',  clientLabel: 'En attente' },
+  { value: 'accepted',             artistLabel: 'Acceptées',  clientLabel: 'Acceptées' },
+  { value: 'clarification_needed', artistLabel: 'À préciser', clientLabel: 'À préciser' },
+  { value: 'archived',             artistLabel: 'Archivées',  clientLabel: 'Archivées' },
 ];
 
-// ─── Artist summary banner ────────────────────────────────────────────────────
-function ArtistSummaryBanner({
-  newCount,
-  totalCount,
-}: {
-  newCount: number;
-  totalCount: number;
+function FilterChip({ label, active, dot, count, onPress }: {
+  label: string; active: boolean; dot?: string; count?: number; onPress: () => void;
 }) {
   return (
-    <Animated.View entering={FadeInDown.delay(80).springify()} style={styles.bannerWrap}>
-      <GlassCard variant="glow" style={styles.banner}>
-        <LinearGradient
-          colors={['rgba(212,168,100,0.10)', 'transparent']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <View style={styles.bannerLeft}>
-          <TText
-            variant="displayM"
-            weight="black"
-            style={styles.bannerNum}
-          >
-            {newCount}
-          </TText>
-          <TText variant="caption" color="secondary">
-            nouvelle{newCount !== 1 ? 's' : ''} demande{newCount !== 1 ? 's' : ''}
-          </TText>
-        </View>
-        <View style={styles.bannerDivider} />
-        <View style={styles.bannerRight}>
-          <TText variant="title2" weight="bold">{totalCount}</TText>
-          <TText variant="caption" color="tertiary">au total</TText>
-        </View>
-      </GlassCard>
-    </Animated.View>
-  );
-}
-
-// ─── Filter pill with animated active state ───────────────────────────────────
-function FilterPill({
-  label,
-  value,
-  active,
-  color,
-  icon,
-  count,
-  onPress,
-}: {
-  label: string;
-  value: FilterValue;
-  active: boolean;
-  color?: string;
-  icon?: string;
-  count?: number;
-  onPress: () => void;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  const handlePress = () => {
-    scale.value = withSpring(0.88, { damping: 8 }, () => {
-      scale.value = withSpring(1, { damping: 12 });
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onPress();
-  };
-
-  const activeColor = color ?? Colors.accentWarm;
-
-  return (
-    <Animated.View style={animStyle}>
-      <TouchableOpacity
-        onPress={handlePress}
-        activeOpacity={1}
-        style={[
-          styles.filterPill,
-          active && [
-            styles.filterPillActive,
-            { borderColor: `${activeColor}55` },
-          ],
-        ]}
-      >
-        {active && (
-          <LinearGradient
-            colors={[`${activeColor}18`, `${activeColor}06`]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-          />
-        )}
-        {icon && (
-          <Ionicons
-            name={icon as any}
-            size={13}
-            color={active ? activeColor : Colors.textTertiary}
-          />
-        )}
-        <TText
-          variant="caption"
-          weight={active ? 'semibold' : 'regular'}
-          style={{ color: active ? Colors.textPrimary : Colors.textTertiary }}
-        >
-          {label}
-        </TText>
-        {count != null && count > 0 && (
-          <View
-            style={[
-              styles.filterBadge,
-              active && { backgroundColor: activeColor },
-            ]}
-          >
-            <TText variant="micro" style={{ color: active ? '#fff' : Colors.textTertiary, fontSize: 9 }}>
-              {count > 99 ? '99+' : count}
-            </TText>
-          </View>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-// ─── Request card wrapper with press animation ────────────────────────────────
-function AnimatedRequestCard({
-  item,
-  index,
-  isArtist,
-}: {
-  item: TattooRequest;
-  index: number;
-  isArtist: boolean;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  return (
-    <Animated.View
-      entering={FadeInDown.delay(Math.min(index * 50, 400)).springify()}
-      style={animStyle}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={count ? `${label}, ${count}` : label}
+      style={(state) => {
+        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+        return [styles.chip, (pressed || hovered) && !active && styles.chipHover, active && styles.chipActive];
+      }}
     >
-      <RequestCard
-        request={item}
-        viewAs={isArtist ? 'artist' : 'client'}
-        onPressIn={() => {
-          scale.value = withSpring(0.975, { damping: 14, stiffness: 300 });
-        }}
-        onPressOut={() => {
-          scale.value = withSpring(1, { damping: 14, stiffness: 300 });
-        }}
-      />
-    </Animated.View>
+      {dot && <View style={[styles.chipDot, { backgroundColor: dot }]} />}
+      <TText variant="caption" weight="medium" style={{ fontSize: 13, color: active ? Colors.textInverse : Colors.textSecondary }}>
+        {label}
+      </TText>
+      {!!count && (
+        <TText variant="caption" tabular style={{ fontSize: 12, color: active ? Colors.textInverse : Colors.textTertiary, opacity: active ? 0.7 : 1 }}>
+          {count > 99 ? '99+' : count}
+        </TText>
+      )}
+    </Pressable>
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+function InboxSkeleton() {
+  return (
+    <View accessibilityLabel="Chargement des demandes">
+      {[0, 1, 2, 3].map((i) => (
+        <View key={i} style={styles.skeletonRow}>
+          <TSkeleton width={48} height={48} radius={24} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TSkeleton width="42%" height={18} />
+              <TSkeleton width={44} height={12} />
+            </View>
+            <TSkeleton width="60%" height={12} />
+            <TSkeleton width="90%" height={12} />
+            <TSkeleton width="35%" height={12} style={{ marginTop: 4 }} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const reduced = useReducedMotion();
   const { user } = useAuthStore();
-  const { requests: realRequests, fetchRequests, isLoading } = useRequestStore();
+  const { requests, fetchRequests, isLoading, error } = useRequestStore();
   const isArtist = user?.role === 'artist';
+  const viewAs = isArtist ? 'artist' : 'client';
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  // Fetch real requests on mount
   useEffect(() => {
-    if (user?.id) {
-      fetchRequests(user.id, user.role);
-    }
-  }, [user?.id]);
+    if (!user?.id) return;
+    let active = true;
+    fetchRequests(user.id, user.role).finally(() => { if (active) setHasLoaded(true); });
+    return () => { active = false; };
+  }, [user?.id, user?.role, fetchRequests]);
 
-  // Adapt real requests to mock type shape expected by RequestCard
-  const myRequests = realRequests.map((r) => ({
-    ...r,
-    clientAvatar: r.clientAvatarUrl ?? '',
-    budgetMin: r.budgetMin ?? 0,
-    budgetMax: r.budgetMax ?? 0,
-    colorPreference: r.colorPreference,
-    stylePreference: r.stylePreference ?? '',
-    references: r.references ?? [],
-  })) as unknown as TattooRequest[];
+  const counts = useMemo(() => {
+    const map: Partial<Record<RequestStatus, number>> = {};
+    for (const r of requests) map[r.status] = (map[r.status] ?? 0) + 1;
+    return map;
+  }, [requests]);
 
-  const filtered = myRequests.filter(
-    (r) => activeFilter === 'all' || r.status === activeFilter
+  const filtered = useMemo(
+    () => requests.filter((r) => activeFilter === 'all' || r.status === activeFilter),
+    [requests, activeFilter],
   );
 
-  const countByStatus = useCallback(
-    (status: TattooRequest['status']) =>
-      myRequests.filter((r) => r.status === status).length,
-    [myRequests]
-  );
-
-  const newCount = countByStatus('submitted');
-  const totalCount = myRequests.length;
-  const unreadTotal = newCount; // alias for header badge
+  const newCount = counts.submitted ?? 0;
+  const inProgress = (counts.submitted ?? 0) + (counts.clarification_needed ?? 0) + (counts.accepted ?? 0) + (counts.confirmed ?? 0);
+  const total = requests.length;
 
   const handleRefresh = async () => {
+    if (!user?.id) return;
     setIsRefreshing(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (user?.id) await fetchRequests(user.id, user.role);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await fetchRequests(user.id, user.role);
     setIsRefreshing(false);
   };
 
+  const retry = () => { if (user?.id) void fetchRequests(user.id, user.role); };
+
   const handleEmptyCta = useCallback(() => {
-    if (activeFilter !== 'all') {
-      setActiveFilter('all');
-    } else if (isArtist) {
-      router.push('/(tabs)/profile');
-    } else {
-      router.push('/(tabs)/explore');
-    }
-  }, [activeFilter, isArtist]);
+    if (activeFilter !== 'all') setActiveFilter('all');
+    else if (isArtist) router.push('/(tabs)/profile');
+    else router.push('/(tabs)/explore');
+  }, [activeFilter, isArtist, router]);
 
   const renderRequest = useCallback(
     ({ item, index }: { item: TattooRequest; index: number }) => (
-      <AnimatedRequestCard item={item} index={index} isArtist={isArtist} />
+      <Animated.View entering={reduced ? undefined : FadeInDown.delay(Math.min(index * 45, 270)).duration(600).easing(EASE)}>
+        <RequestCard request={item} viewAs={viewAs} />
+      </Animated.View>
     ),
-    [isArtist]
+    [viewAs, reduced],
   );
 
-  const emptyTitle =
-    activeFilter === 'all'
-      ? isArtist
-        ? 'Aucune demande pour l\'instant.'
-        : 'Pas encore de demande.'
-      : 'Rien dans ce filtre.';
+  const subtitle = !user
+    ? 'Vos échanges avec les artistes'
+    : !hasLoaded && isLoading
+      ? 'Chargement…'
+      : total === 0
+        ? isArtist ? 'Les demandes de vos clients arrivent ici' : 'Vos projets envoyés aux artistes'
+        : isArtist
+          ? `${newCount} nouvelle${newCount > 1 ? 's' : ''} · ${total} au total`
+          : `${inProgress} en cours · ${total} au total`;
 
-  const emptyDescription =
-    activeFilter === 'all' && isArtist
-      ? 'Optimise ton profil pour apparaître dans plus de recherches.'
-      : activeFilter === 'all'
-      ? 'Explore les artistes et envoie ta première demande.'
-      : undefined;
+  const showSkeleton = !!user && isLoading && requests.length === 0 && !isRefreshing;
+
+  const emptyComponent = !user ? (
+    <EmptyState
+      icon="mail-outline"
+      title="Connectez-vous"
+      description="Vos demandes et les réponses des artistes apparaissent ici une fois connecté."
+      ctaLabel="Se connecter"
+      onCta={() => router.push('/(auth)/sign-in')}
+    />
+  ) : showSkeleton ? (
+    <InboxSkeleton />
+  ) : error ? (
+    <EmptyState
+      icon="cloud-offline-outline"
+      title="Chargement impossible"
+      description="Vos demandes n’ont pas pu être chargées. Vérifiez votre connexion puis réessayez."
+      ctaLabel="Réessayer"
+      onCta={retry}
+    />
+  ) : (
+    <EmptyState
+      icon={activeFilter === 'all' ? 'mail-outline' : 'funnel-outline'}
+      title={activeFilter !== 'all' ? 'Aucune demande ici' : isArtist ? 'Aucune demande pour le moment' : 'Pas encore de demande'}
+      description={
+        activeFilter !== 'all'
+          ? 'Aucune demande ne correspond à ce filtre.'
+          : isArtist
+            ? 'Un profil complet, avec portfolio et conditions, aide les clients à vous écrire.'
+            : 'Trouvez un artiste dont le travail vous parle et décrivez-lui votre projet.'
+      }
+      ctaLabel={activeFilter !== 'all' ? 'Voir toutes les demandes' : isArtist ? 'Compléter mon profil' : 'Explorer les artistes'}
+      onCta={handleEmptyCta}
+    />
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ── Header ── */}
-      <Animated.View entering={FadeIn.duration(380)} style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.headerTitleRow}>
-            <TText variant="displayM" weight="black" style={styles.headerTitle}>
-              {isArtist ? 'Inbox' : 'Demandes'}
+      <View style={styles.frame}>
+        {/* Masthead */}
+        <Animated.View entering={reduced ? undefined : FadeIn.duration(400)} style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <TText variant="displayM" accessibilityRole="header">
+              {isArtist ? 'Boîte de ' : 'Vos '}
+              <TText variant="displayM" italic color="accentGlow">{isArtist ? 'réception' : 'demandes'}</TText>
             </TText>
-            {/* Total badge */}
-            {totalCount > 0 && (
-              <View style={styles.totalBadge}>
-                <TText variant="micro" style={{ color: Colors.textSecondary, fontSize: 10 }}>
-                  {totalCount}
-                </TText>
-              </View>
-            )}
-            {/* Unread dot */}
-            {unreadTotal > 0 && <View style={styles.unreadDotHeader} />}
+            <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }} accessibilityLiveRegion="polite">
+              {subtitle}
+            </TText>
           </View>
-          {isArtist && newCount > 0 && (
-            <Animated.View entering={FadeInRight.delay(150).duration(300)}>
-              <TText variant="caption" style={{ color: Colors.accentWarm, marginTop: 2 }}>
-                {newCount} en attente de réponse
-              </TText>
-            </Animated.View>
-          )}
-        </View>
-        <TouchableOpacity
-          style={styles.headerIconBtn}
-          onPress={() =>
-            isArtist ? router.push('/settings') : router.push('/(tabs)/explore')
-          }
-        >
-          <Ionicons
-            name={isArtist ? 'settings-outline' : 'add'}
-            size={20}
-            color={isArtist ? Colors.textSecondary : Colors.accentWarm}
-          />
-        </TouchableOpacity>
-      </Animated.View>
+          <Pressable
+            onPress={() => (isArtist ? router.push('/settings') : router.push('/(tabs)/explore'))}
+            accessibilityRole="button"
+            accessibilityLabel={isArtist ? 'Réglages' : 'Nouvelle demande : trouver un artiste'}
+            hitSlop={6}
+            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name={isArtist ? 'settings-outline' : 'add'} size={20} color={Colors.textPrimary} />
+          </Pressable>
+        </Animated.View>
 
-      {/* ── Artist summary banner ── */}
-      {isArtist && newCount > 0 && (
-        <ArtistSummaryBanner newCount={newCount} totalCount={totalCount} />
-      )}
-
-      {/* ── Filter tabs ── */}
-      <Animated.View entering={FadeInDown.delay(160).springify()}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersContainer}
-        >
-          {STATUS_FILTERS.map((f) => {
-            const count =
-              f.value !== 'all'
-                ? countByStatus(f.value as TattooRequest['status'])
-                : undefined;
-            return (
-              <FilterPill
+        {/* Filters */}
+        {!!user && total > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}
+            style={styles.filterScroller}
+            accessibilityRole="tablist"
+          >
+            {STATUS_FILTERS.map((f) => (
+              <FilterChip
                 key={f.value}
-                label={f.label}
-                value={f.value}
+                label={isArtist ? f.artistLabel : f.clientLabel}
+                dot={f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color}
+                count={f.value === 'all' ? undefined : counts[f.value]}
                 active={activeFilter === f.value}
-                color={f.color}
-                icon={f.icon}
-                count={count}
                 onPress={() => setActiveFilter(f.value)}
               />
-            );
-          })}
-        </ScrollView>
-      </Animated.View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
 
-      {/* ── List ── */}
       <FlatList
-        data={filtered}
+        data={showSkeleton || !user ? [] : filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderRequest}
-        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 90 }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 110 }, (filtered.length === 0 || !user) && { flexGrow: 1 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={Colors.accentWarm}
-            colors={[Colors.accentWarm]}
-          />
+          user ? (
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={Colors.accentWarm}
+              colors={[Colors.accentWarm]}
+            />
+          ) : undefined
         }
-        ListEmptyComponent={
-          <EmptyState
-            icon={activeFilter === 'all' ? 'mail-outline' : 'filter-outline'}
-            title={emptyTitle}
-            description={emptyDescription}
-            ctaLabel={activeFilter !== 'all' ? 'Voir tout' : isArtist ? 'Mon profil' : 'Explorer'}
-            onCta={handleEmptyCta}
-            style={{ marginTop: 64 }}
-          />
-        }
-        ListFooterComponent={
-          filtered.length > 0 ? (
-            <Animated.View entering={FadeIn.delay(350)} style={styles.footer}>
-              <TText variant="caption" color="tertiary">
-                {filtered.length} demande{filtered.length > 1 ? 's' : ''}
-              </TText>
-            </Animated.View>
-          ) : null
-        }
+        ListEmptyComponent={emptyComponent}
       />
     </View>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  frame: { width: '100%', maxWidth: LIST_MAX + Layout.gutter * 2, alignSelf: 'center' },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.xs,
-    paddingBottom: Spacing['2xs'],
+    gap: Spacing.sm,
+    paddingHorizontal: Layout.gutter,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
-  headerLeft: {
-    flex: 1,
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    letterSpacing: -2,
-    fontSize: 34,
-  },
-  totalBadge: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginBottom: 2,
-  },
-  unreadDotHeader: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.accentGlow,
-    marginBottom: 2,
-    ...GlowShadow.amber,
-  },
-  headerIconBtn: {
+  headerBtn: {
     width: 40,
     height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderDefault,
     marginTop: 4,
   },
 
-  // Artist summary banner
-  bannerWrap: {
-    paddingHorizontal: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  banner: {
+  filterScroller: { flexGrow: 0 },
+  filters: { paddingHorizontal: Layout.gutter, paddingBottom: Spacing.sm, gap: 8 },
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.md,
-    overflow: 'hidden',
-  },
-  bannerLeft: {
-    alignItems: 'flex-start',
-    flex: 1,
-  },
-  bannerNum: {
-    letterSpacing: -3,
-    lineHeight: 44,
-    fontSize: 44,
-    color: Colors.accentWarm,
-  },
-  bannerDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: Colors.borderGlow,
-    marginHorizontal: Spacing.md,
-  },
-  bannerRight: {
-    alignItems: 'center',
-  },
-
-  // Filter pills
-  filtersContainer: {
-    paddingHorizontal: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    gap: 8,
-    flexDirection: 'row',
-  },
-  filterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.full,
+    gap: 7,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    gap: 5,
-    overflow: 'hidden',
+    borderColor: Colors.borderDefault,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  filterPillActive: {
-    backgroundColor: Colors.bgElevated,
-  },
-  filterBadge: {
-    backgroundColor: Colors.bgSubtle,
-    borderRadius: 8,
-    minWidth: 17,
-    height: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
+  chipHover: { backgroundColor: Colors.glassBgMid },
+  chipActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  chipDot: { width: 6, height: 6, borderRadius: 3 },
 
-  // List
   list: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing['2xs'],
+    width: '100%',
+    maxWidth: LIST_MAX + Layout.gutter * 2,
+    alignSelf: 'center',
+    paddingHorizontal: Layout.gutter - Spacing['2xs'],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderSubtle,
   },
-  footer: {
+  skeletonRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
     paddingVertical: Spacing.md,
-    alignItems: 'center',
+    paddingHorizontal: Spacing['2xs'],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderDefault,
   },
 });
