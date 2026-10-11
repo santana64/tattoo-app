@@ -13,6 +13,26 @@ function authCallbackUrl() {
 }
 
 export type UserRole = 'user' | 'artist';
+
+export interface ArtistUpdates {
+  blaze?: string;
+  city?: string;
+  styles?: string[];
+  bookingStatus?: 'open' | 'paused' | 'closed';
+  minBudget?: number | null;
+  exclusions?: string[];
+  avatarUrl?: string;
+  coverUrl?: string;
+}
+
+// Postgres / PostgREST errors from profile writes, in French.
+function writeErrorMessage(error: { code?: string; message?: string } | null): string | null {
+  if (!error) return null;
+  if (error.code === '42501') return 'Enregistrement refusé par les règles de sécurité de la base. Reconnectez-vous puis réessayez.';
+  if (error.code === '23505') return 'Ce profil existe déjà.';
+  if (error.code === '23514' || error.code === '22P02') return 'Une des valeurs saisies n’est pas acceptée.';
+  return 'Enregistrement impossible. Vérifiez votre connexion puis réessayez.';
+}
 export type ArtistTier = 'normal' | 'premium';
 
 export interface AppUser {
@@ -50,7 +70,9 @@ interface AuthState {
   setRole: (role: UserRole) => Promise<void>;
   setArtistTier: (tier: ArtistTier) => Promise<void>;
   completeOnboarding: () => Promise<void>;
-  updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<void>;
+  updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<{ error: string | null }>;
+  /** Creates the artist row if needed, then saves the public artist fields. */
+  saveArtist: (updates: ArtistUpdates) => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>;
   setLoading: (loading: boolean) => void;
 }
@@ -200,9 +222,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setRole: async (role) => {
     const { session } = get();
     if (!session) return;
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', session.user.id);
-    if (error) throw error;
-    set((s) => ({ user: s.user ? { ...s.user, role } : null }));
+    // Becoming an artist reopens onboarding so the artist steps can run (and pass routing).
+    const becomesArtist = role === 'artist' && get().user?.role !== 'artist';
+    const changes = becomesArtist ? { role, onboarding_completed: false } : { role };
+    const { error } = await supabase.from('profiles').update(changes).eq('id', session.user.id);
+    if (error) {
+      console.warn('[auth] role update failed', error.code, error.message);
+      throw new Error(writeErrorMessage(error) ?? 'Enregistrement impossible.');
+    }
+    set((s) => ({ user: s.user ? { ...s.user, role, ...(becomesArtist ? { onboardingCompleted: false } : {}) } : null }));
   },
 
   setArtistTier: async (tier) => {
@@ -221,14 +249,75 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   updateProfile: async (updates) => {
     const { session } = get();
-    if (!session) return;
+    if (!session) return { error: 'Session expirée. Reconnectez-vous.' };
     const dbUpdates: Record<string, unknown> = {};
     if (updates.displayName) dbUpdates.display_name = updates.displayName;
     if (updates.city !== undefined) dbUpdates.city = updates.city;
     if (updates.stylePreferences) dbUpdates.style_prefs = updates.stylePreferences;
     if (updates.avatarUrl) dbUpdates.avatar_url = updates.avatarUrl;
-    await supabase.from('profiles').update(dbUpdates).eq('id', session.user.id);
+    const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', session.user.id);
+    if (error) {
+      console.warn('[auth] profile update failed', error.code, error.message);
+      return { error: writeErrorMessage(error) };
+    }
     set((s) => ({ user: s.user ? { ...s.user, ...updates } : null }));
+    return { error: null };
+  },
+
+  saveArtist: async (updates) => {
+    const { session, user } = get();
+    if (!session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const profileId = session.user.id;
+
+    // The row is normally created at role selection; recover if that step failed.
+    let artistId = user?.artistId;
+    if (!artistId) {
+      const existing = await supabase.from('artists').select('id').eq('profile_id', profileId).maybeSingle();
+      if (existing.error) return { error: writeErrorMessage(existing.error) };
+      artistId = existing.data?.id;
+    }
+    if (!artistId) {
+      const created = await supabase
+        .from('artists')
+        .insert({ profile_id: profileId, blaze: updates.blaze ?? user?.displayName ?? 'Artiste', city: updates.city ?? user?.city ?? '' })
+        .select('id')
+        .single();
+      if (created.error) {
+        console.warn('[auth] artist insert failed', created.error.code, created.error.message);
+        return { error: writeErrorMessage(created.error) };
+      }
+      artistId = created.data.id;
+    }
+
+    const row: Record<string, unknown> = {};
+    if (updates.blaze !== undefined) row.blaze = updates.blaze;
+    if (updates.city !== undefined) row.city = updates.city;
+    if (updates.styles !== undefined) row.styles = updates.styles;
+    if (updates.bookingStatus !== undefined) row.booking_status = updates.bookingStatus;
+    if (updates.minBudget !== undefined) {
+      row.min_budget = updates.minBudget;
+      row.show_min_budget = !!updates.minBudget;
+    }
+    if (updates.exclusions !== undefined) row.exclusions = updates.exclusions;
+    if (updates.avatarUrl !== undefined) row.avatar_url = updates.avatarUrl;
+    if (updates.coverUrl !== undefined) row.cover_url = updates.coverUrl;
+
+    if (Object.keys(row).length) {
+      const { error } = await supabase.from('artists').update(row).eq('id', artistId).eq('profile_id', profileId);
+      if (error) {
+        console.warn('[auth] artist update failed', error.code, error.message);
+        return { error: writeErrorMessage(error) };
+      }
+    }
+    set((s) => ({
+      user: s.user ? {
+        ...s.user,
+        artistId,
+        artistBlaze: updates.blaze ?? s.user.artistBlaze,
+        artistBookingStatus: updates.bookingStatus ?? s.user.artistBookingStatus,
+      } : null,
+    }));
+    return { error: null };
   },
 
   refreshProfile: async () => {

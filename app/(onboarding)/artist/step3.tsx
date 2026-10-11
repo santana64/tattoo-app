@@ -10,6 +10,8 @@ import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
 import { PressableScale } from '@/components/motion/PressableScale';
 import { RevealImage } from '@/components/motion/RevealImage';
 import { useAuthStore } from '@/store/auth-store';
+import { uploadAvatar, uploadCover } from '@/lib/storage';
+import { Toast } from '@/components/ui/TToast';
 
 const TOTAL = 5;
 const STEP = 3;
@@ -17,13 +19,14 @@ const AVATAR = 112;
 
 export default function ArtistStep3() {
   const router = useRouter();
-  const { updateProfile } = useAuthStore();
+  const { updateProfile, saveArtist, session } = useAuthStore();
+  const [saving, setSaving] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [coverUri, setCoverUri] = useState<string | null>(null);
 
   const pickAvatar = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -36,7 +39,7 @@ export default function ArtistStep3() {
 
   const pickCover = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [16, 9],
       quality: 0.8,
@@ -47,9 +50,28 @@ export default function ArtistStep3() {
     }
   };
 
-  const handleContinue = () => {
-    if (avatarUri) updateProfile({ avatarUrl: avatarUri } as any);
-    router.push('/(onboarding)/artist/step4');
+  const handleContinue = async () => {
+    if (saving) return;
+    const userId = session?.user.id;
+    if (!userId || (!avatarUri && !coverUri)) { router.push('/(onboarding)/artist/step4'); return; }
+    setSaving(true);
+    try {
+      // Unique names: storage policies allow inserts, not overwrites.
+      const stamp = Date.now();
+      const avatar = avatarUri ? await uploadAvatar(avatarUri, `${userId}/${stamp}`, undefined, false) : null;
+      const cover = coverUri ? await uploadCover(coverUri, `${userId}/${stamp}`, undefined, false) : null;
+      const { error } = await saveArtist({ avatarUrl: avatar?.url, coverUrl: cover?.url });
+      if (error) throw new Error(error);
+      if (avatar) await updateProfile({ avatarUrl: avatar.url });
+      router.push('/(onboarding)/artist/step4');
+    } catch (e) {
+      console.warn('[onboarding] photo upload failed', e);
+      Toast.error(e instanceof Error && e.message.startsWith('Enregistrement')
+        ? e.message
+        : 'Envoi des photos impossible. Réessayez, ou passez cette étape.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -65,6 +87,7 @@ export default function ArtistStep3() {
           title={avatarUri ? 'Continuer' : 'Passer cette étape'}
           variant={avatarUri ? 'primary' : 'secondary'}
           onPress={handleContinue}
+          loading={saving}
         />
       }
     >

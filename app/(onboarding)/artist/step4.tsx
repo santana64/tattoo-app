@@ -8,6 +8,7 @@ import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, OnboardingChip, RadioMark } from '@/components/OnboardingProgress';
 import { PressableScale } from '@/components/motion/PressableScale';
 import { useAuthStore } from '@/store/auth-store';
+import { Toast } from '@/components/ui/TToast';
 
 const TOTAL = 5;
 const STEP = 4;
@@ -57,7 +58,8 @@ function SectionLabel({ children }: { children: string }) {
 
 export default function ArtistStep4() {
   const router = useRouter();
-  const { updateProfile } = useAuthStore();
+  const { saveArtist } = useAuthStore();
+  const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'open' | 'paused' | 'closed'>('open');
   const [minBudget, setMinBudget] = useState('');
   const [exclusions, setExclusions] = useState<Set<string>>(new Set());
@@ -69,12 +71,17 @@ export default function ArtistStep4() {
     setExclusions(s);
   };
 
-  const handleContinue = () => {
-    updateProfile({
+  const handleContinue = async () => {
+    if (saving) return;
+    const budget = parseInt(minBudget, 10);
+    setSaving(true);
+    const { error } = await saveArtist({
       bookingStatus: status,
-      minBudget: minBudget ? parseInt(minBudget, 10) : undefined,
+      minBudget: Number.isFinite(budget) && budget > 0 ? budget : null,
       exclusions: Array.from(exclusions),
-    } as any);
+    });
+    setSaving(false);
+    if (error) { Toast.error(error); return; }
     router.push('/(onboarding)/artist/step5');
   };
 
@@ -87,7 +94,7 @@ export default function ArtistStep4() {
       lede="Réglez-les une fois. Vous pourrez les modifier à tout moment."
       onBack={router.canGoBack() ? () => router.back() : undefined}
       keyboard
-      footer={<TButton title="Continuer" onPress={handleContinue} />}
+      footer={<TButton title="Continuer" onPress={() => void handleContinue()} loading={saving} />}
     >
       {/* Booking status */}
       <SectionLabel>Disponibilité</SectionLabel>

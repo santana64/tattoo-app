@@ -30,7 +30,9 @@ export async function uploadFile(
   uri: string,
   bucket: UploadBucket,
   path: string,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  // Upsert needs SELECT + UPDATE storage policies; unique paths only need INSERT.
+  upsert = true,
 ): Promise<UploadResult> {
   onProgress?.(0.1);
   const compressed = await compressImage(uri);
@@ -40,7 +42,7 @@ export async function uploadFile(
 
   const { data, error } = await supabase.storage.from(bucket).upload(path, blob, {
     contentType: 'image/jpeg',
-    upsert: true,
+    upsert,
   });
   if (error) throw error;
   onProgress?.(0.9);
@@ -54,18 +56,20 @@ export async function uploadFile(
 export async function uploadAvatar(
   uri: string,
   userId: string,
-  onProgress?: (p: number) => void
+  onProgress?: (p: number) => void,
+  upsert = true,
 ): Promise<UploadResult> {
-  return uploadFile(uri, 'avatars', `${userId}/avatar.jpg`, onProgress);
+  return uploadFile(uri, 'avatars', `${userId}/avatar.jpg`, onProgress, upsert);
 }
 
 // ─── Upload cover ──────────────────────────────────────────────────────────────
 export async function uploadCover(
   uri: string,
   artistId: string,
-  onProgress?: (p: number) => void
+  onProgress?: (p: number) => void,
+  upsert = true,
 ): Promise<UploadResult> {
-  return uploadFile(uri, 'covers', `${artistId}/cover.jpg`, onProgress);
+  return uploadFile(uri, 'covers', `${artistId}/cover.jpg`, onProgress, upsert);
 }
 
 // ─── Upload post media ────────────────────────────────────────────────────────

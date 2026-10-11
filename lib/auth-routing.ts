@@ -10,6 +10,8 @@ export function authRedirect(segments: readonly string[], authenticated: boolean
   if (group === 'auth' && screen === 'callback') return null;
   if (!authenticated || !user) return isPublicRoute(segments) ? null : '/(auth)/sign-in';
   if (user.onboardingCompleted) {
+    // A client may come back to role selection to open an artist space.
+    if (group === '(auth)' && screen === 'role-select' && user.role === 'user') return null;
     return group === '(auth)' || group === '(onboarding)' ? '/(tabs)' : null;
   }
   if (group === '(onboarding)' || (isPublicRoute(segments) && group !== '(auth)')) return null;

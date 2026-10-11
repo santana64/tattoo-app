@@ -6,6 +6,7 @@ import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
+import { Toast } from '@/components/ui/TToast';
 import { STYLES } from '@/constants/mock-data';
 
 const TOTAL = 5;
@@ -13,7 +14,8 @@ const STEP = 2;
 
 export default function ArtistStep2() {
   const router = useRouter();
-  const { updateProfile } = useAuthStore();
+  const { saveArtist } = useAuthStore();
+  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [attempted, setAttempted] = useState(false);
 
@@ -26,10 +28,13 @@ export default function ArtistStep2() {
 
   const canContinue = selected.size >= 1;
 
-  const handleContinue = () => {
-    if (!canContinue) return;
-    const styleNames = STYLES.filter((s) => selected.has(s.slug)).map((s) => s.name);
-    updateProfile({ styles: styleNames } as any);
+  const handleContinue = async () => {
+    if (!canContinue || saving) return;
+    setSaving(true);
+    // Store slugs: search filters and style labels resolve against the STYLES taxonomy.
+    const { error } = await saveArtist({ styles: STYLES.filter((s) => selected.has(s.slug)).map((s) => s.slug) });
+    setSaving(false);
+    if (error) { Toast.error(error); return; }
     router.push('/(onboarding)/artist/step3');
   };
 
@@ -49,7 +54,7 @@ export default function ArtistStep2() {
       accent="vous maîtrisez"
       lede="Les clients vous trouveront à travers ces styles. Choisissez-en au moins un."
       onBack={router.canGoBack() ? () => router.back() : undefined}
-      footer={<TButton title="Continuer" onPress={submit} />}
+      footer={<TButton title="Continuer" onPress={submit} loading={saving} />}
     >
       <View style={styles.grid}>
         {STYLES.map((s) => (

@@ -21,7 +21,6 @@ import { PressableScale } from '@/components/motion/PressableScale';
 import { TText } from '@/components/ui/TText';
 import { Logo } from '@/components/ui/Logo';
 import { useAuthStore } from '@/store/auth-store';
-import { supabase } from '@/lib/supabase';
 import { Toast } from '@/components/ui/TToast';
 
 const FORM_MAX_WIDTH = 480;
@@ -96,7 +95,7 @@ export default function RoleSelectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { setRole, session, user, refreshProfile } = useAuthStore();
+  const { setRole, saveArtist, session, refreshProfile } = useAuthStore();
   const [loading, setLoading] = useState<'user' | 'artist' | null>(null);
 
   const selectRole = async (role: 'user' | 'artist') => {
@@ -105,12 +104,9 @@ export default function RoleSelectScreen() {
       if (session?.user) {
         await setRole(role);
         if (role === 'artist') {
-          const { error } = await supabase.from('artists').insert({
-            profile_id: session.user.id,
-            blaze: user?.displayName ?? 'Mon Blaze',
-            city: 'Ma Ville',
-          });
-          if (error && error.code !== '23505') throw error;
+          // Creates the artist row (idempotent); real name and city are set in onboarding step 1.
+          const { error } = await saveArtist({});
+          if (error) throw new Error(error);
           await refreshProfile();
         }
       } else {

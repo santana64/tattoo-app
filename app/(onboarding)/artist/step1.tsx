@@ -4,13 +4,15 @@ import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
+import { Toast } from '@/components/ui/TToast';
 
 const TOTAL_STEPS = 5;
 const CURRENT_STEP = 1;
 
 export default function ArtistStep1() {
   const router = useRouter();
-  const { updateProfile } = useAuthStore();
+  const { updateProfile, saveArtist } = useAuthStore();
+  const [saving, setSaving] = useState(false);
 
   const [blaze, setBlaze] = useState('');
   const [city, setCity] = useState('');
@@ -21,9 +23,13 @@ export default function ArtistStep1() {
   const cityValid = city.trim().length >= 2;
   const canContinue = blazeValid && cityValid;
 
-  const handleContinue = () => {
-    if (!canContinue) return;
-    updateProfile({ displayName: blaze.trim(), city: city.trim() });
+  const handleContinue = async () => {
+    if (!canContinue || saving) return;
+    setSaving(true);
+    const profile = await updateProfile({ displayName: blaze.trim(), city: city.trim() });
+    const artist = profile.error ? profile : await saveArtist({ blaze: blaze.trim(), city: city.trim() });
+    setSaving(false);
+    if (artist.error) { Toast.error(artist.error); return; }
     router.push('/(onboarding)/artist/step2');
   };
 
@@ -42,7 +48,7 @@ export default function ArtistStep1() {
       lede="Il apparaît sur votre profil et dans les recherches des clients."
       onBack={router.canGoBack() ? () => router.back() : undefined}
       keyboard
-      footer={<TButton title="Continuer" onPress={submit} />}
+      footer={<TButton title="Continuer" onPress={submit} loading={saving} />}
     >
       <TInput
         label="Nom d’artiste"

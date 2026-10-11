@@ -36,3 +36,12 @@ test('missing profile cannot enter private areas and may recover on sign-in', ()
   assert.equal(authRedirect(['(tabs)', 'inbox'], true, null), '/(auth)/sign-in');
   assert.equal(authRedirect(['(auth)', 'sign-in'], true, null), null);
 });
+test('a completed client can open role selection to become an artist', () => {
+  const client = { role: 'user', onboardingCompleted: true };
+  assert.equal(authRedirect(['(auth)', 'role-select'], true, client), null);
+  // Other auth screens and client onboarding stay closed.
+  assert.equal(authRedirect(['(auth)', 'sign-in'], true, client), '/(tabs)');
+  assert.equal(authRedirect(['(onboarding)', 'client', 'step1'], true, client), '/(tabs)');
+  // An existing artist has nothing to pick again.
+  assert.equal(authRedirect(['(auth)', 'role-select'], true, { role: 'artist', onboardingCompleted: true }), '/(tabs)');
+});
