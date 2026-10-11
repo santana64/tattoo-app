@@ -240,7 +240,8 @@ export default function ConversationScreen() {
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/inbox'));
 
-  const isArtist = !!request && user?.artistId === request.artistId;
+  // Same rule as the request page: whoever is not the client of this request is its artist.
+  const isArtist = !!request && request.clientId !== user?.id;
   const counterpart = request ? ((isArtist ? request.clientName : request.artistName) ?? '') : '';
   const summary = request
     ? [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ')

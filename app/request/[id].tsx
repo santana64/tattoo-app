@@ -199,7 +199,10 @@ export default function RequestDetailScreen() {
     );
   }
 
-  const isArtist = user?.artistId === request.artistId;
+  // RLS only returns a request to its client or its artist, and fetchRequest checks
+  // artist ownership: not being the client therefore means being the artist.
+  // (Comparing user.artistId alone breaks when the cached profile lags behind.)
+  const isArtist = request.clientId !== user?.id;
   const viewAs: RequestViewer = isArtist ? 'artist' : 'client';
   const counterpart = (isArtist ? request.clientName : request.artistName) ?? '';
   const counterpartAvatar = isArtist ? request.clientAvatarUrl : request.artistAvatarUrl;
