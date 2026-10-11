@@ -1,12 +1,12 @@
 import React, { useCallback } from 'react';
 import { View, StyleSheet, Pressable, Platform, useWindowDimensions } from 'react-native';
-import { Image } from 'expo-image';
+import { RevealImage, Springs, EASE_OUT, MotionDuration } from '@/components/motion';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withSequence } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 import type { Artist } from '@/constants/mock-data';
@@ -63,12 +63,12 @@ function StatusLine({ status }: { status: Artist['bookingStatus'] }) {
 
 function SaveButton({ saved, onPress, onImage }: { saved: boolean; onPress: () => void; onImage?: boolean }) {
   const scale = useSharedValue(1);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   return (
     <Animated.View style={anim}>
       <Pressable
         onPress={() => {
-          scale.value = withSequence(withSpring(1.18, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
+          scale.set(withSequence(withTiming(1.22, { duration: 110, easing: EASE_OUT }), withSpring(1, Springs.pop)));
           if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onPress();
         }}
@@ -91,11 +91,11 @@ function SaveButton({ saved, onPress, onImage }: { saved: boolean; onPress: () =
 /** Lift-on-press wrapper shared by every variant. */
 function useLift() {
   const scale = useSharedValue(1);
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   return {
     style,
-    onPressIn: () => { scale.value = withSpring(0.985, SpringConfig.snappy); },
-    onPressOut: () => { scale.value = withSpring(1, SpringConfig.gentle); },
+    onPressIn: () => { scale.set(withTiming(0.975, { duration: MotionDuration.press, easing: EASE_OUT })); },
+    onPressOut: () => { scale.set(withTiming(1, { duration: MotionDuration.state, easing: EASE_OUT })); },
   };
 }
 
@@ -116,7 +116,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
       <Animated.View style={[styles.featured, windowWidth >= 900 && styles.featuredWide, lift.style]}>
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={{ flex: 1 }}>
           {images[0] ? (
-            <Image source={{ uri: images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
+            <RevealImage uri={images[0]} style={StyleSheet.absoluteFill} />
           ) : <ArtPlaceholder name={artist.blaze} size={120} />}
           <LinearGradient
             colors={['rgba(11,10,9,0.25)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.92)']}
@@ -157,7 +157,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y}>
           <View style={styles.compactImage}>
             {images[0] || artist.avatarUrl ? (
-              <Image source={{ uri: images[0] || artist.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+              <RevealImage uri={images[0] || artist.avatarUrl} style={StyleSheet.absoluteFill} />
             ) : <ArtPlaceholder name={artist.blaze} size={40} />}
           </View>
           <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={{ marginTop: 8 }}>{artist.blaze}</TText>
@@ -174,7 +174,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y}>
           <View style={styles.tileImage}>
             {images[0] ? (
-              <Image source={{ uri: images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+              <RevealImage uri={images[0]} style={StyleSheet.absoluteFill} />
             ) : <ArtPlaceholder name={artist.blaze} size={48} />}
             {onSave && <View style={styles.tileSave}><SaveButton saved={isSaved} onPress={save} onImage /></View>}
           </View>
@@ -199,14 +199,14 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
         <View style={styles.mosaic}>
           <View style={[styles.mosaicLead, side.length === 0 && { flex: 1 }]}>
             {lead ? (
-              <Image source={{ uri: lead }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+              <RevealImage uri={lead} style={StyleSheet.absoluteFill} />
             ) : <ArtPlaceholder name={artist.blaze} size={72} />}
           </View>
           {side.length > 0 && (
             <View style={styles.mosaicSide}>
               {side.map((uri) => (
                 <View key={uri} style={styles.mosaicCell}>
-                  <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+                  <RevealImage uri={uri} style={StyleSheet.absoluteFill} />
                 </View>
               ))}
             </View>

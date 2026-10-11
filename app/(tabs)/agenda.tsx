@@ -5,7 +5,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -14,6 +13,7 @@ import { TButton } from '@/components/ui/TButton';
 import { TDivider } from '@/components/ui/TDivider';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 
@@ -29,7 +29,6 @@ interface RealAppointment {
   artistBlaze: string;
 }
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const DAYS_LONG = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -75,20 +74,20 @@ const STATUS_CONFIG = {
   canceled:  { label: 'Annulé',   color: Colors.error },
 } as const;
 
-const haptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
 // ─── Pieces ───────────────────────────────────────────────────────────────────
 function RoundButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={6}
-      style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.7 }]}
+      style={styles.roundBtn}
     >
       <Ionicons name={icon} size={19} color={Colors.textPrimary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -97,15 +96,13 @@ function DayCell({ date, selected, isToday, count, onPress }: {
 }) {
   const a11y = `${capitalize(formatLongDate(date))}${isToday ? ', aujourd’hui' : ''}, ${count ? `${count} rendez-vous` : 'aucun rendez-vous'}`;
   return (
-    <Pressable
-      onPress={() => { haptic(); onPress(); }}
+    <PressableScale
+      onPress={onPress}
+      pressedScale={0.94}
       accessibilityRole="button"
       accessibilityLabel={a11y}
       accessibilityState={{ selected }}
-      style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [styles.dayCell, (pressed || hovered) && !selected && styles.dayCellHover, selected && styles.dayCellSelected];
-      }}
+      style={[styles.dayCell, selected && styles.dayCellSelected]}
     >
       <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
         {DAYS[weekdayIndex(date)]}
@@ -119,7 +116,7 @@ function DayCell({ date, selected, isToday, count, onPress }: {
         {date.getDate()}
       </TText>
       <View style={[styles.dayDot, count > 0 && { backgroundColor: selected ? Colors.textInverse : Colors.accentWarm }]} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -135,8 +132,8 @@ function Fact({ label, value, dot }: { label: string; value: number; dot?: strin
   );
 }
 
-function AppointmentRow({ apt, counterpart, avatar, index, reduced }: {
-  apt: RealAppointment; counterpart: string; avatar: string | null; index: number; reduced: boolean;
+function AppointmentRow({ apt, counterpart, avatar }: {
+  apt: RealAppointment; counterpart: string; avatar: string | null;
 }) {
   const router = useRouter();
   const status = STATUS_CONFIG[apt.status] ?? STATUS_CONFIG.proposed;
@@ -145,16 +142,13 @@ function AppointmentRow({ apt, counterpart, avatar, index, reduced }: {
   const meta = [status.label, apt.bodyZone].filter(Boolean).join(' · ');
 
   return (
-    <Animated.View entering={reduced ? undefined : FadeInDown.delay(index * 50).duration(500).easing(EASE)}>
-      <Pressable
-        onPress={() => { haptic(); router.push(`/appointment/${apt.id}`); }}
-        accessibilityRole="button"
-        accessibilityLabel={`${formatTime(start)} à ${formatTime(end)}, ${counterpart}, ${meta}`}
-        style={(state) => {
-          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-          return [styles.aptRow, (pressed || hovered) && styles.aptRowActive, apt.status === 'canceled' && { opacity: 0.6 }];
-        }}
-      >
+    <PressableScale
+      onPress={() => router.push(`/appointment/${apt.id}`)}
+      pressedScale={0.985}
+      accessibilityRole="button"
+      accessibilityLabel={`${formatTime(start)} à ${formatTime(end)}, ${counterpart}, ${meta}`}
+      style={[styles.aptRow, apt.status === 'canceled' && { opacity: 0.6 }]}
+    >
         <View style={styles.aptTime}>
           <TText variant="body" weight="semibold" tabular>{formatTime(start)}</TText>
           <TText variant="caption" color="tertiary" tabular>{formatTime(end)}</TText>
@@ -171,8 +165,7 @@ function AppointmentRow({ apt, counterpart, avatar, index, reduced }: {
           )}
         </View>
         <TAvatar uri={avatar} name={counterpart} size="md" />
-      </Pressable>
-    </Animated.View>
+    </PressableScale>
   );
 }
 
@@ -200,7 +193,6 @@ function ListSkeleton() {
 export default function AgendaScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduced = useReducedMotion();
   const { width } = useWindowDimensions();
   const wide = width >= 960;
   const { user } = useAuthStore();
@@ -337,7 +329,7 @@ export default function AgendaScreen() {
     );
   } else if (dayAppointments.length === 0) {
     dayContent = (
-      <Animated.View entering={reduced ? undefined : FadeIn.duration(300)} style={styles.freeDay}>
+      <View style={styles.freeDay}>
         <TText variant="title2" serif style={{ fontSize: 22 }}>Journée libre</TText>
         <TText variant="bodySmall" color="secondary" style={{ marginTop: 4 }}>
           Aucun rendez-vous prévu le {formatLongDate(selectedDate)}.
@@ -354,7 +346,7 @@ export default function AgendaScreen() {
             onPress={() => goToDate(new Date(nextAfterSelected.startsAt))}
           />
         )}
-      </Animated.View>
+      </View>
     );
   } else {
     dayContent = (
@@ -364,8 +356,6 @@ export default function AgendaScreen() {
             {i > 0 && <TDivider inset={66} />}
             <AppointmentRow
               apt={apt}
-              index={i}
-              reduced={reduced}
               counterpart={isArtist ? apt.clientName : apt.artistBlaze}
               avatar={isArtist ? apt.clientAvatar : null}
             />
@@ -471,9 +461,7 @@ const styles = StyleSheet.create({
   dayCell: {
     flex: 1, alignItems: 'center', paddingVertical: 8, minHeight: 64,
     borderRadius: Radius.md,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  dayCellHover: { backgroundColor: Colors.glassBgMid },
   dayCellSelected: { backgroundColor: Colors.accentAction },
   dayDot: { width: 4, height: 4, borderRadius: 2, marginTop: 5, backgroundColor: 'transparent' },
 
@@ -498,9 +486,7 @@ const styles = StyleSheet.create({
   aptRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 14,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  aptRowActive: { backgroundColor: Colors.glassBg },
   aptTime: { width: 52, gap: 1 },
   aptRule: { width: 2, alignSelf: 'stretch', borderRadius: 1, opacity: 0.8 },
   aptBody: { flex: 1, minWidth: 0 },

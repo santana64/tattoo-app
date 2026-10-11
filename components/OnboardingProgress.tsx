@@ -1,12 +1,16 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView, ViewStyle,
+  View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import { Colors, Spacing, Layout, Duration } from '@/constants/theme';
+import Animated, {
+  useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming,
+} from 'react-native-reanimated';
+import { Colors, Spacing, Layout } from '@/constants/theme';
+import { EASE_OUT, MotionDuration, enterUp, fadeIn } from '@/components/motion/tokens';
+import { PressableScale } from '@/components/motion/PressableScale';
 import { TText } from './ui/TText';
 import { TProgressBar } from './ui/TProgressBar';
 import { Logo } from './ui/Logo';
@@ -14,14 +18,7 @@ import { Logo } from './ui/Logo';
 /** Forms and onboarding columns stay narrow and centered on wide screens. */
 export const FORM_MAX_WIDTH = 480;
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
-
-/** Gallery entrance: short fade-up, disabled when the OS asks for reduced motion. */
-export function enterFrom(delay: number, reduced: boolean) {
-  return reduced ? undefined : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
-}
-
-/** Haptic feedback on native only. */
+/** Haptic feedback on native only. Use for commits that are not a TButton press (TButton has its own). */
 export function haptic(kind: 'select' | 'success' = 'select') {
   if (Platform.OS === 'web') return;
   if (kind === 'success') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -38,7 +35,7 @@ interface OnboardingProgressProps {
   style?: ViewStyle;
 }
 
-/** "Étape 2 sur 5" in tabular figures above a thin gold line. */
+/** "Étape 2 sur 5" in tabular figures above a thin gold line that fills from the previous step. */
 export function OnboardingProgress({ total, current, leading, style }: OnboardingProgressProps) {
   const safeTotal = Math.max(total, 1);
   const safeCurrent = Math.min(Math.max(current, 1), safeTotal);
@@ -88,6 +85,8 @@ interface OnboardingScreenProps {
   keyboard?: boolean;
   /** Pinned actions: one primary, at most one quiet secondary. */
   footer: React.ReactNode;
+  /** Full-screen layer above everything (e.g. the finale). */
+  overlay?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -100,24 +99,22 @@ export function OnboardingScreen({
   onBack,
   keyboard = false,
   footer,
+  overlay,
   children,
 }: OnboardingScreenProps) {
   const insets = useSafeAreaInsets();
-  const reduced = useReducedMotion();
 
   const leading = onBack ? (
-    <Pressable
+    <PressableScale
       onPress={onBack}
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel="Retour à l’étape précédente"
       hitSlop={8}
-      style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [styles.backButton, (pressed || hovered) && styles.backButtonActive];
-      }}
+      style={styles.backButton}
     >
       <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-    </Pressable>
+    </PressableScale>
   ) : (
     <Logo size="sm" variant="wordmark" />
   );
@@ -135,17 +132,20 @@ export function OnboardingScreen({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.column}>
-          <Animated.View entering={enterFrom(60, reduced)}>
+          {/* Step change: title, lede and content rise in a short stagger. */}
+          <Animated.View entering={enterUp(0, 60)}>
             <TText variant="displayM" accessibilityRole="header" style={styles.title}>
               {title}{' '}
               <TText variant="displayM" italic color="accentGlow">{accent}</TText>
             </TText>
-            {lede ? (
-              <TText variant="body" color="secondary" style={styles.lede}>{lede}</TText>
-            ) : null}
           </Animated.View>
+          {lede ? (
+            <Animated.View entering={enterUp(1, 60)}>
+              <TText variant="body" color="secondary" style={styles.lede}>{lede}</TText>
+            </Animated.View>
+          ) : null}
 
-          <Animated.View entering={enterFrom(160, reduced)} style={styles.content}>
+          <Animated.View entering={enterUp(2, 60)} style={styles.content}>
             {children}
           </Animated.View>
         </View>
@@ -154,6 +154,8 @@ export function OnboardingScreen({
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, Spacing.sm) + Spacing['2xs'] }]}>
         <View style={[styles.column, styles.footerInner]}>{footer}</View>
       </View>
+
+      {overlay}
     </>
   );
 
@@ -181,7 +183,7 @@ interface OnboardingChipProps {
   accessibilityLabel?: string;
 }
 
-/** 36px hairline chip; selected = paper fill with ink text. */
+/** 36px hairline chip; selected = paper fill with ink text. Toggling is a commit: light haptic. */
 export function OnboardingChip({
   label,
   selected,
@@ -190,21 +192,14 @@ export function OnboardingChip({
   accessibilityLabel,
 }: OnboardingChipProps) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
+      haptic
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={accessibilityLabel ?? label}
       hitSlop={{ top: 4, bottom: 4 }}
-      style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [
-          styles.chip,
-          (pressed || hovered) && !selected && styles.chipHover,
-          selected && styles.chipSelected,
-          pressed && styles.chipPressed,
-        ];
-      }}
+      style={[styles.chip, selected && styles.chipSelected]}
     >
       {selected ? <Ionicons name={selectedIcon} size={14} color={Colors.textInverse} /> : null}
       <TText
@@ -214,7 +209,108 @@ export function OnboardingChip({
       >
         {label}
       </TText>
-    </Pressable>
+    </PressableScale>
+  );
+}
+
+// ── Radio mark ────────────────────────────────────────────────
+
+/** Hairline ring; the paper dot fades and settles in over ~180ms when selected. */
+export function RadioMark({ selected }: { selected: boolean }) {
+  const reduced = useReducedMotion();
+  const on = useSharedValue(selected ? 1 : 0);
+
+  useEffect(() => {
+    on.set(withTiming(selected ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
+  }, [on, selected]);
+
+  const dotStyle = useAnimatedStyle(() => ({
+    opacity: on.get(),
+    transform: [{ scale: reduced ? 1 : 0.6 + on.get() * 0.4 }],
+  }));
+
+  return (
+    <View style={[styles.radio, selected && styles.radioOn]}>
+      <Animated.View style={[styles.radioDot, dotStyle]} />
+    </View>
+  );
+}
+
+// ── Finale (rare: end of onboarding) ──────────────────────────
+
+interface FinaleCopy {
+  title: string;
+  accent: string;
+  lede?: string;
+}
+
+const FINALE_HOLD = 1300;
+const FINALE_HOLD_REDUCED = 700;
+
+/**
+ * A calm "your space is ready" moment shown once, before leaving onboarding.
+ * Runs `then` after a short hold; the caller keeps its own navigation.
+ */
+export function useOnboardingFinale() {
+  const reduced = useReducedMotion();
+  const [copy, setCopy] = useState<FinaleCopy | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  const celebrate = useCallback((next: FinaleCopy, then: () => void) => {
+    if (timer.current) return;
+    setCopy(next);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      then();
+    }, reduced ? FINALE_HOLD_REDUCED : FINALE_HOLD);
+  }, [reduced]);
+
+  return {
+    celebrate,
+    active: copy !== null,
+    overlay: copy ? <OnboardingFinale {...copy} /> : null,
+  };
+}
+
+function OnboardingFinale({ title, accent, lede }: FinaleCopy) {
+  const reduced = useReducedMotion();
+  const rule = useSharedValue(reduced ? 1 : 0);
+
+  useEffect(() => {
+    if (reduced) return;
+    // A thin gold rule draws itself under the title: transform only.
+    rule.set(withDelay(360, withTiming(1, { duration: MotionDuration.reveal, easing: EASE_OUT })));
+  }, [reduced, rule]);
+
+  const ruleStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: rule.get() }] }));
+
+  return (
+    <Animated.View
+      entering={fadeIn()}
+      style={styles.finale}
+      accessibilityViewIsModal
+      accessibilityLiveRegion="polite"
+    >
+      <Animated.View entering={enterUp(0, 80)}>
+        <Logo size="xl" variant="mark" animate={!reduced} />
+      </Animated.View>
+      <Animated.View entering={enterUp(1, 80)}>
+        <TText variant="displayM" accessibilityRole="header" style={styles.finaleTitle}>
+          {title}{' '}
+          <TText variant="displayM" italic color="accentGlow">{accent}</TText>
+        </TText>
+      </Animated.View>
+      <Animated.View style={[styles.finaleRule, ruleStyle]} />
+      {lede ? (
+        <Animated.View entering={enterUp(2, 80)}>
+          <TText variant="body" color="secondary" style={styles.finaleLede}>{lede}</TText>
+        </Animated.View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -239,9 +335,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  backButtonActive: { backgroundColor: Colors.glassBgMid },
 
   scroll: { flex: 1 },
   scrollContent: {
@@ -272,10 +366,36 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  chipHover: { backgroundColor: Colors.glassBgMid },
   chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  chipPressed: { opacity: 0.85 },
   chipLabel: { fontSize: 13 },
+
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.borderGlass,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: { borderColor: Colors.accentAction },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.accentAction },
+
+  finale: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    backgroundColor: Colors.bgPrimary,
+  },
+  finaleTitle: { textAlign: 'center', marginTop: Spacing.lg },
+  finaleRule: {
+    width: 64,
+    height: 1,
+    marginVertical: Spacing.md,
+    backgroundColor: Colors.accentWarm,
+  },
+  finaleLede: { textAlign: 'center', maxWidth: 340 },
 });

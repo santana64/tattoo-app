@@ -5,7 +5,7 @@ import { Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, OnboardingChip, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 3;
@@ -19,7 +19,6 @@ export default function ClientStep2() {
   const [city, setCity] = useState('');
 
   const handleContinue = () => {
-    haptic('success');
     if (city.trim()) {
       updateProfile({ city: city.trim() });
     }
@@ -28,7 +27,6 @@ export default function ClientStep2() {
 
   const selectCity = (c: string) => {
     setCity(c);
-    haptic();
   };
 
   const isSelected = (c: string) => c.toLowerCase() === city.trim().toLowerCase();

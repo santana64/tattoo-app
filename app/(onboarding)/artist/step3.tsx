@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
+import { PressableScale } from '@/components/motion/PressableScale';
+import { RevealImage } from '@/components/motion/RevealImage';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 5;
 const STEP = 3;
 const AVATAR = 112;
-
-type InteractionState = { pressed: boolean; hovered?: boolean };
 
 export default function ArtistStep3() {
   const router = useRouter();
@@ -49,7 +48,6 @@ export default function ArtistStep3() {
   };
 
   const handleContinue = () => {
-    haptic('success');
     if (avatarUri) updateProfile({ avatarUrl: avatarUri } as any);
     router.push('/(onboarding)/artist/step4');
   };
@@ -72,24 +70,21 @@ export default function ArtistStep3() {
     >
       {/* Profile photo */}
       <View style={styles.avatarBlock}>
-        <Pressable
+        <PressableScale
           onPress={pickAvatar}
           accessibilityRole="button"
           accessibilityLabel={avatarUri ? 'Changer la photo de profil' : 'Ajouter une photo de profil'}
-          style={(state) => {
-            const { pressed, hovered } = state as InteractionState;
-            return [styles.avatar, !avatarUri && styles.avatarEmpty, (pressed || hovered) && styles.pressed];
-          }}
+          style={[styles.avatar, !avatarUri && styles.avatarEmpty]}
         >
           {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatarImage} contentFit="cover" />
+            <RevealImage key={avatarUri} uri={avatarUri} style={styles.avatarImage} accessibilityLabel="Votre photo de profil" />
           ) : (
             <Ionicons name="person-outline" size={30} color={Colors.textTertiary} />
           )}
           <View style={styles.avatarBadge}>
             <Ionicons name={avatarUri ? 'pencil' : 'add'} size={avatarUri ? 13 : 16} color={Colors.textInverse} />
           </View>
-        </Pressable>
+        </PressableScale>
         <View style={styles.avatarText}>
           <TText variant="bodySmall" weight="medium">Photo de profil</TText>
           <TText variant="caption" color="tertiary">
@@ -103,18 +98,15 @@ export default function ArtistStep3() {
         <TText variant="caption" weight="medium" color="secondary">Photo de couverture</TText>
         <TText variant="caption" color="tertiary">Optionnel</TText>
       </View>
-      <Pressable
+      <PressableScale
         onPress={pickCover}
         accessibilityRole="button"
         accessibilityLabel={coverUri ? 'Changer la photo de couverture' : 'Ajouter une photo de couverture'}
-        style={(state) => {
-          const { pressed, hovered } = state as InteractionState;
-          return [styles.cover, !coverUri && styles.coverEmpty, (pressed || hovered) && styles.pressed];
-        }}
+        style={[styles.cover, !coverUri && styles.coverEmpty]}
       >
         {coverUri ? (
           <>
-            <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            <RevealImage key={coverUri} uri={coverUri} style={StyleSheet.absoluteFill} accessibilityLabel="Votre photo de couverture" />
             <View style={styles.coverEdit}>
               <Ionicons name="pencil" size={12} color={Colors.textPrimary} />
               <TText variant="caption" weight="medium">Modifier</TText>
@@ -128,7 +120,7 @@ export default function ArtistStep3() {
             <TText variant="caption" color="tertiary">Une pièce récente, au format paysage</TText>
           </View>
         )}
-      </Pressable>
+      </PressableScale>
     </OnboardingScreen>
   );
 }
@@ -144,7 +136,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderGlow,
     backgroundColor: Colors.bgElevated,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
   avatarEmpty: { borderStyle: 'dashed', borderColor: Colors.borderDefault },
   avatarImage: { width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2 },
@@ -177,7 +168,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bgElevated,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
   coverEmpty: { borderWidth: 1, borderStyle: 'dashed' },
   coverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: Spacing.sm },
@@ -205,5 +195,4 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.glassBorderBright,
   },
-  pressed: { opacity: 0.85 },
 });

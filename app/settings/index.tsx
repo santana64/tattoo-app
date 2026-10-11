@@ -1,10 +1,9 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
+import { ScrollView, StyleSheet, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -15,32 +14,23 @@ import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Toast } from '@/components/ui/TToast';
+import { PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const ICON_COL = 34;
 const APP_VERSION = Constants.expoConfig?.version;
-
-function enter(i: number, reduced: boolean) {
-  return reduced ? undefined : FadeInDown.delay(i * 60).duration(600).easing(EASE);
-}
 
 function SettingRow({ icon, label, subtitle, detail, accent, onPress }: {
   icon: keyof typeof Ionicons.glyphMap; label: string; subtitle?: string; detail?: string;
   accent?: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable
-      onPress={() => {
-        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onPress();
-      }}
+    <PressableScale
+      onPress={onPress}
+      pressedScale={0.985}
       accessibilityRole="button"
       accessibilityLabel={[label, subtitle, detail].filter(Boolean).join(', ')}
-      style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [styles.row, (pressed || hovered) && styles.rowActive];
-      }}
+      style={styles.row}
     >
       <Ionicons name={icon} size={19} color={accent ? Colors.accentWarm : Colors.textSecondary} style={styles.rowIcon} />
       <View style={styles.rowText}>
@@ -49,16 +39,14 @@ function SettingRow({ icon, label, subtitle, detail, accent, onPress }: {
       </View>
       {!!detail && <TText variant="bodySmall" color={accent ? 'accentWarm' : 'tertiary'}>{detail}</TText>}
       <Ionicons name="chevron-forward" size={15} color={Colors.textTertiary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
-function Section({ title, children, index, reduced }: {
-  title: string; children: React.ReactNode; index: number; reduced: boolean;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const items = React.Children.toArray(children);
   return (
-    <Animated.View entering={enter(index, reduced)} style={styles.section}>
+    <View style={styles.section}>
       <TText variant="label" color="tertiary" uppercase style={styles.sectionTitle}>{title}</TText>
       <View style={styles.sectionBody}>
         {items.map((child, i) => (
@@ -68,14 +56,13 @@ function Section({ title, children, index, reduced }: {
           </React.Fragment>
         ))}
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduced = useReducedMotion();
   const { user, signOut } = useAuthStore();
   const isArtist = user?.role === 'artist';
   const isPremium = isArtist && user?.artistTier === 'premium';
@@ -94,7 +81,7 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Identity */}
-        <Animated.View entering={enter(0, reduced)} style={styles.identity}>
+        <View style={styles.identity}>
           <TAvatar uri={user?.avatarUrl} name={name} size="xl" isPremium={isPremium} showBadge />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.nameRow}>
@@ -105,11 +92,11 @@ export default function SettingsScreen() {
               {[user?.email, user?.city].filter(Boolean).join(' · ') || '—'}
             </TText>
           </View>
-        </Animated.View>
+        </View>
 
         {/* Premium upsell — artists on the free plan only */}
         {isArtist && !isPremium && (
-          <Animated.View entering={enter(1, reduced)}>
+          <View>
             <GlassCard variant="premium" radius={14} style={styles.upsell}>
               <TText variant="label" color="accentWarm" uppercase>INKR Premium</TText>
               <TText variant="title2" serif style={styles.upsellTitle}>
@@ -126,17 +113,17 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/settings/subscription')}
               />
             </GlassCard>
-          </Animated.View>
+          </View>
         )}
 
-        <Section title="Compte" index={2} reduced={reduced}>
+        <Section title="Compte">
           <SettingRow icon="person-outline" label="Informations personnelles" subtitle="Nom, e-mail, ville" onPress={() => router.push('/settings/account')} />
           <SettingRow icon="notifications-outline" label="Notifications" subtitle="Push et e-mails" onPress={() => router.push('/settings/notifications')} />
           <SettingRow icon="shield-outline" label="Confidentialité" subtitle="Visibilité et données" onPress={() => router.push('/settings/privacy')} />
         </Section>
 
         {isArtist && (
-          <Section title="Espace artiste" index={3} reduced={reduced}>
+          <Section title="Espace artiste">
             <SettingRow
               icon="card-outline"
               label="Abonnement"
@@ -149,14 +136,14 @@ export default function SettingsScreen() {
           </Section>
         )}
 
-        <Section title="Assistance" index={4} reduced={reduced}>
+        <Section title="Assistance">
           <SettingRow icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
           <SettingRow icon="document-text-outline" label="Conditions d’utilisation" onPress={() => router.push('/legal/terms')} />
           <SettingRow icon="lock-closed-outline" label="Politique de confidentialité" onPress={() => router.push('/legal/privacy-policy')} />
         </Section>
 
         {/* Session and destructive actions, kept apart from everyday settings */}
-        <Animated.View entering={enter(5, reduced)} style={styles.dangerZone}>
+        <View style={styles.dangerZone}>
           <TButton
             title="Se déconnecter"
             variant="secondary"
@@ -171,7 +158,7 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/delete-account')}
             icon={<Ionicons name="trash-outline" size={17} color={Colors.errorLight} />}
           />
-        </Animated.View>
+        </View>
 
         {!!APP_VERSION && (
           <TText variant="caption" color="tertiary" tabular style={styles.version}>INKR {APP_VERSION}</TText>
@@ -202,9 +189,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     minHeight: 56, paddingVertical: 10,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  rowActive: { backgroundColor: Colors.glassBg },
   rowIcon: { width: ICON_COL - 12 },
   rowText: { flex: 1, minWidth: 0, gap: 1 },
 

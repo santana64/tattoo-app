@@ -1,80 +1,127 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  ScrollView, StyleSheet, View, TouchableOpacity,
-} from 'react-native';
+import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  FadeIn, FadeInDown, useSharedValue, useAnimatedStyle, withSpring,
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { format, isValid, parseISO } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { TDivider } from '@/components/ui/TDivider';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { THeader } from '@/components/ui/THeader';
+import { TSkeleton } from '@/components/ui/TSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { styleName } from '@/components/ArtistCard';
+import {
+  RequestStatusLine, StatusTimeline, SIZE_RANGE, COLOR_LABEL, FLEX_LABEL,
+  formatBudget, projectTypeLabel, type TimelineStep, type RequestViewer,
+} from '@/components/RequestCard';
+import { BottomSheet, GlassSurface, RevealImage, enterUp } from '@/components/motion';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import {
-  PROJECT_TYPE_LABELS, SIZE_LABELS, STATUS_LABELS,
-  DECLINE_REASONS,
-} from '@/constants/mock-data';
+// Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
+import { DECLINE_REASONS } from '@/constants/mock-data';
 
-const STATUS_CONFIG = {
-  submitted:            { dot: '#60A5FA', variant: 'accent'   as const },
-  accepted:             { dot: '#34D399', variant: 'success'  as const },
-  declined:             { dot: '#F87171', variant: 'error'    as const },
-  clarification_needed: { dot: '#FBBF24', variant: 'warning'  as const },
-  confirmed: { dot: '#34D399', variant: 'success' as const },
-  completed:            { dot: '#818CF8', variant: 'info'     as const },
-  archived:             { dot: Colors.textTertiary, variant: 'default' as const },
-};
+const DOSSIER_MAX = 720;
 
-function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
-  return (
-    <View style={styles.infoRow}>
-      <Ionicons name={icon as any} size={15} color={Colors.textTertiary} style={{ width: 20 }} />
-      <TText variant="caption" color="tertiary" style={{ width: 100 }}>{label}</TText>
-      <TText variant="bodySmall" style={{ flex: 1 }}>{value}</TText>
-    </View>
-  );
+function formatLong(iso: string | null | undefined, withTime = false): string | undefined {
+  if (!iso) return undefined;
+  const d = parseISO(iso);
+  if (!isValid(d)) return undefined;
+  return format(d, withTime ? "d MMMM yyyy 'à' HH:mm" : 'd MMMM yyyy', { locale: fr });
 }
 
-function ActionBtn({ label, icon, onPress, variant = 'default', loading = false }: {
-  label: string; icon: string; onPress: () => void;
-  variant?: 'default' | 'success' | 'error' | 'warning'; loading?: boolean;
-}) {
-  const scale = useSharedValue(1);
-  const s = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const colors = {
-    default: { bg: Colors.bgSurface, border: Colors.borderDefault, text: Colors.textPrimary },
-    success: { bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.3)', text: '#34D399' },
-    error:   { bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.3)', text: '#F87171' },
-    warning: { bg: 'rgba(251,191,36,0.08)',  border: 'rgba(251,191,36,0.3)',  text: '#FBBF24' },
-  }[variant];
+function buildTimeline(r: TattooRequest, viewAs: RequestViewer): TimelineStep[] {
+  const sent: TimelineStep = { key: 'sent', label: 'Demande envoyée', detail: formatLong(r.submittedAt, true), state: 'done' };
+  const accepted: TimelineStep = { key: 'accepted', label: 'Demande acceptée', detail: formatLong(r.acceptedAt), state: 'done' };
+  const appointment: TimelineStep = { key: 'appointment', label: 'Rendez-vous', state: 'upcoming' };
+  const session: TimelineStep = { key: 'session', label: 'Séance réalisée', state: 'upcoming' };
+  const reply = viewAs === 'artist' ? 'Votre réponse' : 'Réponse de l’artiste';
+  switch (r.status) {
+    case 'submitted':
+      return [sent, { key: 'reply', label: reply, detail: 'En attente', state: 'current', color: Colors.warning }, appointment, session];
+    case 'clarification_needed':
+      return [sent, {
+        key: 'reply', label: 'Précision demandée',
+        detail: viewAs === 'artist' ? 'En attente du client' : 'L’artiste attend des précisions',
+        state: 'current', color: Colors.warning,
+      }, appointment, session];
+    case 'accepted':
+      return [sent, accepted, { ...appointment, detail: 'À convenir avec l’artiste', state: 'current', color: Colors.success }, session];
+    case 'confirmed':
+      return [sent, accepted, { ...appointment, label: 'Rendez-vous confirmé', state: 'current', color: Colors.success }, session];
+    case 'completed':
+      return [sent, accepted, { ...appointment, label: 'Rendez-vous confirmé', state: 'done' }, { ...session, state: 'done' }];
+    case 'declined':
+      return [sent, {
+        key: 'declined', label: 'Demande refusée',
+        detail: r.declineReason ? DECLINE_REASONS[r.declineReason] ?? r.declineReason : undefined,
+        state: 'ended', color: Colors.error,
+      }];
+    case 'archived':
+    default:
+      return [sent, { key: 'archived', label: 'Demande archivée', state: 'ended', color: Colors.textTertiary }];
+  }
+}
 
+function nextStepCopy(r: TattooRequest, viewAs: RequestViewer, counterpart: string): string | null {
+  if (viewAs === 'artist') {
+    switch (r.status) {
+      case 'submitted': return 'Répondez à cette demande : acceptez-la, demandez des précisions ou refusez-la.';
+      case 'clarification_needed': return 'Vous avez demandé des précisions. Vous pouvez toujours accepter ou refuser la demande.';
+      case 'accepted': return 'Vous avez accepté ce projet. Poursuivez l’échange dans la conversation.';
+      default: return null;
+    }
+  }
+  switch (r.status) {
+    case 'submitted': return `${counterpart} n’a pas encore répondu. Sa réponse apparaîtra ici.`;
+    case 'clarification_needed': return `${counterpart} souhaite des précisions sur votre projet.`;
+    case 'accepted': return `${counterpart} a accepté votre projet. Échangez dans la conversation pour convenir du rendez-vous et du devis.`;
+    case 'declined': return `${counterpart} ne peut pas réaliser ce projet.`;
+    default: return null;
+  }
+}
+
+// ─── Pieces ───────────────────────────────────────────────────────────────────
+function Section({ title, index, children }: { title: string; index: number; children: React.ReactNode }) {
   return (
-    <Animated.View style={[s, { flex: 1 }]}>
-      <TouchableOpacity
-        onPress={() => {
-          scale.value = withSpring(0.95, { damping: 10 }, () => { scale.value = withSpring(1); });
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          onPress();
-        }}
-        disabled={loading}
-        activeOpacity={1}
-        style={[styles.actionBtn, { backgroundColor: colors.bg, borderColor: colors.border }]}
-      >
-        <Ionicons name={icon as any} size={18} color={colors.text} />
-        <TText variant="caption" weight="semibold" style={{ color: colors.text }}>{label}</TText>
-      </TouchableOpacity>
+    <Animated.View entering={enterUp(index, 80)} style={styles.section}>
+      <TText variant="label" color="accentWarm" uppercase style={styles.sectionTitle}>{title}</TText>
+      {children}
     </Animated.View>
   );
 }
 
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.fact}>
+      <TText variant="bodySmall" color="tertiary" style={styles.factLabel}>{label}</TText>
+      <TText variant="bodySmall" weight="medium" tabular style={{ flex: 1 }}>{value}</TText>
+    </View>
+  );
+}
+
+function DossierSkeleton() {
+  return (
+    <View style={[styles.body, { gap: 12, paddingTop: Spacing.lg }]}>
+      <TSkeleton width="35%" height={11} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <TSkeleton width={64} height={64} radius={32} />
+        <View style={{ flex: 1, gap: 8 }}>
+          <TSkeleton width="60%" height={28} />
+          <TSkeleton width="35%" height={12} />
+        </View>
+      </View>
+      <TSkeleton height={150} radius={Radius.md} style={{ marginTop: Spacing.lg }} />
+      <TSkeleton height={200} radius={Radius.md} style={{ marginTop: Spacing.sm }} />
+    </View>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -86,234 +133,292 @@ export default function RequestDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<RequestStatus | null>(null);
   const savingRef = useRef(false);
   const [showDecline, setShowDecline] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
+
   useEffect(() => {
     let active = true;
     setRequest(null); setLoading(true); setError(null);
     if (!user) { setLoading(false); return; }
-    fetchRequest(id, user.id).then(data => { if (active) setRequest(data); })
+    fetchRequest(id, user.id).then((data) => { if (active) setRequest(data); })
       .catch(() => { if (active) setError('Impossible de charger la demande.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [id, user, attempt, fetchRequest]);
+
   const changeStatus = async (status: RequestStatus) => {
     if (!request || savingRef.current) return;
-    savingRef.current = true; setSaving(true); setError(null);
+    savingRef.current = true; setSaving(true); setPending(status); setError(null);
     const result = await updateStatus(request.id, status, status === 'declined' ? { declineReason: selectedReason } : undefined);
-    savingRef.current = false; setSaving(false);
-    if (result.error) { setError(result.error); return; }
+    savingRef.current = false; setSaving(false); setPending(null);
+    if (result.error) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError(result.error);
+      return;
+    }
     setRequest(useRequestStore.getState().getRequest(request.id) ?? request);
     setShowDecline(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // One haptic per commit (accept, decline, clarification), paired with the status change on screen.
+    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
   const handleAccept = () => { void changeStatus('accepted'); };
   const handleDecline = () => { if (selectedReason) void changeStatus('declined'); };
   const handleClarification = () => { void changeStatus('clarification_needed'); };
-  if (!request) return <View style={[styles.container, { padding: 24, paddingTop: insets.top + 24, gap: 16 }]}>
-    <TText variant="title2">{loading ? 'Chargement de la demande…' : error ?? 'Demande introuvable ou inaccessible'}</TText>
-    {!loading && <TButton title="Réessayer" onPress={() => setAttempt(n => n + 1)} />}
-    <TButton title="Mes demandes" variant="glass" onPress={() => router.replace('/(tabs)/inbox')} />
-  </View>;
+
+  // ── Loading / unavailable ──
+  if (!request) {
+    return (
+      <View style={styles.container}>
+        <THeader showBack title="Demande" />
+        {loading ? <DossierSkeleton /> : !user ? (
+          <EmptyState
+            icon="lock-closed-outline"
+            title="Connectez-vous"
+            description="Cette demande n’est visible que par vous et l’artiste concerné."
+            ctaLabel="Se connecter"
+            onCta={() => router.push('/(auth)/sign-in')}
+          />
+        ) : error ? (
+          <EmptyState icon="cloud-offline-outline" title="Chargement impossible" description={`${error} Vérifiez votre connexion.`} ctaLabel="Réessayer" onCta={() => setAttempt((n) => n + 1)} />
+        ) : (
+          <EmptyState
+            icon="document-text-outline"
+            title="Demande introuvable"
+            description="Cette demande n’existe pas ou vous n’y avez pas accès."
+            ctaLabel="Mes demandes"
+            onCta={() => router.replace('/(tabs)/inbox')}
+          />
+        )}
+      </View>
+    );
+  }
+
   const isArtist = user?.artistId === request.artistId;
-  const config = STATUS_CONFIG[request.status];
+  const viewAs: RequestViewer = isArtist ? 'artist' : 'client';
+  const counterpart = (isArtist ? request.clientName : request.artistName) ?? '';
+  const counterpartAvatar = isArtist ? request.clientAvatarUrl : request.artistAvatarUrl;
+  const canAnswer = isArtist && (request.status === 'submitted' || request.status === 'clarification_needed');
+  const canChat = request.status === 'accepted';
+  const hasBar = canAnswer || canChat;
+  const guidance = nextStepCopy(request, viewAs, counterpart);
+  const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
+  const references = request.references ?? [];
+  const submitted = formatLong(request.submittedAt);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {error && <TText color="error" style={{ padding: 16 }}>{error}</TText>}
-      {/* Header */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="semibold">Demande</TText>
-        <View style={{ width: 44 }} />
-      </Animated.View>
+    <View style={styles.container}>
+      <THeader showBack title="Demande" />
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + (hasBar ? 190 : Spacing['2xl']) }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Client identity */}
-        <Animated.View entering={FadeInDown.delay(80).springify()}>
-          <GlassCard variant="elevated" style={styles.clientCard}>
-            <TAvatar uri={(isArtist ? request.clientAvatarUrl : request.artistAvatarUrl) ?? undefined} name={(isArtist ? request.clientName : request.artistName) ?? ''} size="xl" />
-            <View style={{ flex: 1 }}>
-              <TText variant="title2" weight="bold">{isArtist ? request.clientName : request.artistName}</TText>
-              <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>
-                {new Date(request.submittedAt).toLocaleDateString('fr-FR', {
-                  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                })}
-              </TText>
-              <View style={styles.statusRow}>
-                <View style={[styles.statusDot, { backgroundColor: config.dot }]} />
-                <TBadge label={(request.status === 'confirmed' ? 'Confirmée' : STATUS_LABELS[request.status])} variant={config.variant} />
-              </View>
-            </View>
-          </GlassCard>
-        </Animated.View>
-
-        {/* Project details */}
-        <Animated.View entering={FadeInDown.delay(140).springify()}>
-          <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
-            Détails du projet
+        {/* ── Identity ── */}
+        <Animated.View entering={enterUp(0)} style={styles.hero}>
+          <TText variant="label" color="tertiary" uppercase tabular>
+            {isArtist ? 'Demande reçue' : 'Votre demande'}{submitted ? ` · ${submitted}` : ''}
           </TText>
-          <GlassCard variant="default" style={styles.detailsCard}>
-            <InfoRow icon="add-circle-outline" label="Type"   value={PROJECT_TYPE_LABELS[request.projectType] ?? request.projectType} />
-            <TDivider style={{ marginVertical: 6 }} />
-            <InfoRow icon="body-outline"       label="Zone"   value={request.bodyZone} />
-            <TDivider style={{ marginVertical: 6 }} />
-            <InfoRow icon="resize-outline"     label="Taille" value={SIZE_LABELS[request.sizeCategory]?.split('·')[0]?.trim() ?? request.sizeCategory} />
-            <TDivider style={{ marginVertical: 6 }} />
-            <InfoRow icon="cash-outline"       label="Budget" value={request.budgetUnknown ? 'À définir' : `${request.budgetMin ?? '—'}–${request.budgetMax ?? '—'} €`} />
-            {!!request.stylePreference && (
-              <>
-                <TDivider style={{ marginVertical: 6 }} />
-                <InfoRow icon="color-palette-outline" label="Styles" value={request.stylePreference ?? ''} />
-              </>
-            )}
-            {request.colorPreference && (
-              <>
-                <TDivider style={{ marginVertical: 6 }} />
-                <InfoRow icon="contrast-outline" label="Couleur" value={request.colorPreference} />
-              </>
-            )}
-            {request.flexibilityLevel !== 'precise' && (
-              <>
-                <TDivider style={{ marginVertical: 6 }} />
-                <InfoRow icon="swap-horizontal-outline" label="Flexibilité" value="Ouvert aux suggestions" />
-              </>
-            )}
-          </GlassCard>
+          <View style={styles.identity}>
+            <TAvatar uri={counterpartAvatar} name={counterpart} size="xl" />
+            <View style={{ flex: 1 }}>
+              <TText variant="displayS" numberOfLines={2} accessibilityRole="header">{counterpart}</TText>
+              <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>
+                {isArtist ? (request.isFirstTattoo ? 'Client · premier tatouage' : 'Client') : request.artistCity || 'Artiste'}
+              </TText>
+            </View>
+          </View>
+          <RequestStatusLine status={request.status} viewAs={viewAs} strong />
         </Animated.View>
 
-        {/* Description */}
-        {request.description && (
-          <Animated.View entering={FadeInDown.delay(200).springify()}>
-            <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Description</TText>
-            <GlassCard variant="default" style={{ padding: Spacing.sm }}>
-              <TText variant="body" color="secondary" style={{ lineHeight: 24 }}>{request.description}</TText>
-            </GlassCard>
-          </Animated.View>
+        {/* ── Status timeline ── */}
+        <Section title="Suivi" index={1}>
+          <StatusTimeline steps={buildTimeline(request, viewAs)} />
+          {!!guidance && <TText variant="bodySmall" color="secondary" style={styles.guidance}>{guidance}</TText>}
+        </Section>
+
+        {!!request.artistNotes && (
+          <Section title="Note de l’artiste" index={2}>
+            <TText variant="body" color="secondary" style={styles.prose}>{request.artistNotes}</TText>
+          </Section>
         )}
 
-        {/* Decline reason (if declined) */}
-        {request.status === 'declined' && request.declineReason && (
-          <Animated.View entering={FadeInDown.delay(240).springify()}>
-            <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Raison du refus</TText>
-            <GlassCard variant="default" style={{ padding: Spacing.sm }}>
-              <TText variant="bodySmall" color="secondary">{DECLINE_REASONS[request.declineReason] ?? request.declineReason}</TText>
-            </GlassCard>
-          </Animated.View>
+        {/* ── Project ── */}
+        <Section title="Le projet" index={2}>
+          <Fact label="Type" value={projectTypeLabel(request.projectType)} />
+          <Fact label="Zone" value={request.bodyZone || '—'} />
+          <Fact label="Taille" value={`${request.sizeCategory.toUpperCase()} · ${SIZE_RANGE[request.sizeCategory] ?? ''}`} />
+          <Fact label="Budget" value={formatBudget(request)} />
+          <Fact label="Couleur" value={COLOR_LABEL[request.colorPreference] ?? request.colorPreference} />
+          {!!styles_ && <Fact label="Styles" value={styles_} />}
+          <Fact label="Approche" value={FLEX_LABEL[request.flexibilityLevel] ?? request.flexibilityLevel} />
+          {!isArtist && request.isFirstTattoo && <Fact label="Premier tatouage" value="Oui" />}
+        </Section>
+
+        {!!request.description && (
+          <Section title="Description" index={3}>
+            <TText variant="body" color="secondary" style={styles.prose} selectable>{request.description}</TText>
+          </Section>
         )}
 
-        {/* Decline picker modal */}
-        {showDecline && (
-          <Animated.View entering={FadeInDown.duration(250)} style={styles.declinePanel}>
-            <TText variant="bodySmall" weight="semibold" style={{ marginBottom: Spacing.sm }}>
-              Raison du refus
-            </TText>
-            {Object.entries(DECLINE_REASONS).map(([key, label]) => (
-              <TouchableOpacity
-                key={key}
-                onPress={() => setSelectedReason(key)}
-                style={[styles.declineOption, selectedReason === key && styles.declineOptionSelected]}
-              >
-                <Ionicons
-                  name={selectedReason === key ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={18}
-                  color={selectedReason === key ? Colors.error : Colors.textTertiary}
-                />
-                <TText variant="bodySmall" style={{ marginLeft: 10, flex: 1 }}>{label as string}</TText>
-              </TouchableOpacity>
-            ))}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: Spacing.sm }}>
-              <TButton title="Annuler" variant="glass" size="sm" onPress={() => setShowDecline(false)} />
-              <TButton
-                title="Confirmer le refus"
-                variant="secondary"
-                size="sm"
-                disabled={!selectedReason || saving}
-                onPress={handleDecline}
-              />
+        {references.length > 0 && (
+          <Section title="Références" index={4}>
+            <View style={styles.refGrid}>
+              {references.map((uri, i) => (
+                <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+              ))}
             </View>
-          </Animated.View>
+          </Section>
+        )}
+
+        {request.status === 'declined' && !!request.declineReason && (
+          <Section title="Motif du refus" index={5}>
+            <TText variant="body" color="secondary">{DECLINE_REASONS[request.declineReason] ?? request.declineReason}</TText>
+          </Section>
         )}
       </ScrollView>
 
-      {/* Artist action bar */}
-      {isArtist && (request.status === 'submitted' || request.status === 'clarification_needed') && !showDecline && (
-        <Animated.View
-          entering={FadeIn.delay(400).springify()}
-          style={[styles.actionBar, { paddingBottom: insets.bottom + 8 }]}
-        >
-          <ActionBtn loading={saving} label="Accepter" icon="checkmark-outline" onPress={handleAccept} variant="success" />
-          <ActionBtn loading={saving} label="Clarifier" icon="help-outline" onPress={handleClarification} variant="warning" />
-          <ActionBtn loading={saving} label="Refuser" icon="close-outline" onPress={() => setShowDecline(true)} variant="error" />
-        </Animated.View>
+      {/* ── Pinned actions ── */}
+      {hasBar && !showDecline && (
+        <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
+          <View style={styles.barInner}>
+            {!!error && (
+              <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+                <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
+                <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{error}</TText>
+              </View>
+            )}
+            {canAnswer ? (
+              <>
+                <View style={styles.barRow}>
+                  {request.status !== 'clarification_needed' && (
+                    <TButton
+                      title="Demander des précisions"
+                      variant="secondary"
+                      size="md"
+                      onPress={handleClarification}
+                      loading={pending === 'clarification_needed'}
+                      disabled={saving}
+                      fullWidth={false}
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                  <TButton
+                    title="Refuser"
+                    variant="secondary"
+                    size="md"
+                    onPress={() => { setError(null); setShowDecline(true); }}
+                    disabled={saving}
+                    fullWidth={false}
+                    style={{ flex: request.status === 'clarification_needed' ? 1 : undefined, minWidth: 110 }}
+                  />
+                </View>
+                <TButton title="Accepter la demande" onPress={handleAccept} loading={pending === 'accepted'} disabled={saving} />
+              </>
+            ) : (
+              <TButton
+                title="Ouvrir la conversation"
+                onPress={() => router.push(`/conversation/${request.id}`)}
+                icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.textInverse} />}
+              />
+            )}
+          </View>
+        </GlassSurface>
       )}
 
-      {/* Message CTA (accepted) */}
-      {request.status === 'accepted' && (
-        <Animated.View
-          entering={FadeIn.delay(300)}
-          style={[styles.singleAction, { paddingBottom: insets.bottom + 8 }]}
-        >
+      {/* ── Decline reasons ── */}
+      <BottomSheet visible={showDecline} onClose={() => setShowDecline(false)} accessibilityLabel="Motif du refus">
+        <TText variant="displayS">Motif du refus</TText>
+        <TText variant="bodySmall" color="secondary" style={{ marginTop: 4, marginBottom: Spacing.sm }}>
+          {counterpart} verra ce motif sur sa demande.
+        </TText>
+        <View accessibilityRole="radiogroup">
+          {Object.entries(DECLINE_REASONS).map(([key, label]) => {
+            const selected = selectedReason === key;
+            return (
+              <Pressable
+                key={key}
+                onPress={() => setSelectedReason(key)}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected, selected }}
+                style={styles.reasonRow}
+              >
+                <View style={[styles.radio, selected && styles.radioOn]}>
+                  {selected && <View style={styles.radioDot} />}
+                </View>
+                <TText variant="body" weight={selected ? 'medium' : 'regular'} style={{ flex: 1 }}>{label}</TText>
+              </Pressable>
+            );
+          })}
+        </View>
+        {!!error && (
+          <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{error}</TText>
+        )}
+        <View style={styles.sheetActions}>
           <TButton
-            title="Ouvrir la conversation →"
-            variant="primary"
-            onPress={() => router.push(`/conversation/${request.id}`)}
+            title="Confirmer le refus"
+            variant="destructive"
+            onPress={handleDecline}
+            loading={pending === 'declined'}
+            disabled={!selectedReason || saving}
           />
-        </Animated.View>
-      )}
+          <TButton title="Annuler" variant="ghost" size="md" onPress={() => setShowDecline(false)} />
+        </View>
+      </BottomSheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing['2xs'], height: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
+  body: {
+    width: '100%', maxWidth: DOSSIER_MAX + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter,
   },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  content: { paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm, gap: Spacing.sm },
-  sectionLabel: { marginBottom: Spacing['2xs'] },
-  clientCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, padding: Spacing.sm },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  detailsCard: { padding: Spacing.sm },
-  infoRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 5,
+
+  hero: { paddingTop: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.sm },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+
+  section: {
+    paddingVertical: Spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  declinePanel: {
-    backgroundColor: Colors.bgElevated,
-    borderRadius: Radius.xl,
-    padding: Spacing.md,
-    borderWidth: 1, borderColor: 'rgba(248,113,113,0.2)',
-  },
-  declineOption: {
-    flexDirection: 'row', alignItems: 'center',
+  sectionTitle: { marginBottom: Spacing.sm },
+  guidance: { marginTop: Spacing.xs, maxWidth: Layout.maxReading },
+  prose: { maxWidth: Layout.maxReading },
+
+  fact: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
   },
-  declineOptionSelected: {},
-  actionBar: {
-    flexDirection: 'row', gap: 8,
-    paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
-    backgroundColor: 'rgba(5,5,8,0.97)',
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle,
+  factLabel: { width: 112 },
+
+  refGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  refTile: { width: 104, height: 130, borderRadius: Radius.sm },
+
+  bar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingTop: 12, paddingHorizontal: Layout.gutter,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  actionBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    height: 48, borderRadius: Radius.md, borderWidth: 1, gap: 6,
+  barInner: { width: '100%', maxWidth: DOSSIER_MAX, alignSelf: 'center', gap: Spacing['2xs'] },
+  barRow: { flexDirection: 'row', gap: Spacing['2xs'] },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 },
+
+  reasonRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
+    minHeight: 48,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
   },
-  singleAction: {
-    paddingHorizontal: Spacing.sm, paddingTop: Spacing.sm,
-    backgroundColor: 'rgba(5,5,8,0.97)',
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle,
+  radio: {
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 1.5, borderColor: Colors.textTertiary,
+    alignItems: 'center', justifyContent: 'center',
   },
+  radioOn: { borderColor: Colors.error },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
+  sheetActions: { marginTop: Spacing.md, gap: Spacing['2xs'] },
 });
+

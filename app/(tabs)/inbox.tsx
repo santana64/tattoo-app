@@ -5,7 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -14,9 +14,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { RequestCard, REQUEST_STATUS } from '@/components/RequestCard';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
+import { enterUp } from '@/components/motion';
 
 const LIST_MAX = 760;
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 type FilterValue = RequestStatus | 'all';
@@ -81,7 +81,6 @@ function InboxSkeleton() {
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const { requests, fetchRequests, isLoading, error } = useRequestStore();
   const isArtist = user?.role === 'artist';
@@ -129,12 +128,9 @@ export default function InboxScreen() {
   }, [activeFilter, isArtist, router]);
 
   const renderRequest = useCallback(
-    ({ item, index }: { item: TattooRequest; index: number }) => (
-      <Animated.View entering={reduced ? undefined : FadeInDown.delay(Math.min(index * 45, 270)).duration(600).easing(EASE)}>
-        <RequestCard request={item} viewAs={viewAs} />
-      </Animated.View>
-    ),
-    [viewAs, reduced],
+    // Virtualized rows never animate in; only the masthead and filters do.
+    ({ item }: { item: TattooRequest }) => <RequestCard request={item} viewAs={viewAs} />,
+    [viewAs],
   );
 
   const subtitle = !user
@@ -187,7 +183,7 @@ export default function InboxScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.frame}>
         {/* Masthead */}
-        <Animated.View entering={reduced ? undefined : FadeIn.duration(400)} style={styles.header}>
+        <Animated.View entering={enterUp(0)} style={styles.header}>
           <View style={{ flex: 1 }}>
             <TText variant="displayM" accessibilityRole="header">
               {isArtist ? 'Boîte de ' : 'Vos '}
@@ -210,24 +206,26 @@ export default function InboxScreen() {
 
         {/* Filters */}
         {!!user && total > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filters}
-            style={styles.filterScroller}
-            accessibilityRole="tablist"
-          >
-            {STATUS_FILTERS.map((f) => (
-              <FilterChip
-                key={f.value}
-                label={isArtist ? f.artistLabel : f.clientLabel}
-                dot={f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color}
-                count={f.value === 'all' ? undefined : counts[f.value]}
-                active={activeFilter === f.value}
-                onPress={() => setActiveFilter(f.value)}
-              />
-            ))}
-          </ScrollView>
+          <Animated.View entering={enterUp(1)}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filters}
+              style={styles.filterScroller}
+              accessibilityRole="tablist"
+            >
+              {STATUS_FILTERS.map((f) => (
+                <FilterChip
+                  key={f.value}
+                  label={isArtist ? f.artistLabel : f.clientLabel}
+                  dot={f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color}
+                  count={f.value === 'all' ? undefined : counts[f.value]}
+                  active={activeFilter === f.value}
+                  onPress={() => setActiveFilter(f.value)}
+                />
+              ))}
+            </ScrollView>
+          </Animated.View>
         )}
       </View>
 

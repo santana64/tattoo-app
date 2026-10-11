@@ -12,8 +12,10 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout, Duration } from '@/constants/theme';
+import Animated from 'react-native-reanimated';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { enterUp, fadeIn } from '@/components/motion/tokens';
+import { PressableScale } from '@/components/motion/PressableScale';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -22,21 +24,16 @@ import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
 const FORM_MAX_WIDTH = 480;
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 // Format check only: the provider remains the source of truth.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function enter(delay: number, reduced: boolean) {
-  return reduced ? undefined : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
-}
-
-type InteractionState = { pressed: boolean; hovered?: boolean };
+// Entrance rhythm matches welcome.tsx: masthead fades, then a short rising stagger.
+const STAGGER_BASE = 120;
 
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const reduced = useReducedMotion();
   const { signInWithEmail, signInWithApple, signInWithGoogle, error: profileError, refreshProfile, signOut } = useAuthStore();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
@@ -107,20 +104,18 @@ export default function SignInScreen() {
         >
           <View style={styles.column}>
             {/* Masthead */}
-            <Animated.View entering={reduced ? undefined : FadeIn.duration(800)} style={styles.topBar}>
+            <Animated.View entering={fadeIn()} style={styles.topBar}>
               {canGoBack ? (
-                <Pressable
+                <PressableScale
                   onPress={() => router.back()}
+                  pressedScale={0.92}
                   accessibilityRole="button"
                   accessibilityLabel="Retour"
                   hitSlop={8}
-                  style={(state) => {
-                    const { pressed, hovered } = state as InteractionState;
-                    return [styles.backButton, (pressed || hovered) && styles.backButtonActive];
-                  }}
+                  style={styles.backButton}
                 >
                   <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                </Pressable>
+                </PressableScale>
               ) : null}
               <Logo size="sm" variant="wordmark" />
             </Animated.View>
@@ -128,12 +123,12 @@ export default function SignInScreen() {
             <View style={styles.spacer} />
 
             {/* Editorial block */}
-            <Animated.View entering={enter(120, reduced)} style={styles.kicker}>
+            <Animated.View entering={enterUp(0, STAGGER_BASE)} style={styles.kicker}>
               <View style={styles.kickerRule} />
               <TText variant="label" color="accentWarm" uppercase>Connexion · Inscription</TText>
             </Animated.View>
 
-            <Animated.View entering={enter(220, reduced)}>
+            <Animated.View entering={enterUp(1, STAGGER_BASE)}>
               <TText variant="displayL" style={styles.headline} accessibilityRole="header">
                 Entrez dans{'\n'}
                 <TText variant="displayL" italic color="accentGlow">l’atelier.</TText>
@@ -146,7 +141,7 @@ export default function SignInScreen() {
 
             {/* Profile could not be loaded after sign-in */}
             {profileError ? (
-              <Animated.View entering={enter(0, reduced)} style={styles.notice} accessibilityLiveRegion="polite">
+              <Animated.View entering={enterUp(0)} style={styles.notice} accessibilityLiveRegion="polite">
                 <View style={styles.noticeHead}>
                   <View style={styles.noticeDot} />
                   <TText variant="bodySmall" weight="medium">Profil indisponible</TText>
@@ -173,7 +168,7 @@ export default function SignInScreen() {
 
             {emailSent ? (
               // ── Link sent ───────────────────────────────────────
-              <Animated.View entering={enter(0, reduced)} style={styles.sentPanel} accessibilityLiveRegion="polite">
+              <Animated.View entering={enterUp(0)} style={styles.sentPanel} accessibilityLiveRegion="polite">
                 <View style={styles.iconRing}>
                   <Ionicons name="mail-open-outline" size={20} color={Colors.accentWarm} />
                 </View>
@@ -211,7 +206,7 @@ export default function SignInScreen() {
             ) : (
               <>
                 {/* ── Providers ──────────────────────────────────── */}
-                <Animated.View entering={enter(340, reduced)} style={styles.providers}>
+                <Animated.View entering={enterUp(2, STAGGER_BASE)} style={styles.providers}>
                   <TButton
                     title="Continuer avec Apple"
                     variant="secondary"
@@ -230,14 +225,14 @@ export default function SignInScreen() {
                   />
                 </Animated.View>
 
-                <Animated.View entering={enter(420, reduced)} style={styles.dividerRow}>
+                <Animated.View entering={enterUp(3, STAGGER_BASE)} style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
                   <TText variant="caption" color="tertiary">ou par e-mail</TText>
                   <View style={styles.dividerLine} />
                 </Animated.View>
 
                 {/* ── Email magic link ───────────────────────────── */}
-                <Animated.View entering={enter(500, reduced)}>
+                <Animated.View entering={enterUp(4, STAGGER_BASE)}>
                   <TInput
                     label="Adresse e-mail"
                     value={email}
@@ -268,7 +263,7 @@ export default function SignInScreen() {
 
             {/* Legal */}
             <Animated.View
-              entering={reduced ? undefined : FadeIn.delay(700).duration(600)}
+              entering={fadeIn(700)}
               style={styles.legalRow}
             >
               <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
@@ -305,9 +300,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  backButtonActive: { backgroundColor: Colors.glassBgMid },
 
   spacer: { flex: 1, minHeight: Spacing['2xl'], maxHeight: 160 },
 

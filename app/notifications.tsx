@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import {
-  FlatList, StyleSheet, View, Pressable, RefreshControl, Platform,
+  FlatList, StyleSheet, View, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import Animated from 'react-native-reanimated';
 import { format, isToday, isYesterday } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Colors, Spacing, Layout } from '@/constants/theme';
@@ -14,10 +13,9 @@ import { TText } from '@/components/ui/TText';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PressableScale, enterUp } from '@/components/motion';
 import { useNotificationStore, AppNotification } from '@/store/notification-store';
 import { useAuthStore } from '@/store/auth-store';
-
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
 // ─── Notification type config ─────────────────────────────────────────────────
 type NotifType =
@@ -64,36 +62,26 @@ function isNavigable(n: AppNotification) {
 }
 
 // ─── Notification item ────────────────────────────────────────────────────────
+// Rendered inside a virtualized list: press feedback only, no entrance animation.
 function NotifItem({
   item,
-  index,
   onPress,
 }: {
   item: AppNotification;
-  index: number;
   onPress: () => void;
 }) {
-  const reduced = useReducedMotion();
   const conf = NOTIF_CONFIG[resolveNotifType(item)];
   const unread = !item.isRead;
   const navigable = isNavigable(item);
 
-  const handlePress = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onPress();
-  };
-
   return (
-    <Animated.View entering={reduced || index > 9 ? undefined : FadeInDown.delay(index * 40).duration(500).easing(EASE)}>
-      <Pressable
-        onPress={handlePress}
-        accessibilityRole="button"
-        accessibilityLabel={`${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
-        style={(state) => {
-          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-          return [styles.item, (pressed || hovered) && styles.itemPressed];
-        }}
-      >
+    <PressableScale
+      onPress={onPress}
+      pressedScale={0.985}
+      accessibilityRole="button"
+      accessibilityLabel={`${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
+      style={styles.item}
+    >
         <View style={[styles.icon, unread && styles.iconUnread]}>
           <Ionicons name={conf.icon} size={17} color={conf.color} />
         </View>
@@ -124,8 +112,7 @@ function NotifItem({
           {unread && <View style={styles.unreadDot} />}
           {navigable && <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />}
         </View>
-      </Pressable>
-    </Animated.View>
+    </PressableScale>
   );
 }
 
@@ -150,7 +137,6 @@ function ListSkeleton() {
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const { notifications, isLoading, fetch, markRead, markAllRead, subscribe, unsubscribe } =
     useNotificationStore();
@@ -191,7 +177,6 @@ export default function NotificationsScreen() {
   };
 
   const handleMarkAll = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (user?.id) markAllRead(user.id);
   };
 
@@ -211,30 +196,33 @@ export default function NotificationsScreen() {
   }
 
   const header = (
-    <Animated.View entering={reduced ? undefined : FadeInDown.duration(600).easing(EASE)} style={styles.masthead}>
-      <TText variant="displayM" accessibilityRole="header">
-        Vos <TText variant="displayM" italic color="accentGlow">notifications</TText>
-      </TText>
-      <View style={styles.summaryRow}>
+    <View style={styles.masthead}>
+      <Animated.View entering={enterUp(0)}>
+        <TText variant="displayM" accessibilityRole="header">
+          Vos <TText variant="displayM" italic color="accentGlow">notifications</TText>
+        </TText>
+      </Animated.View>
+      <Animated.View entering={enterUp(1)} style={styles.summaryRow}>
         <TText variant="bodySmall" color="tertiary" tabular accessibilityLiveRegion="polite" style={{ flex: 1 }}>
           {unreadCount > 0
             ? `${unreadCount} non lue${unreadCount > 1 ? 's' : ''}`
             : notifications.length > 0 ? 'Tout est lu' : 'Demandes, messages et rendez-vous'}
         </TText>
         {unreadCount > 0 && (
-          <Pressable
+          <PressableScale
             onPress={handleMarkAll}
+            haptic
             accessibilityRole="button"
             accessibilityLabel="Tout marquer comme lu"
             hitSlop={8}
-            style={({ pressed }) => [styles.markAll, pressed && { opacity: 0.6 }]}
+            style={styles.markAll}
           >
             <Ionicons name="checkmark-done-outline" size={16} color={Colors.textSecondary} />
             <TText variant="caption" weight="medium" color="secondary">Tout marquer comme lu</TText>
-          </Pressable>
+          </PressableScale>
         )}
-      </View>
-    </Animated.View>
+      </Animated.View>
+    </View>
   );
 
   return (
@@ -243,16 +231,15 @@ export default function NotificationsScreen() {
       <FlatList
         data={grouped}
         keyExtractor={([key]) => key}
-        renderItem={({ item: [groupDate, items], index: gIndex }) => (
+        renderItem={({ item: [groupDate, items] }) => (
           <View>
             <View style={styles.groupHeader}>
               <TText variant="label" color="tertiary" uppercase>{groupDate}</TText>
             </View>
-            {items.map((notif, i) => (
+            {items.map((notif) => (
               <NotifItem
                 key={notif.id}
                 item={notif}
-                index={gIndex === 0 ? i : 99}
                 onPress={() => handleNotifPress(notif)}
               />
             ))}
@@ -274,8 +261,10 @@ export default function NotificationsScreen() {
           isLoading ? <ListSkeleton /> : (
             <EmptyState
               icon="notifications-outline"
-              title="Rien de nouveau"
-              description="Les réponses des artistes, vos messages et vos rendez-vous apparaîtront ici."
+              title="Rien de nouveau pour l’instant"
+              description="Les réponses des artistes, vos messages et vos rendez-vous apparaîtront ici. Commencez par trouver un artiste qui vous inspire."
+              ctaLabel="Explorer les artistes"
+              onCta={() => router.push('/(tabs)/explore')}
               style={styles.empty}
             />
           )
@@ -307,9 +296,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderSubtle,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  itemPressed: { backgroundColor: Colors.glassBg },
   icon: {
     width: 40,
     height: 40,

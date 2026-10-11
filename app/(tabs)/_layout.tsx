@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import { GlassSurface } from '@/components/motion';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming,
 } from 'react-native-reanimated';
@@ -21,7 +21,8 @@ function TabIcon({ name, color, focused, badge }: {
   const progress = useSharedValue(focused ? 1 : 0);
 
   useEffect(() => {
-    progress.value = withTiming(focused ? 1 : 0, { duration: Duration.base });
+    // Tabs are peers used constantly: no transition on the marker.
+    progress.value = focused ? 1 : 0;
   }, [focused, progress]);
 
   const dotStyle = useAnimatedStyle(() => ({
@@ -79,10 +80,7 @@ export default function TabLayout() {
         },
         tabBarBackground: () => (
           <View style={StyleSheet.absoluteFill}>
-            <LinearGradient
-              colors={['rgba(11,10,9,0.86)', 'rgba(11,10,9,0.97)']}
-              style={StyleSheet.absoluteFill}
-            />
+            <GlassSurface style={StyleSheet.absoluteFill} intensity={50} />
             <View style={styles.tabBarBorder} />
           </View>
         ),

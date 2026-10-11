@@ -1,195 +1,217 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  View, StyleSheet, TextInput, TouchableOpacity, FlatList,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Dimensions,
+  View, StyleSheet, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform,
+  ActivityIndicator, useWindowDimensions,
+  type NativeSyntheticEvent, type TextInputKeyPressEventData,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
-import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay,
-  FadeIn, FadeInUp, SlideInDown,
-} from 'react-native-reanimated';
+import Animated, { FadeInDown, LinearTransition, ReduceMotion, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, FontSize, GlowShadow } from '@/constants/theme';
+import { format, isToday, isYesterday, isValid, parseISO, differenceInMinutes } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TSkeleton } from '@/components/ui/TSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Toast } from '@/components/ui/TToast';
+import { GlassSurface, RevealImage, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
+import { RequestStatusLine, formatBudget, projectTypeLabel } from '@/components/RequestCard';
 import { useMessageStore, Message } from '@/store/message-store';
-import { useRequestStore } from '@/store/request-store';
+import { useRequestStore, type TattooRequest } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { pickImage, uploadFile } from '@/lib/storage';
-import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
 
-const { width: W } = Dimensions.get('window');
+const THREAD_MAX = 720;
+const MAX_LENGTH = 1000;
+const GROUP_WINDOW_MIN = 5;
 
-// ─── Typing Indicator ──────────────────────────────────────────────────────────
-function TypingIndicator() {
-  const dot1 = useSharedValue(0);
-  const dot2 = useSharedValue(0);
-  const dot3 = useSharedValue(0);
+// Short, quiet arrival for a freshly appended bubble only (never on history).
+const bubbleEnter = FadeInDown.duration(200)
+  .easing(EASE_OUT)
+  .withInitialValues({ opacity: 0, transform: [{ translateY: 8 }] })
+  .reduceMotion(ReduceMotion.System);
+const rowLayout = LinearTransition.duration(200).easing(EASE_IN_OUT).reduceMotion(ReduceMotion.System);
 
-  useEffect(() => {
-    const animate = (v: typeof dot1, delay: number) => {
-      v.value = withDelay(delay, withSpring(1, { damping: 4, stiffness: 200 }, () => {
-        v.value = withSpring(0, { damping: 4 });
-      }));
+interface Row {
+  msg: Message;
+  dayLabel: string | null;
+  lastInGroup: boolean;
+  firstInGroup: boolean;
+}
+
+function dayLabelOf(d: Date): string {
+  if (isToday(d)) return 'Aujourd’hui';
+  if (isYesterday(d)) return 'Hier';
+  return format(d, 'EEEE d MMMM', { locale: fr });
+}
+
+function buildRows(messages: Message[]): Row[] {
+  return messages.map((msg, i) => {
+    const prev = messages[i - 1];
+    const next = messages[i + 1];
+    const d = parseISO(msg.createdAt);
+    const pd = prev ? parseISO(prev.createdAt) : null;
+    const nd = next ? parseISO(next.createdAt) : null;
+    const sameDayAsPrev = pd && isValid(pd) && isValid(d) && pd.toDateString() === d.toDateString();
+    const joinsPrev = !!prev && prev.senderId === msg.senderId && prev.messageType !== 'system' && !!sameDayAsPrev
+      && Math.abs(differenceInMinutes(d, pd as Date)) < GROUP_WINDOW_MIN;
+    const joinsNext = !!next && next.senderId === msg.senderId && next.messageType !== 'system' && nd && isValid(nd)
+      && nd.toDateString() === d.toDateString() && Math.abs(differenceInMinutes(nd, d)) < GROUP_WINDOW_MIN;
+    return {
+      msg,
+      dayLabel: !sameDayAsPrev && isValid(d) ? dayLabelOf(d) : null,
+      firstInGroup: !joinsPrev,
+      lastInGroup: !joinsNext,
     };
-    const interval = setInterval(() => {
-      animate(dot1, 0);
-      animate(dot2, 150);
-      animate(dot3, 300);
-    }, 900);
-    return () => clearInterval(interval);
-  }, []);
+  });
+}
 
-  const d1Style = useAnimatedStyle(() => ({ transform: [{ translateY: dot1.value * -5 }] }));
-  const d2Style = useAnimatedStyle(() => ({ transform: [{ translateY: dot2.value * -5 }] }));
-  const d3Style = useAnimatedStyle(() => ({ transform: [{ translateY: dot3.value * -5 }] }));
-
+// ─── Pieces ───────────────────────────────────────────────────────────────────
+function DaySeparator({ label }: { label: string }) {
   return (
-    <Animated.View entering={FadeIn.duration(200)} style={styles.typingWrap}>
-      <View style={styles.typingBubble}>
-        <Animated.View style={[styles.typingDot, d1Style]} />
-        <Animated.View style={[styles.typingDot, d2Style]} />
-        <Animated.View style={[styles.typingDot, d3Style]} />
-      </View>
-    </Animated.View>
+    <View style={styles.daySep} accessibilityRole="header">
+      <View style={styles.daySepLine} />
+      <TText variant="caption" color="tertiary" style={{ textTransform: 'capitalize' }}>{label}</TText>
+      <View style={styles.daySepLine} />
+    </View>
   );
 }
 
-// ─── Message Bubble V3 ─────────────────────────────────────────────────────────
-function MessageBubble({ item, isMe, index }: { item: Message; isMe: boolean; index: number }) {
-  const scale = useSharedValue(0.88);
-  const opacity = useSharedValue(0);
+function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; maxWidth: number; animate: boolean }) {
+  const { msg, firstInGroup, lastInGroup } = row;
+  const d = parseISO(msg.createdAt);
+  const time = isValid(d) ? format(d, 'HH:mm') : '';
 
-  useEffect(() => {
-    const d = Math.min(index * 20, 280);
-    scale.value = withDelay(d, withSpring(1, { damping: 14, stiffness: 220 }));
-    opacity.value = withDelay(d, withTiming(1, { duration: 180 }));
-  }, []);
-
-  const bubbleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
-  // System message
-  if (item.messageType === 'system') {
+  if (msg.messageType === 'system') {
     return (
-      <Animated.View entering={FadeIn.duration(300)} style={styles.systemMsg}>
-        <View style={styles.systemMsgInner}>
-          <TText variant="caption" color="tertiary" style={{ textAlign: 'center' }}>{item.content}</TText>
-        </View>
+      <Animated.View entering={animate ? bubbleEnter : undefined} style={styles.systemMsg}>
+        <TText variant="caption" color="secondary" style={{ textAlign: 'center', maxWidth: 420 }}>{msg.content}</TText>
       </Animated.View>
     );
   }
 
+  const corner = isMe
+    ? { borderTopRightRadius: firstInGroup ? 18 : 6, borderBottomRightRadius: lastInGroup ? 6 : 6 }
+    : { borderTopLeftRadius: firstInGroup ? 18 : 6, borderBottomLeftRadius: lastInGroup ? 6 : 6 };
+
   return (
-    <Animated.View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem, bubbleStyle]}>
-      {item.messageType === 'image' ? (
-        <TouchableOpacity activeOpacity={0.9} style={[isMe ? styles.bubbleMe : styles.bubbleThem, { padding: 3, borderRadius: Radius.lg }]}>
-          <Image
-            source={{ uri: item.content }}
-            style={styles.imageBubble}
-            contentFit="cover"
-            transition={300}
-          />
-        </TouchableOpacity>
+    <Animated.View
+      entering={animate ? bubbleEnter : undefined}
+      style={[styles.bubbleRow, isMe ? styles.rowMe : styles.rowThem, { marginTop: firstInGroup ? 10 : 2 }]}
+    >
+      {msg.messageType === 'image' ? (
+        <RevealImage
+          uri={msg.content}
+          style={[styles.imageBubble, corner, msg.pending && styles.pending]}
+          accessibilityLabel={isMe ? 'Image envoyée' : 'Image reçue'}
+        />
       ) : (
-        <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem, item.pending && styles.bubblePending]}>
-          {!isMe && (
-            <LinearGradient
-              colors={['rgba(255,255,255,0.04)', 'transparent']}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
-            />
-          )}
-          <TText variant="bodySmall" style={isMe ? styles.textMe : styles.textThem} selectable>
-            {item.content}
+        <View style={[styles.bubble, { maxWidth }, isMe ? styles.bubbleMe : styles.bubbleThem, corner, msg.pending && styles.pending]}>
+          <TText variant="body" style={{ color: isMe ? Colors.textInverse : Colors.textPrimary, fontSize: 15, lineHeight: 22 }} selectable>
+            {msg.content}
           </TText>
         </View>
       )}
-      <View style={isMe ? styles.metaRowMe : styles.metaRowThem}>
-        <TText variant="micro" color="tertiary" style={styles.timestamp}>
-          {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
-        </TText>
-        {isMe && !item.pending && (
-          <TText style={styles.readReceipt}> ✓✓</TText>
-        )}
-        {item.failed && <TText style={styles.failedReceipt}> ✗</TText>}
-      </View>
+      {(lastInGroup || msg.pending || msg.failed) && (
+        <View style={[styles.meta, isMe ? { justifyContent: 'flex-end' } : null]}>
+          {msg.failed ? (
+            <View style={styles.metaFailed} accessibilityRole="alert">
+              <Ionicons name="alert-circle-outline" size={12} color={Colors.errorLight} />
+              <TText variant="micro" style={{ color: Colors.errorLight }}>Non envoyé</TText>
+            </View>
+          ) : msg.pending ? (
+            <TText variant="micro" color="tertiary">Envoi…</TText>
+          ) : (
+            <TText variant="micro" color="tertiary" tabular>{time}</TText>
+          )}
+        </View>
+      )}
     </Animated.View>
   );
 }
 
-// ─── Main Screen ───────────────────────────────────────────────────────────────
+function ThreadSkeleton() {
+  return (
+    <View style={{ gap: 10, paddingTop: Spacing.md }} accessibilityLabel="Chargement des messages">
+      {[160, 220, 120, 240, 180].map((w, i) => (
+        <View key={i} style={{ alignItems: i % 2 ? 'flex-end' : 'flex-start' }}>
+          <TSkeleton width={w} height={i === 3 ? 58 : 38} radius={16} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const {
     fetchMessages, subscribeToRequest, unsubscribeFromRequest,
     sendMessage, markAsRead, messagesByRequest,
   } = useMessageStore();
-  const { getRequest } = useRequestStore();
+  const { getRequest, fetchRequest } = useRequestStore();
 
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [showTyping, setShowTyping] = useState(false);
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flatListRef = useRef<FlatList>(null);
+  const [focused, setFocused] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [baseline, setBaseline] = useState<Set<string> | null>(null);
+  const [fetchedRequest, setFetchedRequest] = useState<TattooRequest | null>(null);
+  const flatListRef = useRef<FlatList<Row>>(null);
 
-  const messages = messagesByRequest[id] ?? [];
-  const request = getRequest(id);
-
-  const sendScale = useSharedValue(0);
+  const messages = useMemo(() => messagesByRequest[id] ?? [], [messagesByRequest, id]);
+  const rows = useMemo(() => buildRows(messages), [messages]);
+  const request = getRequest(id) ?? fetchedRequest;
 
   useEffect(() => {
     if (!id) return;
-    fetchMessages(id);
+    let active = true;
+    fetchMessages(id).finally(() => { if (active) setLoaded(true); });
     subscribeToRequest(id);
     if (user?.id) markAsRead(id, user.id);
     return () => {
+      active = false;
       unsubscribeFromRequest();
-      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [id]);
+  }, [id, user?.id, fetchMessages, subscribeToRequest, unsubscribeFromRequest, markAsRead]);
+
+  // Context for the header when the thread is opened directly (deep link, notification).
+  useEffect(() => {
+    if (!id || !user?.id || getRequest(id)) return;
+    let active = true;
+    fetchRequest(id, user.id).then((r) => { if (active) setFetchedRequest(r); }).catch(() => {});
+    return () => { active = false; };
+  }, [id, user?.id, getRequest, fetchRequest]);
+
+  // History never animates: remember what was already there when the thread opened.
+  useEffect(() => {
+    if (loaded && baseline === null) setBaseline(new Set(messages.map((m) => m.id)));
+  }, [loaded, baseline, messages]);
 
   useEffect(() => {
-    sendScale.value = withSpring(text.trim().length > 0 ? 1 : 0, { damping: 14, stiffness: 220 });
-  }, [text]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
-    }
-  }, [messages.length]);
-
-  const triggerTypingIndicator = () => {
-    setShowTyping(true);
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(
-      () => setShowTyping(false),
-      2500 + Math.random() * 2000
-    );
-  };
+    if (messages.length === 0) return;
+    const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: !reduced }), 80);
+    return () => clearTimeout(t);
+  }, [messages.length, reduced]);
 
   const handleSend = useCallback(async () => {
     if (!text.trim() || !user?.id || isSending) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const content = text.trim();
     setText('');
     setIsSending(true);
     await sendMessage(id, user.id, content);
     setIsSending(false);
     flatListRef.current?.scrollToEnd({ animated: true });
-    // Simulate the other party typing a response
-    triggerTypingIndicator();
-  }, [text, user?.id, id, isSending]);
+  }, [text, user?.id, id, isSending, sendMessage]);
 
   const handleImageSend = async () => {
     const uris = await pickImage();
@@ -198,25 +220,44 @@ export default function ConversationScreen() {
     try {
       const { url } = await uploadFile(uris[0], 'posts-media', `conv/${id}/${Date.now()}.jpg`);
       await sendMessage(id, user.id, url, 'image');
+    } catch {
+      Toast.error('Image non envoyée. Vérifiez votre connexion puis réessayez.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  const sendBtnStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: sendScale.value }],
-    opacity: sendScale.value,
-  }));
+  // Web: Enter sends, Shift+Enter adds a line.
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (Platform.OS !== 'web') return;
+    const ev = e.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean };
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      (e as unknown as { preventDefault?: () => void }).preventDefault?.();
+      void handleSend();
+    }
+  };
 
-  const attachBtnStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: text.length > 0 ? withSpring(0, { damping: 14 }) : withSpring(1, { damping: 14 }) }],
-    opacity: text.length > 0 ? withTiming(0, { duration: 120 }) : withTiming(1, { duration: 120 }),
-  }));
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/inbox'));
 
-  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const isMe = item.senderId === user?.id;
-    return <MessageBubble item={item} isMe={isMe} index={index} />;
-  }, [user?.id]);
+  const isArtist = !!request && user?.artistId === request.artistId;
+  const counterpart = request ? ((isArtist ? request.clientName : request.artistName) ?? '') : '';
+  const summary = request
+    ? [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ')
+    : '';
+  const bubbleMax = Math.min(width * 0.78, 520);
+  const canSend = !!text.trim() && !isSending;
+
+  const renderRow = useCallback(({ item }: { item: Row }) => {
+    const isMe = item.msg.senderId === user?.id;
+    const animate = !!baseline && !baseline.has(item.msg.id)
+      && (item.msg.id.startsWith('optimistic-') || !isMe);
+    return (
+      <View>
+        {item.dayLabel && <DaySeparator label={item.dayLabel} />}
+        <Bubble row={item} isMe={isMe} maxWidth={bubbleMax} animate={animate} />
+      </View>
+    );
+  }, [user?.id, baseline, bubbleMax]);
 
   return (
     <KeyboardAvoidingView
@@ -225,363 +266,201 @@ export default function ConversationScreen() {
       keyboardVerticalOffset={0}
     >
       {/* ── Header ── */}
-      <Animated.View entering={FadeIn.duration(280)} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <TText variant="bodySmall" weight="semibold" numberOfLines={1}>
-            {request?.artistName ?? request?.clientName ?? 'Conversation'}
-          </TText>
-          {(() => {
-            const lastOther = [...messages].reverse().find(m => m.senderId !== user?.id);
-            const minutesAgo = lastOther
-              ? Math.round((Date.now() - new Date(lastOther.createdAt).getTime()) / 60000)
-              : null;
-            const isOnline = minutesAgo !== null && minutesAgo < 5;
-            const presenceText = minutesAgo === null
-              ? 'Hors ligne'
-              : minutesAgo < 5
-              ? 'En ligne'
-              : minutesAgo < 60
-              ? `Actif il y a ${minutesAgo} min`
-              : `Actif il y a ${Math.round(minutesAgo / 60)}h`;
-            return (
-              <View style={styles.onlineRow}>
-                <View style={[styles.onlineDot, !isOnline && { backgroundColor: Colors.textTertiary }]} />
-                <TText variant="micro" color="tertiary">{presenceText}</TText>
-              </View>
-            );
-          })()}
+      <View style={styles.header}>
+        <View style={styles.headerInner}>
+          <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Retour" hitSlop={6} style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}>
+            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <TText variant="title2" serif numberOfLines={1} style={{ fontSize: 20, lineHeight: 24 }} accessibilityRole="header">
+              {counterpart || 'Conversation'}
+            </TText>
+            {!!summary && <TText variant="caption" color="tertiary" numberOfLines={1} tabular>{summary}</TText>}
+          </View>
+          <Pressable
+            onPress={() => router.push(`/request/${id}`)}
+            accessibilityRole="button"
+            accessibilityLabel="Voir la demande"
+            hitSlop={6}
+            style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="document-text-outline" size={18} color={Colors.textPrimary} />
+          </Pressable>
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => router.push(`/request/${id}`)}>
-          <Ionicons name="information-circle-outline" size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </Animated.View>
+        {request && (
+          <View style={styles.contextRow}>
+            <RequestStatusLine status={request.status} viewAs={isArtist ? 'artist' : 'client'} />
+            <Pressable onPress={() => router.push(`/request/${id}`)} accessibilityRole="link" hitSlop={8} style={styles.contextLink}>
+              <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Voir la demande</TText>
+            </Pressable>
+          </View>
+        )}
+      </View>
 
-      {/* ── Context banner ── */}
-      {request && (
-        <Animated.View entering={SlideInDown.duration(320)} style={styles.contextBanner}>
-          <LinearGradient
-            colors={['rgba(212,168,100,0.07)', 'transparent']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          <Ionicons name="color-palette-outline" size={13} color={Colors.accentWarm} />
-          <TText variant="caption" style={styles.contextType}>
-            {request.projectType}
-          </TText>
-          <TText variant="caption" color="tertiary" style={styles.contextDetail} numberOfLines={1}>
-            · {request.sizeCategory?.toUpperCase()} · {request.budgetMin ? `${request.budgetMin}–${request.budgetMax}€` : 'Budget flexible'}
-          </TText>
-          <TouchableOpacity onPress={() => router.push(`/request/${id}`)} style={styles.contextViewBtn}>
-            <TText variant="micro" color="tertiary">Voir →</TText>
-          </TouchableOpacity>
-        </Animated.View>
-      )}
-
-      {/* ── Messages ── */}
-      <FlatList
+      {/* ── Thread ── */}
+      <Animated.FlatList
         ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={renderMessage}
-        contentContainerStyle={[styles.list, { paddingBottom: 16 }]}
+        data={rows}
+        keyExtractor={(item) => item.msg.id}
+        renderItem={renderRow}
+        itemLayoutAnimation={reduced ? undefined : rowLayout}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.list, rows.length === 0 && { flexGrow: 1 }]}
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        ListFooterComponent={showTyping ? <TypingIndicator /> : null}
+        ListEmptyComponent={
+          !loaded ? <ThreadSkeleton /> : (
+            <EmptyState
+              icon="chatbubbles-outline"
+              title="Commencez l’échange"
+              description={
+                isArtist
+                  ? `Écrivez à ${counterpart || 'votre client'} pour préciser le projet et convenir d’un rendez-vous.`
+                  : `Présentez-vous et précisez votre projet${counterpart ? ` à ${counterpart}` : ''}.`
+              }
+            />
+          )
+        }
       />
 
-      {/* ── Input bar ── */}
-      <Animated.View
-        entering={SlideInDown.delay(180).duration(320)}
-        style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}
-      >
-        {/* Top fade edge */}
-        <LinearGradient
-          colors={['rgba(3,3,5,0)', 'rgba(3,3,5,0.9)']}
-          style={styles.inputFade}
-          pointerEvents="none"
-        />
-        <View style={styles.inputRow}>
-          {/* Attach button — hides when typing */}
-          <Animated.View style={[styles.attachBtnWrap, attachBtnStyle]}>
-            <TouchableOpacity style={styles.attachBtn} onPress={handleImageSend} disabled={isUploading}>
-              {isUploading
-                ? <ActivityIndicator size="small" color={Colors.textTertiary} />
-                : <Ionicons name="image-outline" size={21} color={Colors.textSecondary} />}
-            </TouchableOpacity>
-          </Animated.View>
+      {/* ── Composer ── */}
+      <GlassSurface style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
+        <View style={styles.composerInner}>
+          <Pressable
+            onPress={handleImageSend}
+            disabled={isUploading}
+            accessibilityRole="button"
+            accessibilityLabel="Envoyer une image"
+            accessibilityState={{ disabled: isUploading, busy: isUploading }}
+            hitSlop={4}
+            style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
+          >
+            {isUploading
+              ? <ActivityIndicator size="small" color={Colors.textSecondary} />
+              : <Ionicons name="image-outline" size={20} color={Colors.textSecondary} />}
+          </Pressable>
 
-          {/* Text input */}
-          <View style={styles.inputWrap}>
+          <View style={[styles.inputWrap, focused && styles.inputWrapFocused]}>
             <TextInput
               style={styles.input}
               value={text}
               onChangeText={setText}
-              placeholder="Message…"
+              onKeyPress={handleKeyPress}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={counterpart ? `Écrire à ${counterpart}` : 'Écrire un message'}
               placeholderTextColor={Colors.textTertiary}
+              selectionColor={Colors.accentWarm}
               multiline
-              maxLength={1000}
-              returnKeyType="default"
+              maxLength={MAX_LENGTH}
+              accessibilityLabel="Message"
             />
           </View>
 
-          {/* Send button — appears when text present */}
-          <Animated.View style={sendBtnStyle}>
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={handleSend}
-              disabled={!text.trim() || isSending}
-              activeOpacity={0.82}
-            >
-              <LinearGradient
-                colors={[Colors.accentGlow, Colors.accentWarm]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              {isSending
-                ? <ActivityIndicator size="small" color={Colors.bgPrimary} />
-                : <Ionicons name="arrow-up" size={17} color={Colors.bgPrimary} />}
-            </TouchableOpacity>
-          </Animated.View>
+          <Pressable
+            onPress={handleSend}
+            disabled={!canSend}
+            accessibilityRole="button"
+            accessibilityLabel="Envoyer le message"
+            accessibilityState={{ disabled: !canSend, busy: isSending }}
+            style={({ pressed }) => [styles.sendBtn, !canSend && styles.sendBtnDisabled, pressed && canSend && { opacity: 0.85 }]}
+          >
+            {isSending
+              ? <ActivityIndicator size="small" color={Colors.textInverse} />
+              : <Ionicons name="arrow-up" size={18} color={Colors.textInverse} />}
+          </Pressable>
         </View>
-      </Animated.View>
+        {text.length > MAX_LENGTH - 100 && (
+          <TText variant="micro" color="tertiary" tabular style={styles.counter}>{text.length} / {MAX_LENGTH}</TText>
+        )}
+      </GlassSurface>
     </KeyboardAvoidingView>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
-  // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xs'],
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
-    backgroundColor: 'rgba(3,3,5,0.97)',
-  },
-  headerBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-  },
-  onlineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  onlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.successLight,
-  },
-
-  // Context banner
-  contextBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 8,
+    paddingTop: 6,
+    paddingBottom: Spacing['2xs'],
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderSubtle,
-    overflow: 'hidden',
   },
-  contextType: {
-    color: Colors.accentWarm,
-    fontWeight: '600',
-    marginLeft: 6,
+  headerInner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
+    width: '100%', maxWidth: THREAD_MAX + Layout.gutter * 2, alignSelf: 'center',
   },
-  contextDetail: {
-    marginLeft: 6,
-    flex: 1,
+  headerCenter: { flex: 1, alignItems: 'center' },
+  roundBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
-  contextViewBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  contextRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
+    paddingTop: Spacing['2xs'], paddingHorizontal: 4,
   },
+  contextLink: { minHeight: 28, justifyContent: 'center' },
 
-  // Message list
   list: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.sm,
+    width: '100%', maxWidth: THREAD_MAX + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xs, paddingBottom: Spacing.md,
   },
 
-  // System message
-  systemMsg: {
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  systemMsgInner: {
-    backgroundColor: Colors.bgSubtle,
-    borderRadius: Radius.full,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
+  daySep: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: Spacing.lg, marginBottom: Spacing['2xs'] },
+  daySepLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
 
-  // Bubble row
-  bubbleRow: {
-    marginBottom: 4,
-  },
-  bubbleRowMe: {
-    alignItems: 'flex-end',
-  },
-  bubbleRowThem: {
-    alignItems: 'flex-start',
-  },
+  systemMsg: { alignItems: 'center', marginVertical: Spacing.sm, paddingHorizontal: Spacing.lg },
 
-  // Bubble body
-  bubble: {
-    maxWidth: W * 0.75,
-    borderRadius: Radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    overflow: 'hidden',
-  },
-  bubbleMe: {
-    backgroundColor: Colors.accent,
-    borderBottomRightRadius: 4,
-  },
+  bubbleRow: {},
+  rowMe: { alignItems: 'flex-end' },
+  rowThem: { alignItems: 'flex-start' },
+  bubble: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9 },
+  bubbleMe: { backgroundColor: Colors.accentAction },
   bubbleThem: {
-    backgroundColor: Colors.bgSurface,
-    borderBottomLeftRadius: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    backgroundColor: Colors.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
   },
-  bubblePending: {
-    opacity: 0.5,
-  },
-  imageBubble: {
-    width: 200,
-    height: 200,
-    borderRadius: Radius.md - 3,
-  },
-  textMe: {
-    color: Colors.bgPrimary,
-  },
-  textThem: {
-    color: Colors.textPrimary,
-  },
+  pending: { opacity: 0.55 },
+  imageBubble: { width: 220, height: 220, borderRadius: 18 },
+  meta: { flexDirection: 'row', alignItems: 'center', marginTop: 4, paddingHorizontal: 4 },
+  metaFailed: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
-  // Timestamps / read receipts
-  metaRowMe: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginTop: 3,
-    marginRight: 2,
-    gap: 1,
+  composer: {
+    paddingTop: 10, paddingHorizontal: Layout.gutter,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  metaRowThem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 3,
-    marginLeft: 2,
-  },
-  timestamp: {
-    fontSize: 10,
-  },
-  readReceipt: {
-    fontSize: 10,
-    color: Colors.accentWarm,
-  },
-  failedReceipt: {
-    fontSize: 10,
-    color: Colors.errorLight,
-  },
-
-  // Typing indicator
-  typingWrap: {
-    alignItems: 'flex-start',
-    paddingLeft: 2,
-    marginBottom: 8,
-  },
-  typingBubble: {
-    flexDirection: 'row',
-    gap: 4,
-    alignItems: 'center',
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  typingDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: Colors.textTertiary,
-  },
-
-  // Input bar
-  inputBar: {
-    backgroundColor: Colors.bgPrimary,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-    paddingHorizontal: Spacing.sm,
-    paddingTop: 10,
-  },
-  inputFade: {
-    position: 'absolute',
-    top: -20,
-    left: 0,
-    right: 0,
-    height: 20,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  attachBtnWrap: {
-    // used for animated opacity/scale
+  composerInner: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: Spacing['2xs'],
+    width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
   },
   attachBtn: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
   },
   inputWrap: {
-    flex: 1,
-  },
-  input: {
-    minHeight: 38,
-    maxHeight: 120,
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.lg,
+    flex: 1, minHeight: 44, justifyContent: 'center',
+    backgroundColor: Colors.bgElevated, borderRadius: Radius.xl,
+    borderWidth: 1, borderColor: Colors.borderDefault,
     paddingHorizontal: 14,
-    paddingVertical: 9,
-    color: Colors.textPrimary,
-    fontSize: FontSize.body,
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
+  },
+  inputWrapFocused: { borderColor: Colors.borderFocus },
+  input: {
+    maxHeight: 140, paddingVertical: Platform.OS === 'ios' ? 11 : 8,
+    color: Colors.textPrimary, fontFamily: Fonts.sans, fontSize: FontSize.body,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null),
   },
   sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    ...GlowShadow.amber,
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.accentAction,
   },
+  sendBtnDisabled: { opacity: 0.38 },
+  counter: { textAlign: 'right', width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center', marginTop: 4 },
 });

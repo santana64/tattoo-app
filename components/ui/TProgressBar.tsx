@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import Animated, {
-  Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming,
+  useAnimatedStyle, useReducedMotion, useSharedValue, withTiming,
 } from 'react-native-reanimated';
-import { Colors, Duration } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
+import { EASE_OUT } from '@/components/motion/tokens';
 
 interface TProgressBarProps {
   progress: number; // 0–1
@@ -15,10 +16,14 @@ interface TProgressBarProps {
   accessibilityLabel?: string;
 }
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+const FILL_DURATION = 400;
 const clamp = (n: number) => Math.min(Math.max(Number.isFinite(n) ? n : 0, 0), 1);
 
-/** Thin gallery-light line: hairline track, gold fill, eased (never springy). */
+/**
+ * Thin gallery-light line: hairline track, gold fill eased out over ~400ms.
+ * The fill is an absolutely positioned, childless view, so animating its width
+ * never reflows siblings. Reduced motion jumps straight to the value.
+ */
 export function TProgressBar({
   progress,
   from,
@@ -32,7 +37,7 @@ export function TProgressBar({
   const fill = useSharedValue(reduced ? target : clamp(from ?? 0));
 
   useEffect(() => {
-    fill.value = reduced ? target : withTiming(target, { duration: Duration.reveal, easing: EASE });
+    fill.value = reduced ? target : withTiming(target, { duration: FILL_DURATION, easing: EASE_OUT });
   }, [fill, reduced, target]);
 
   const barStyle = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
@@ -55,5 +60,5 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.borderDefault,
     overflow: 'hidden',
   },
-  fill: {},
+  fill: { position: 'absolute', left: 0, top: 0, bottom: 0 },
 });

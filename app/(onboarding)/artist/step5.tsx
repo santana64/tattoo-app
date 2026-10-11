@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen, RadioMark, useOnboardingFinale } from '@/components/OnboardingProgress';
+import { PressableScale } from '@/components/motion/PressableScale';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 5;
@@ -30,7 +31,6 @@ const PREMIUM_FEATURES = [
 ];
 
 type Plan = 'free' | 'premium';
-type InteractionState = { pressed: boolean; hovered?: boolean };
 
 function FeatureRow({ text, premium }: { text: string; premium?: boolean }) {
   return (
@@ -56,25 +56,20 @@ function PlanCard({
 }) {
   const premium = plan === 'premium';
   return (
-    <Pressable
+    <PressableScale
       onPress={onSelect}
+      haptic={!selected}
+      pressedScale={0.985}
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={premium ? 'Formule Premium' : 'Formule gratuite'}
-      style={(state) => {
-        const { pressed, hovered } = state as InteractionState;
-        return [
-          styles.card,
-          selected && (premium ? styles.cardPremiumSelected : styles.cardSelected),
-          (pressed || hovered) && !selected && styles.cardHover,
-        ];
-      }}
+      style={[styles.card, selected && (premium ? styles.cardPremiumSelected : styles.cardSelected)]}
     >
-      <View style={[styles.radio, selected && styles.radioOn]}>
-        {selected ? <View style={styles.radioInner} /> : null}
+      <View style={styles.radioSlot}>
+        <RadioMark selected={selected} />
       </View>
       {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -83,34 +78,29 @@ export default function ArtistStep5() {
   const { completeOnboarding } = useAuthStore();
   const [selected, setSelected] = useState<Plan>('premium');
   const [busy, setBusy] = useState<Plan | null>(null);
+  const finale = useOnboardingFinale();
 
   const handleFree = async () => {
-    haptic('success');
     await completeOnboarding();
     router.replace('/(tabs)');
   };
 
   const handlePremium = async () => {
-    haptic('success');
     await completeOnboarding();
     router.replace('/settings/subscription');
   };
 
-  // Guard against double taps while the profile is being saved.
-  const run = (plan: Plan, action: () => Promise<void>) => async () => {
+  // Rare moment: a short welcome, then the original handler. Guards against double taps.
+  const run = (plan: Plan, action: () => Promise<void>) => () => {
     if (busy) return;
     setBusy(plan);
-    try {
-      await action();
-    } finally {
-      setBusy(null);
-    }
+    finale.celebrate(
+      { title: 'Bienvenue', accent: 'dans l’atelier.', lede: 'Votre profil d’artiste est prêt.' },
+      () => { void action().finally(() => setBusy(null)); },
+    );
   };
 
-  const select = (plan: Plan) => {
-    haptic();
-    setSelected(plan);
-  };
+  const select = (plan: Plan) => setSelected(plan);
 
   return (
     <OnboardingScreen
@@ -120,6 +110,7 @@ export default function ArtistStep5() {
       accent="votre formule"
       lede="Vous pourrez en changer à tout moment depuis vos réglages."
       onBack={router.canGoBack() ? () => router.back() : undefined}
+      overlay={finale.overlay}
       footer={
         selected === 'premium' ? (
           <>
@@ -184,26 +175,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderDefault,
     backgroundColor: Colors.bgCard,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  cardHover: { backgroundColor: Colors.bgElevated },
   cardSelected: { borderColor: Colors.accent },
   cardPremiumSelected: { borderColor: Colors.borderGlow, backgroundColor: Colors.bgElevated },
 
-  radio: {
-    position: 'absolute',
-    top: Spacing.md,
-    right: Spacing.md,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.borderGlass,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOn: { borderColor: Colors.accentAction },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.accentAction },
+  radioSlot: { position: 'absolute', top: Spacing.md, right: Spacing.md },
 
   kicker: { marginBottom: 6 },
   planName: { marginBottom: 4, paddingRight: 32 },

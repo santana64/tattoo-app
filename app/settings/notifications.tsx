@@ -1,20 +1,14 @@
-import React, { useState } from 'react';
-import {
-  ScrollView,
-  StyleSheet,
-  View,
-  TouchableOpacity,
-  Switch,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, FontSize } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TDivider } from '@/components/ui/TDivider';
+import { THeader } from '@/components/ui/THeader';
+import { EASE_OUT, MotionDuration } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 
 // ── Types ────────────────────────────────────────────────────────
@@ -26,94 +20,85 @@ interface ToggleState {
   newsletter: boolean;
 }
 
+// ── Toggle: 180ms state transition, visual only (the row owns the press) ──
+function Toggle({ value }: { value: boolean }) {
+  const p = useSharedValue(value ? 1 : 0);
+  useEffect(() => {
+    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
+  }, [value, p]);
+  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
+  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
+  return (
+    <View style={toggle.track} importantForAccessibility="no-hide-descendants">
+      <Animated.View style={[StyleSheet.absoluteFill, toggle.on, onStyle]} />
+      <Animated.View style={[toggle.knob, knobStyle]} />
+    </View>
+  );
+}
+
+const toggle = StyleSheet.create({
+  track: {
+    width: 46, height: 28, borderRadius: 14,
+    backgroundColor: Colors.bgSubtle,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    overflow: 'hidden',
+  },
+  on: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
+  knob: {
+    position: 'absolute', top: 2.5, left: 2.5,
+    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
+  },
+});
+
 // ── Toggle row ───────────────────────────────────────────────────
-function ToggleRow({
-  icon,
-  label,
-  subtitle,
-  value,
-  onValueChange,
-  delay,
-  tintColor,
-}: {
+function ToggleRow({ icon, label, subtitle, value, onValueChange }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   subtitle: string;
   value: boolean;
   onValueChange: (v: boolean) => void;
-  delay?: number;
-  tintColor?: string;
 }) {
-  const handleChange = (v: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onValueChange(v);
-  };
-
   return (
-    <Animated.View entering={FadeInDown.delay(delay ?? 0).springify()} style={row.container}>
-      <View style={[row.iconWrap, { backgroundColor: value ? Colors.accentMuted : Colors.bgSubtle }]}>
-        <Ionicons
-          name={icon}
-          size={18}
-          color={value ? Colors.accentWarm : Colors.textTertiary}
-        />
-      </View>
-      <View style={row.text}>
-        <TText variant="bodySmall" weight="medium">{label}</TText>
+    <Pressable
+      onPress={() => {
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onValueChange(!value);
+      }}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityHint={subtitle}
+      accessibilityState={{ checked: value }}
+      style={styles.row}
+    >
+      <Ionicons name={icon} size={19} color={value ? Colors.accentWarm : Colors.textTertiary} style={styles.rowIcon} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <TText variant="body" weight="medium">{label}</TText>
         <TText variant="caption" color="tertiary" style={{ marginTop: 1 }}>{subtitle}</TText>
       </View>
-      <Switch
-        value={value}
-        onValueChange={handleChange}
-        trackColor={{
-          false: Colors.bgSubtle,
-          true: Platform.OS === 'ios' ? (tintColor ?? Colors.accentWarm) : Colors.accentWarm,
-        }}
-        thumbColor={Platform.OS === 'ios' ? undefined : value ? Colors.accentGlow : Colors.textTertiary}
-        ios_backgroundColor={Colors.bgSubtle}
-      />
-    </Animated.View>
+      <Toggle value={value} />
+    </Pressable>
   );
 }
 
-const row = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.xs,
-    gap: Spacing.sm,
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  text: {
-    flex: 1,
-  },
-});
-
-// ── Section header ───────────────────────────────────────────────
-function SectionHeader({ label, delay }: { label: string; delay: number }) {
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  const items = React.Children.toArray(children);
   return (
-    <Animated.View entering={FadeInDown.delay(delay).springify()} style={section.header}>
-      <TText variant="micro" uppercase color="tertiary" style={section.label}>
-        {label}
-      </TText>
-    </Animated.View>
+    <View style={styles.group}>
+      <TText variant="label" color="tertiary" uppercase style={styles.groupTitle}>{title}</TText>
+      <View style={styles.groupBody}>
+        {items.map((child, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <TDivider inset={34} />}
+            {child}
+          </React.Fragment>
+        ))}
+      </View>
+    </View>
   );
 }
-
-const section = StyleSheet.create({
-  header: { paddingTop: Spacing.lg, paddingBottom: Spacing.xs },
-  label: { letterSpacing: 1.8, fontSize: 9 },
-});
 
 // ── Main screen ──────────────────────────────────────────────────
 export default function NotificationsScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
   const isArtist = user?.role === 'artist';
@@ -147,191 +132,133 @@ export default function NotificationsScreen() {
     setEmailNotifs((e) => ({ ...e, [key]: !e[key] }));
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header */}
-      <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TText variant="title2" weight="bold">Notifications</TText>
-        <View style={{ width: 44 }} />
-      </Animated.View>
+    <View style={styles.container}>
+      <THeader title="Notifications" showBack />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Honest status: these switches are not stored server-side yet */}
+        <View style={styles.notice}>
+          <Ionicons name="information-circle-outline" size={17} color={Colors.warning} />
+          <TText variant="caption" color="secondary" style={{ flex: 1 }}>
+            Ces préférences ne sont pas encore enregistrées sur votre compte : elles reviennent à leur valeur par défaut à la prochaine ouverture.
+          </TText>
+        </View>
 
-      <View style={styles.body}>
-
-        {/* ── PUSH section ── */}
-        <SectionHeader label="Push" delay={80} />
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.card}>
+        <Group title="Notifications push">
           {isArtist && (
-            <>
-              <ToggleRow
-                icon="document-text-outline"
-                label="Nouvelles demandes"
-                subtitle="Quand un client t'envoie une demande"
-                value={push.nouvelles_demandes}
-                onValueChange={() => togglePush('nouvelles_demandes')}
-                delay={120}
-              />
-              <View style={styles.divider} />
-            </>
+            <ToggleRow
+              icon="document-text-outline"
+              label="Nouvelles demandes"
+              subtitle="Quand un client vous envoie une demande"
+              value={push.nouvelles_demandes}
+              onValueChange={() => togglePush('nouvelles_demandes')}
+            />
           )}
           <ToggleRow
             icon="chatbubble-outline"
             label="Nouveaux messages"
-            subtitle="Messages dans tes conversations"
+            subtitle="Messages dans vos conversations"
             value={push.nouveaux_messages}
             onValueChange={() => togglePush('nouveaux_messages')}
-            delay={160}
           />
-          <View style={styles.divider} />
           <ToggleRow
             icon="calendar-outline"
             label="Rendez-vous"
             subtitle="Confirmations et rappels de séance"
             value={push.rendez_vous}
             onValueChange={() => togglePush('rendez_vous')}
-            delay={200}
           />
-          <View style={styles.divider} />
           <ToggleRow
             icon="pricetag-outline"
-            label="Promotions"
-            subtitle="Offres exclusives et mises à jour"
+            label="Offres et nouveautés"
+            subtitle="Annonces sur les fonctionnalités d’INKR"
             value={push.promotions}
             onValueChange={() => togglePush('promotions')}
-            delay={240}
           />
-        </Animated.View>
+        </Group>
 
-        {/* ── EMAIL section ── */}
-        <SectionHeader label="Email" delay={280} />
-        <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.card}>
+        <Group title="E-mails">
           {isArtist && (
-            <>
-              <ToggleRow
-                icon="mail-outline"
-                label="Nouvelles demandes"
-                subtitle="Reçois un email à chaque nouvelle demande"
-                value={emailNotifs.nouvelles_demandes}
-                onValueChange={() => toggleEmail('nouvelles_demandes')}
-                delay={320}
-              />
-              <View style={styles.divider} />
-            </>
+            <ToggleRow
+              icon="mail-outline"
+              label="Nouvelles demandes"
+              subtitle="Un e-mail à chaque nouvelle demande"
+              value={emailNotifs.nouvelles_demandes}
+              onValueChange={() => toggleEmail('nouvelles_demandes')}
+            />
           )}
           <ToggleRow
             icon="chatbubbles-outline"
             label="Nouveaux messages"
-            subtitle="Copie email de tes conversations"
+            subtitle="Copie par e-mail de vos conversations"
             value={emailNotifs.nouveaux_messages}
             onValueChange={() => toggleEmail('nouveaux_messages')}
-            delay={360}
           />
-          <View style={styles.divider} />
           <ToggleRow
             icon="calendar-clear-outline"
             label="Rendez-vous"
-            subtitle="Confirmation et rappel 24h avant"
+            subtitle="Confirmation et rappel la veille"
             value={emailNotifs.rendez_vous}
             onValueChange={() => toggleEmail('rendez_vous')}
-            delay={400}
           />
-          <View style={styles.divider} />
           <ToggleRow
             icon="newspaper-outline"
-            label="Newsletter"
+            label="Lettre d’information"
             subtitle="Actualités de la communauté INKR"
             value={emailNotifs.newsletter}
             onValueChange={() => toggleEmail('newsletter')}
-            delay={440}
           />
-        </Animated.View>
+        </Group>
 
-        {/* ── FREQUENCY section ── */}
-        <SectionHeader label="Fréquence" delay={480} />
-        <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.card}>
+        <Group title="Rythme">
           <ToggleRow
             icon="time-outline"
             label="Résumé quotidien"
-            subtitle="Reçois un récap chaque soir à 20h"
+            subtitle="Un récapitulatif chaque soir à 20 h"
             value={digest}
-            onValueChange={(v) => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setDigest(v);
-            }}
-            delay={520}
+            onValueChange={setDigest}
           />
-          <View style={styles.divider} />
           <ToggleRow
             icon="moon-outline"
             label="Heures silencieuses"
-            subtitle="Pas de push entre 22h et 8h"
+            subtitle="Aucune notification push entre 22 h et 8 h"
             value={quietHours}
-            onValueChange={(v) => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setQuietHours(v);
-            }}
-            delay={560}
+            onValueChange={setQuietHours}
           />
-        </Animated.View>
+        </Group>
 
-        {/* Info note */}
-        <Animated.View entering={FadeInDown.delay(600).springify()} style={styles.note}>
-          <Ionicons name="information-circle-outline" size={14} color={Colors.textTertiary} />
-          <TText variant="caption" color="tertiary" style={{ flex: 1, marginLeft: 6, lineHeight: 18 }}>
-            Les notifications essentielles (sécurité, facturation) ne peuvent pas être désactivées.
-          </TText>
-        </Animated.View>
-      </View>
-    </ScrollView>
+        <TText variant="caption" color="tertiary" style={styles.footnote}>
+          Les messages essentiels (sécurité, facturation) ne peuvent pas être désactivés.
+        </TText>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  content: {
+    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
+    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+  notice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm,
+    borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(217,165,91,0.35)',
+    backgroundColor: 'rgba(217,165,91,0.06)',
   },
-  headerBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  body: {
-    paddingHorizontal: Spacing.lg,
-  },
-  card: {
-    backgroundColor: Colors.bgSurface,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
+  group: { marginTop: Spacing.xl },
+  groupTitle: { marginBottom: Spacing['2xs'] },
+  groupBody: {
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing['2xs'],
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderSubtle,
-    marginLeft: 52,
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 12,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  note: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: Spacing.xl,
-    paddingHorizontal: Spacing.xs,
-    paddingBottom: Spacing.md,
-  },
+  rowIcon: { width: 22 },
+  footnote: { marginTop: Spacing.lg },
 });

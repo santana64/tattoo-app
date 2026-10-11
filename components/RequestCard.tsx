@@ -1,14 +1,14 @@
-import React, { useCallback } from 'react';
-import { View, StyleSheet, Pressable, Platform, type PressableProps } from 'react-native';
+import React, { useCallback, useEffect } from 'react';
+import { View, StyleSheet, Pressable, type PressableProps } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import Animated, { useSharedValue, useAnimatedStyle, withDelay, withTiming, useReducedMotion } from 'react-native-reanimated';
 import { format, isSameYear, isToday, isValid, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
+import { PressableScale, EASE_OUT } from './motion';
 import type { TattooRequest, RequestStatus } from '@/store/request-store';
 import { PROJECT_TYPE_LABELS } from '@/constants/mock-data';
 
@@ -97,9 +97,6 @@ interface RequestCardProps {
 
 export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestCardProps) {
   const router = useRouter();
-  const reduced = useReducedMotion();
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   const needsAction = viewAs === 'artist' && request.status === 'submitted';
   const name = (viewAs === 'artist' ? request.clientName : request.artistName) ?? '';
@@ -111,31 +108,20 @@ export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestC
   const budget = formatBudget(request);
   const statusLabel = requestStatusLabel(request.status, viewAs);
 
-  const open = useCallback(() => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/request/${request.id}`);
-  }, [request.id, router]);
+  // Navigation, not a commit: press feedback is visual only (no haptic).
+  const open = useCallback(() => router.push(`/request/${request.id}`), [request.id, router]);
 
   return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        onPress={open}
-        onPressIn={(e) => {
-          if (!reduced) scale.value = withSpring(0.985, SpringConfig.snappy);
-          onPressIn?.(e);
-        }}
-        onPressOut={(e) => {
-          scale.value = withSpring(1, SpringConfig.gentle);
-          onPressOut?.(e);
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={`${name}, ${summary}, ${statusLabel}${date ? `, envoyée le ${date}` : ''}`}
-        accessibilityHint="Ouvre le détail de la demande"
-        style={(state) => {
-          const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-          return [styles.row, (pressed || hovered) && styles.rowActive];
-        }}
-      >
+    <PressableScale
+      onPress={open}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      pressedScale={0.98}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${summary}, ${statusLabel}${date ? `, envoyée le ${date}` : ''}`}
+      accessibilityHint="Ouvre le détail de la demande"
+      style={styles.row}
+    >
         <TAvatar uri={avatar} name={name} size="lg" />
 
         <View style={styles.body}>
@@ -179,10 +165,107 @@ export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestC
             </View>
           </View>
         </View>
-      </Pressable>
-    </Animated.View>
+    </PressableScale>
   );
 }
+
+// ─── Status timeline: a hairline rail drawn top-down on mount ─────────────────
+
+export type TimelineState = 'done' | 'current' | 'upcoming' | 'ended';
+export interface TimelineStep {
+  key: string;
+  label: string;
+  detail?: string;
+  state: TimelineState;
+  /** Status color for current/ended steps. Done steps use the gold accent. */
+  color?: string;
+}
+
+const STATE_A11Y: Record<TimelineState, string> = { done: 'terminé', current: 'en cours', upcoming: 'à venir', ended: 'clos' };
+
+function TimelineRow({ step, index, last, nextState, reduced }: {
+  step: TimelineStep; index: number; last: boolean; nextState?: TimelineState; reduced: boolean;
+}) {
+  const draw = useSharedValue(reduced ? 1 : 0);
+  useEffect(() => {
+    if (reduced) { draw.set(1); return; }
+    draw.set(withDelay(240 + index * 180, withTiming(1, { duration: 460, easing: EASE_OUT })));
+  }, [draw, index, reduced]);
+  const lineStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: draw.get() }] }));
+
+  const color = step.color ?? Colors.accentWarm;
+  const reached = step.state === 'done' && nextState !== undefined && nextState !== 'upcoming';
+  const muted = step.state === 'upcoming';
+
+  return (
+    <View
+      style={tl.row}
+      accessible
+      accessibilityLabel={`${step.label}${step.detail ? `, ${step.detail}` : ''}, ${STATE_A11Y[step.state]}`}
+    >
+      <View style={tl.rail}>
+        {step.state === 'current' ? (
+          <View style={[tl.ring, { borderColor: color }]}>
+            <View style={[tl.dot, { backgroundColor: color }]} />
+          </View>
+        ) : (
+          <View style={tl.ringSpacer}>
+            <View
+              style={[
+                tl.dot,
+                muted
+                  ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.textTertiary }
+                  : { backgroundColor: step.state === 'done' ? Colors.accentWarm : color },
+              ]}
+            />
+          </View>
+        )}
+        {!last && (
+          <View style={tl.track}>
+            <Animated.View
+              style={[tl.fill, { backgroundColor: reached ? Colors.accentWarm : Colors.borderDefault }, lineStyle]}
+            />
+          </View>
+        )}
+      </View>
+      <View style={[tl.text, last && { paddingBottom: 0 }]}>
+        <TText variant="bodySmall" weight={step.state === 'current' ? 'semibold' : 'medium'} color={muted ? 'tertiary' : 'primary'}>
+          {step.label}
+        </TText>
+        {!!step.detail && (
+          <TText variant="caption" color={muted ? 'tertiary' : 'secondary'} tabular style={{ marginTop: 1 }}>
+            {step.detail}
+          </TText>
+        )}
+      </View>
+    </View>
+  );
+}
+
+export function StatusTimeline({ steps }: { steps: TimelineStep[] }) {
+  const reduced = useReducedMotion();
+  return (
+    <View accessibilityRole="list">
+      {steps.map((s, i) => (
+        <TimelineRow key={s.key} step={s} index={i} last={i === steps.length - 1} nextState={steps[i + 1]?.state} reduced={reduced} />
+      ))}
+    </View>
+  );
+}
+
+const tl = StyleSheet.create({
+  row: { flexDirection: 'row', gap: Spacing.xs },
+  rail: { width: 18, alignItems: 'center' },
+  ring: {
+    width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  ringSpacer: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  track: { flex: 1, width: 1, marginVertical: 4, overflow: 'hidden' },
+  fill: { flex: 1, width: 1, transformOrigin: 'top' },
+  text: { flex: 1, paddingBottom: Spacing.md, minHeight: 44 },
+});
 
 const styles = StyleSheet.create({
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
@@ -197,9 +280,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderDefault,
     borderRadius: Radius.sm,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer', transitionDuration: '160ms' } as object : null),
   },
-  rowActive: { backgroundColor: Colors.glassBg },
 
   body: { flex: 1, gap: 3, minWidth: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.xs },

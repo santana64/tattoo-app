@@ -1,13 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  ScrollView, StyleSheet, View, Pressable, Linking, Platform, useWindowDimensions,
-} from 'react-native';
-import { Image } from 'expo-image';
+import { StyleSheet, View, Pressable, Linking, Platform, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import Animated, {
+  Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useReducedMotion, useSharedValue,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -18,39 +17,33 @@ import { TDivider } from '@/components/ui/TDivider';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
+import { GlassSurface, PressableScale, RevealImage, enterUp } from '@/components/motion';
 import { ArtPlaceholder, BOOKING_STATUS, styleName } from '@/components/ArtistCard';
 import { useAuthStore } from '@/store/auth-store';
 import { useArtist } from '@/hooks/use-artist';
 import { fetchArtistPortfolio, isUuid } from '@/lib/catalog';
 import type { Tables } from '@/lib/supabase';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const GAP = 3;
 const ICON_COL = 34;
 const SIDE_W = 340;
-
-function enter(i: number, reduced: boolean) {
-  return reduced ? undefined : FadeInDown.delay(i * 60).duration(600).easing(EASE);
-}
-
-const haptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
+const BAR_H = 52;
 
 // ─── Building blocks ──────────────────────────────────────────────────────────
-type InteractionState = { pressed: boolean; hovered?: boolean };
-
 function RoundButton({ icon, label, onPress, onImage }: {
   icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; onImage?: boolean;
 }) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={6}
-      style={({ pressed }) => [styles.roundBtn, onImage && styles.roundBtnOnImage, pressed && { opacity: 0.7 }]}
+      style={[styles.roundBtn, onImage && styles.roundBtnOnImage]}
     >
       <Ionicons name={icon} size={19} color={Colors.textPrimary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -59,14 +52,12 @@ function ListRow({ icon, label, subtitle, detail, accent, onPress }: {
   accent?: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable
-      onPress={() => { haptic(); onPress(); }}
+    <PressableScale
+      onPress={onPress}
+      pressedScale={0.985}
       accessibilityRole="button"
       accessibilityLabel={[label, subtitle, detail].filter(Boolean).join(', ')}
-      style={(state) => {
-        const { pressed, hovered } = state as InteractionState;
-        return [styles.row, (pressed || hovered) && styles.rowActive];
-      }}
+      style={styles.row}
     >
       <Ionicons name={icon} size={19} color={accent ? Colors.accentWarm : Colors.textSecondary} style={styles.rowIcon} />
       <View style={styles.rowText}>
@@ -77,7 +68,7 @@ function ListRow({ icon, label, subtitle, detail, accent, onPress }: {
         <TText variant="bodySmall" color={accent ? 'accentWarm' : 'tertiary'} numberOfLines={1}>{detail}</TText>
       )}
       <Ionicons name="chevron-forward" size={15} color={Colors.textTertiary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -98,17 +89,14 @@ function ListGroup({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-function Fact({ label, value, loading, dot }: { label: string; value: string; loading?: boolean; dot?: string }) {
+function Fact({ label, value, loading }: { label: string; value: string; loading?: boolean }) {
   return (
     <View style={styles.fact} accessible accessibilityLabel={loading ? `${label}, chargement` : `${label} : ${value}`}>
       <TText variant="label" color="tertiary" uppercase numberOfLines={1}>{label}</TText>
       {loading ? (
         <TSkeleton width={48} height={22} />
       ) : (
-        <View style={styles.factValue}>
-          {dot && <View style={[styles.dot, { backgroundColor: dot }]} />}
-          <TText variant="title2" serif tabular numberOfLines={1} style={styles.factNumber}>{value}</TText>
-        </View>
+        <TText variant="title2" serif tabular numberOfLines={1} style={styles.factNumber}>{value}</TText>
       )}
     </View>
   );
@@ -142,6 +130,33 @@ function ProfileSkeleton({ top }: { top: number }) {
   );
 }
 
+/** Sticky glass bar that fades in once the identity block has scrolled away. */
+function CompactBar({ top, title, threshold, scrollY, children }: {
+  top: number; title: string; threshold: number;
+  scrollY: { get: () => number }; children: React.ReactNode;
+}) {
+  const glassStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [threshold - 60, threshold], [0, 1], Extrapolation.CLAMP),
+  }));
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [threshold - 20, threshold + 20], [0, 1], Extrapolation.CLAMP),
+  }));
+  return (
+    <View style={[styles.bar, { paddingTop: top }]} pointerEvents="box-none">
+      <Animated.View style={[StyleSheet.absoluteFill, glassStyle]} pointerEvents="none">
+        <GlassSurface style={StyleSheet.absoluteFill} />
+        <View style={styles.barHairline} />
+      </Animated.View>
+      <View style={styles.barInner} pointerEvents="box-none">
+        <Animated.View style={[styles.barTitle, titleStyle]} pointerEvents="none">
+          <TText variant="title2" serif numberOfLines={1} style={{ fontSize: 20 }}>{title}</TText>
+        </Animated.View>
+        <View style={styles.barActions}>{children}</View>
+      </View>
+    </View>
+  );
+}
+
 const formatCount = (n: number) => n.toLocaleString('fr-FR');
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -160,18 +175,16 @@ export default function ProfileScreen() {
   // Published work, refreshed each time the tab regains focus (e.g. after publishing).
   const [posts, setPosts] = useState<Tables<'posts'>[]>([]);
   const [portfolioState, setPortfolioState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [portfolioAttempt, setPortfolioAttempt] = useState(0);
-  useFocusEffect(
-    useCallback(() => {
-      if (!isUuid(artistId)) { setPortfolioState('idle'); return undefined; }
-      let active = true;
-      setPortfolioState((s) => (s === 'ready' ? s : 'loading'));
-      fetchArtistPortfolio(artistId)
-        .then((data) => { if (active) { setPosts(data.posts); setPortfolioState('ready'); } })
-        .catch(() => { if (active) setPortfolioState('error'); });
-      return () => { active = false; };
-    }, [artistId, portfolioAttempt]),
-  );
+  const loadPortfolio = useCallback(() => {
+    if (!isUuid(artistId)) { setPortfolioState('idle'); return undefined; }
+    let active = true;
+    setPortfolioState((s) => (s === 'ready' ? s : 'loading'));
+    fetchArtistPortfolio(artistId)
+      .then((data) => { if (active) { setPosts(data.posts); setPortfolioState('ready'); } })
+      .catch(() => { if (active) setPortfolioState('error'); });
+    return () => { active = false; };
+  }, [artistId]);
+  useFocusEffect(loadPortfolio);
   const photos = useMemo(() => posts.filter((p) => p.media_type === 'photo'), [posts]);
 
   // Layout
@@ -181,6 +194,28 @@ export default function ProfileScreen() {
   const cols = mainW >= 640 ? 4 : 3;
   const cell = Math.floor((mainW - GAP * (cols - 1)) / cols);
   const shown = photos.slice(0, cols * 3);
+  const coverH = (wide ? 300 : 220) + insets.top;
+
+  // Scroll-driven header: UI-thread only, no React state in onScroll.
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
+  const coverStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    if (reduced) return { opacity: interpolate(y, [0, coverH], [1, 0.4], Extrapolation.CLAMP) };
+    return {
+      opacity: interpolate(y, [0, coverH], [1, 0.35], Extrapolation.CLAMP),
+      transform: [
+        { translateY: interpolate(y, [-200, 0, coverH], [-100, 0, coverH * 0.4], Extrapolation.CLAMP) },
+        { scale: interpolate(y, [-200, 0], [1.25, 1], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+  const identityStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    const fade = interpolate(y, [0, 160], [1, 0.2], Extrapolation.CLAMP);
+    if (reduced) return { opacity: fade };
+    return { opacity: fade, transform: [{ scale: interpolate(y, [0, 160], [1, 0.94], Extrapolation.CLAMP) }] };
+  });
 
   const handleSignOut = () => {
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -213,33 +248,34 @@ export default function ProfileScreen() {
         </ListGroup>
       </View>
     );
+    const name = user.displayName || 'Votre profil';
 
     return (
       <View style={styles.container}>
-        <ScrollView
-          contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 110 }}
+        <Animated.ScrollView
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingTop: insets.top + BAR_H, paddingBottom: insets.bottom + 110 }}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.frame}>
-            <View style={styles.topBar}>
-              <TText variant="label" color="accentWarm" uppercase>Mon compte</TText>
-              <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
-            </View>
-
             <View style={[styles.columns, wide && styles.columnsWide]}>
               <View style={styles.main}>
-                <Animated.View entering={enter(0, reduced)} style={styles.identity}>
-                  <TAvatar uri={user.avatarUrl} name={user.displayName} size="2xl" />
-                  <TText variant="displayL" numberOfLines={2} style={styles.identityName} accessibilityRole="header">
-                    {user.displayName || 'Votre profil'}
-                  </TText>
-                  <TText variant="bodySmall" color="secondary" numberOfLines={1}>
-                    {[user.city, user.email].filter(Boolean).join(' · ')}
-                  </TText>
+                <Animated.View entering={enterUp(0)}>
+                  <Animated.View style={[styles.identity, identityStyle]}>
+                    <TText variant="label" color="accentWarm" uppercase>Mon compte</TText>
+                    <TAvatar uri={user.avatarUrl} name={user.displayName} size="2xl" style={{ marginTop: Spacing.md }} />
+                    <TText variant="displayL" numberOfLines={2} style={styles.identityName} accessibilityRole="header">
+                      {name}
+                    </TText>
+                    <TText variant="bodySmall" color="secondary" numberOfLines={1}>
+                      {[user.city, user.email].filter(Boolean).join(' · ')}
+                    </TText>
+                  </Animated.View>
                 </Animated.View>
 
                 {/* Artist acquisition: one quiet block, no invented social proof */}
-                <Animated.View entering={enter(2, reduced)} style={styles.artistCta}>
+                <Animated.View entering={enterUp(1)} style={styles.artistCta}>
                   <TText variant="label" color="accentWarm" uppercase style={{ marginBottom: 6 }}>Espace artiste</TText>
                   <TText variant="displayS">
                     Vous êtes <TText variant="displayS" italic color="accentGlow">tatoueur</TText> ?
@@ -256,7 +292,7 @@ export default function ProfileScreen() {
                   />
                 </Animated.View>
 
-                {!wide && <Animated.View entering={enter(3, reduced)}>{lists}</Animated.View>}
+                {!wide && <Animated.View entering={enterUp(2)}>{lists}</Animated.View>}
               </View>
 
               {wide && <View style={styles.side}>{lists}</View>}
@@ -264,7 +300,11 @@ export default function ProfileScreen() {
 
             <SignOutButton onSignOut={handleSignOut} />
           </View>
-        </ScrollView>
+        </Animated.ScrollView>
+
+        <CompactBar top={insets.top} title={name} threshold={200} scrollY={scrollY}>
+          <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} />
+        </CompactBar>
       </View>
     );
   }
@@ -276,7 +316,6 @@ export default function ProfileScreen() {
   const bookingKey = artist?.bookingStatus ?? user.artistBookingStatus;
   const status = bookingKey ? BOOKING_STATUS[bookingKey] : null;
   const coverUri = artist?.coverUrl || photos[0]?.media_url;
-  const coverH = wide ? 300 : 220;
   const hasPublicProfile = isUuid(artistId);
 
   const artistLists = (
@@ -308,55 +347,60 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 110 }} showsVerticalScrollIndicator={false}>
-        {/* ─── Cover: the latest work, lit like an exhibit ─── */}
-        <View style={[styles.cover, { height: coverH + insets.top }]}>
-          {coverUri ? (
-            <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} accessibilityLabel={`Travail de ${blaze}`} />
-          ) : (
-            <ArtPlaceholder name={blaze} size={96} />
-          )}
+      <Animated.ScrollView
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ─── Cover: parallax under the identity, dims as it leaves ─── */}
+        <View style={[styles.cover, { height: coverH }]}>
+          <Animated.View style={[StyleSheet.absoluteFill, coverStyle]}>
+            <RevealImage
+              uri={coverUri}
+              style={StyleSheet.absoluteFill}
+              accessibilityLabel={`Travail de ${blaze}`}
+              fallback={<ArtPlaceholder name={blaze} size={96} />}
+            />
+          </Animated.View>
           <LinearGradient
             colors={['rgba(11,10,9,0.55)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.6)', Colors.bgPrimary]}
             locations={[0, 0.3, 0.75, 1]}
             style={StyleSheet.absoluteFill}
+            pointerEvents="none"
           />
-          <View style={[styles.coverBar, { paddingTop: insets.top + 6 }]}>
-            <TText variant="label" uppercase style={{ color: Colors.textPrimary }}>Espace artiste</TText>
-            <View style={styles.coverActions}>
-              <RoundButton icon="bar-chart-outline" label="Statistiques" onPress={() => router.push('/analytics')} onImage />
-              <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} onImage />
-            </View>
-          </View>
         </View>
 
         <View style={styles.frame}>
           <View style={[styles.columns, wide && styles.columnsWide]}>
             <View style={styles.main}>
               {/* ─── Identity ─── */}
-              <Animated.View entering={enter(0, reduced)} style={styles.artistIdentity}>
-                <View style={styles.avatarRing}>
-                  <TAvatar uri={artist?.avatarUrl || user.avatarUrl} name={blaze} size="2xl" isPremium={isPremium} showBadge />
-                </View>
-                <View style={styles.kickerRow}>
-                  {isPremium && <TBadge label="Premium" variant="premium" />}
-                  {artist?.isVerified && (
-                    <View style={styles.verified}>
-                      <Ionicons name="checkmark-circle" size={14} color={Colors.accentWarm} />
-                      <TText variant="caption" color="secondary">Profil vérifié</TText>
-                    </View>
-                  )}
-                </View>
-                <TText variant={wide ? 'displayXL' : 'displayL'} numberOfLines={2} style={styles.identityName} accessibilityRole="header">
-                  {blaze}
-                </TText>
-                <TText variant="bodySmall" color="secondary" numberOfLines={1}>
-                  {[city, ...stylesLabel].filter(Boolean).join(' · ') || 'Complétez votre profil pour être trouvé'}
-                </TText>
+              <Animated.View entering={enterUp(0)} style={styles.artistIdentityWrap}>
+                <Animated.View style={[styles.artistIdentity, identityStyle]}>
+                  <View style={styles.avatarRing}>
+                    <TAvatar uri={artist?.avatarUrl || user.avatarUrl} name={blaze} size="2xl" isPremium={isPremium} showBadge />
+                  </View>
+                  <View style={styles.kickerRow}>
+                    <TText variant="label" color="accentWarm" uppercase>Espace artiste</TText>
+                    {isPremium && <TBadge label="Premium" variant="premium" />}
+                    {artist?.isVerified && (
+                      <View style={styles.verified}>
+                        <Ionicons name="checkmark-circle" size={14} color={Colors.accentWarm} />
+                        <TText variant="caption" color="secondary">Profil vérifié</TText>
+                      </View>
+                    )}
+                  </View>
+                  <TText variant={wide ? 'displayXL' : 'displayL'} numberOfLines={2} style={styles.identityName} accessibilityRole="header">
+                    {blaze}
+                  </TText>
+                  <TText variant="bodySmall" color="secondary" numberOfLines={1}>
+                    {[city, ...stylesLabel].filter(Boolean).join(' · ') || 'Complétez votre profil pour être trouvé'}
+                  </TText>
+                </Animated.View>
               </Animated.View>
 
               {/* ─── Facts: real counters from the artist record ─── */}
-              <Animated.View entering={enter(1, reduced)} style={styles.facts}>
+              <Animated.View entering={enterUp(1)} style={styles.facts}>
                 <Fact label="Publications" value={artist ? formatCount(artist.stats.posts) : '—'} loading={artistLoading} />
                 <TDivider vertical tone="default" style={styles.factDivider} />
                 <Fact label="Vues du profil" value={artist ? formatCount(artist.stats.profileViews) : '—'} loading={artistLoading} />
@@ -365,10 +409,10 @@ export default function ProfileScreen() {
               </Animated.View>
 
               {/* ─── Availability ─── */}
-              <Animated.View entering={enter(2, reduced)} style={styles.statusRow}>
+              <Animated.View entering={enterUp(2)} style={styles.statusRow}>
                 <View style={{ flex: 1 }}>
                   <TText variant="label" color="tertiary" uppercase>Disponibilité</TText>
-                  <View style={[styles.factValue, { marginTop: 6 }]}>
+                  <View style={styles.statusValue}>
                     {status && <View style={[styles.dot, { backgroundColor: status.color }]} />}
                     <TText variant="body" weight="medium">{status?.label ?? 'Non renseignée'}</TText>
                   </View>
@@ -384,7 +428,7 @@ export default function ProfileScreen() {
               </Animated.View>
 
               {/* ─── Primary actions ─── */}
-              <Animated.View entering={enter(3, reduced)} style={styles.actions}>
+              <Animated.View entering={enterUp(3)} style={styles.actions}>
                 <TButton
                   title="Publier"
                   size="md"
@@ -432,7 +476,7 @@ export default function ProfileScreen() {
                     title="Portfolio indisponible"
                     description="Le chargement a échoué. Vérifiez votre connexion."
                     ctaLabel="Réessayer"
-                    onCta={() => setPortfolioAttempt((n) => n + 1)}
+                    onCta={() => { setPortfolioState('loading'); loadPortfolio(); }}
                     style={styles.inlineEmpty}
                   />
                 )}
@@ -449,15 +493,15 @@ export default function ProfileScreen() {
                 {portfolioState === 'ready' && shown.length > 0 && (
                   <View style={styles.grid}>
                     {shown.map((post, i) => (
-                      <Pressable
+                      <PressableScale
                         key={post.id}
                         onPress={() => router.push(`/post/${post.id}`)}
                         accessibilityRole="link"
                         accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
-                        style={({ pressed }) => [styles.cell, { width: cell, height: Math.round(cell * 1.25) }, pressed && { opacity: 0.85 }]}
+                        style={[styles.cell, { width: cell, height: Math.round(cell * 1.25) }]}
                       >
-                        <Image source={{ uri: post.media_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
-                      </Pressable>
+                        <RevealImage uri={post.media_url} style={StyleSheet.absoluteFill} />
+                      </PressableScale>
                     ))}
                   </View>
                 )}
@@ -471,7 +515,12 @@ export default function ProfileScreen() {
 
           <SignOutButton onSignOut={handleSignOut} />
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
+
+      <CompactBar top={insets.top} title={blaze} threshold={coverH - insets.top - BAR_H + 40} scrollY={scrollY}>
+        <RoundButton icon="bar-chart-outline" label="Statistiques" onPress={() => router.push('/analytics')} onImage />
+        <RoundButton icon="settings-outline" label="Paramètres" onPress={() => router.push('/settings')} onImage />
+      </CompactBar>
     </View>
   );
 }
@@ -485,10 +534,18 @@ const styles = StyleSheet.create({
   main: { flex: 1, minWidth: 0 },
   side: { width: SIDE_W, paddingTop: Spacing.lg },
 
-  topBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Spacing.xs, paddingBottom: Spacing.sm,
+  // Sticky bar
+  bar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  barHairline: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault,
   },
+  barInner: {
+    height: BAR_H, flexDirection: 'row', alignItems: 'center', gap: 12,
+    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter,
+  },
+  barTitle: { flex: 1, minWidth: 0 },
+  barActions: { flexDirection: 'row', gap: 8 },
   roundBtn: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
@@ -496,23 +553,16 @@ const styles = StyleSheet.create({
   },
   roundBtnOnImage: { backgroundColor: 'rgba(11,10,9,0.55)', borderColor: Colors.glassBorderBright },
 
-  identity: { paddingTop: Spacing.md, paddingBottom: Spacing.xl, gap: 6 },
+  identity: { paddingTop: Spacing.xs, paddingBottom: Spacing.xl, gap: 6, transformOrigin: 'left top' },
   identityName: { marginTop: Spacing.sm },
 
   // Artist cover
   cover: { overflow: 'hidden', backgroundColor: Colors.bgSurface },
-  coverBar: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter,
-  },
-  coverActions: { flexDirection: 'row', gap: 8 },
 
-  artistIdentity: { marginTop: -56, gap: 6 },
-  avatarRing: {
-    alignSelf: 'flex-start', borderRadius: 52, padding: 4, backgroundColor: Colors.bgPrimary,
-  },
-  kickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: Spacing.xs, minHeight: 4 },
+  artistIdentityWrap: { marginTop: -56 },
+  artistIdentity: { gap: 6, transformOrigin: 'left top' },
+  avatarRing: { alignSelf: 'flex-start', borderRadius: 52, padding: 4, backgroundColor: Colors.bgPrimary },
+  kickerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: Spacing.xs },
   verified: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 
   facts: {
@@ -523,7 +573,6 @@ const styles = StyleSheet.create({
   },
   fact: { flex: 1, gap: 6, minWidth: 0 },
   factDivider: { marginHorizontal: Spacing.sm },
-  factValue: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   factNumber: { fontSize: 24, lineHeight: 28 },
   dot: { width: 6, height: 6, borderRadius: 3 },
 
@@ -532,6 +581,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
   },
+  statusValue: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   actions: { flexDirection: 'row', gap: 10, marginTop: Spacing.lg },
 
   portfolio: { marginTop: Spacing['2xl'] },
@@ -554,12 +604,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
   },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    minHeight: 56, paddingVertical: 10,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  rowActive: { backgroundColor: Colors.glassBg },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingVertical: 10 },
   rowIcon: { width: ICON_COL - 12 },
   rowText: { flex: 1, minWidth: 0, gap: 1 },
 

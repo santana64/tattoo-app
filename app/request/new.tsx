@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  Easing, FadeInDown, useReducedMotion, useSharedValue, useAnimatedStyle, withTiming,
+  useReducedMotion, useSharedValue, useAnimatedStyle, withDelay, withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
@@ -22,9 +22,9 @@ import type { SubmitPayload } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { STYLES } from '@/constants/mock-data';
 import { useArtist } from '@/hooks/use-artist';
+import { enterUp, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
 
 const FORM_MAX = 720;
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
   if (Platform.OS !== 'web') Haptics.impactAsync(style);
 };
@@ -131,14 +131,17 @@ function OptionRow({ label, desc, icon, selected, onPress, last }: {
   );
 }
 
+/** Thin gold line. Moves with transform only: a full-width fill slid in from the left. */
 function ProgressLine({ step, reduced }: { step: number; reduced: boolean }) {
   const [trackW, setTrackW] = useState(0);
-  const width = useSharedValue(0);
-  const target = trackW * ((step + 1) / STEPS.length);
+  const offset = useSharedValue(Number.NaN);
+  const target = -trackW * (1 - (step + 1) / STEPS.length);
   useEffect(() => {
-    width.value = reduced ? target : withTiming(target, { duration: 600, easing: EASE });
-  }, [target, reduced, width]);
-  const fill = useAnimatedStyle(() => ({ width: width.value }));
+    if (!trackW) return;
+    const first = Number.isNaN(offset.get());
+    offset.set(reduced || first ? target : withTiming(target, { duration: 520, easing: EASE_IN_OUT }));
+  }, [target, trackW, reduced, offset]);
+  const fill = useAnimatedStyle(() => ({ transform: [{ translateX: Number.isNaN(offset.get()) ? 0 : offset.get() }] }));
   return (
     <View
       style={styles.progressTrack}
@@ -146,7 +149,59 @@ function ProgressLine({ step, reduced }: { step: number; reduced: boolean }) {
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 1, max: STEPS.length, now: step + 1, text: `Étape ${step + 1} sur ${STEPS.length}` }}
     >
-      <Animated.View style={[styles.progressFill, fill]} />
+      {trackW > 0 && <Animated.View style={[styles.progressFill, { width: trackW }, fill]} />}
+    </View>
+  );
+}
+
+/** Rare moment, composed: a gold ring settles, the check appears, a hairline signs underneath. */
+function RequestSent({ artistName, summary, top, bottom, onOpen, onExplore }: {
+  artistName: string; summary: string; top: number; bottom: number; onOpen: () => void; onExplore: () => void;
+}) {
+  const reduced = useReducedMotion();
+  const ring = useSharedValue(0);
+  const check = useSharedValue(0);
+  const line = useSharedValue(0);
+  useEffect(() => {
+    const t = (d: number, dur: number) =>
+      withDelay(reduced ? 0 : d, withTiming(1, { duration: reduced ? 200 : dur, easing: EASE_OUT }));
+    ring.set(t(0, 700));
+    check.set(t(320, 420));
+    line.set(t(620, 800));
+  }, [reduced, ring, check, line]);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ring.get(),
+    transform: [{ scale: reduced ? 1 : 0.86 + ring.get() * 0.14 }],
+  }));
+  const checkStyle = useAnimatedStyle(() => ({ opacity: check.get() }));
+  const lineStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: line.get() }] }));
+
+  return (
+    <View style={[styles.container, { paddingTop: top, paddingBottom: bottom + Spacing.lg }]}>
+      <View style={styles.sentBody}>
+        <Animated.View style={[styles.sentRing, ringStyle]}>
+          <Animated.View style={checkStyle}>
+            <Ionicons name="checkmark" size={30} color={Colors.accentGlow} />
+          </Animated.View>
+        </Animated.View>
+        <Animated.View entering={enterUp(0, 200)} style={{ alignItems: 'center' }}>
+          <TText variant="label" color="accentWarm" uppercase style={{ marginBottom: Spacing.xs }}>Demande envoyée</TText>
+          <TText variant="displayM" style={{ textAlign: 'center' }} accessibilityRole="header" accessibilityLiveRegion="polite">
+            Envoyée à <TText variant="displayM" italic color="accentGlow">{artistName}</TText>
+          </TText>
+        </Animated.View>
+        <Animated.View style={[styles.sentLine, lineStyle]} />
+        <Animated.View entering={enterUp(1, 200)} style={{ alignItems: 'center' }}>
+          <TText variant="body" color="secondary" style={{ textAlign: 'center', maxWidth: 420 }}>
+            {artistName} étudiera votre projet et établira un devis. Sa réponse apparaîtra dans vos demandes.
+          </TText>
+          <TText variant="caption" color="tertiary" tabular style={{ textAlign: 'center', marginTop: Spacing.sm }}>{summary}</TText>
+        </Animated.View>
+      </View>
+      <Animated.View entering={enterUp(2, 200)} style={styles.sentActions}>
+        <TButton title="Suivre ma demande" onPress={onOpen} />
+        <TButton title="Explorer d’autres artistes" variant="ghost" onPress={onExplore} />
+      </Animated.View>
     </View>
   );
 }
@@ -205,6 +260,7 @@ export default function NewRequestScreen() {
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sentId, setSentId] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const [step, setStep] = useState(0);
@@ -267,18 +323,22 @@ export default function NewRequestScreen() {
     goToStep(step - 1);
   };
 
+  const openRequest = (requestId: string) => router.replace({ pathname: '/request/[id]', params: { id: requestId } });
+
   // Android back steps through the form instead of discarding it.
   const stepRef = useRef(step);
-  useEffect(() => { stepRef.current = step; }, [step]);
+  const sentRef = useRef<string | null>(null);
+  useEffect(() => { stepRef.current = step; sentRef.current = sentId; }, [step, sentId]);
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (sentRef.current) { router.replace({ pathname: '/request/[id]', params: { id: sentRef.current } }); return true; }
       if (stepRef.current === 0) return false;
       setStep((s) => Math.max(0, s - 1));
       return true;
     });
     return () => sub.remove();
-  }, []);
+  }, [router]);
 
   const handleSubmit = async () => {
     if (submittingRef.current || !artist || artist.bookingStatus !== 'open') return;
@@ -314,7 +374,8 @@ export default function NewRequestScreen() {
       Haptics.notificationAsync(sendError ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
     }
     if (sendError || !requestId) { setSubmitError(sendError ?? 'Envoi impossible. Votre formulaire est conservé.'); return; }
-    router.replace({ pathname: '/request/[id]', params: { id: requestId } });
+    // Same destination as before; the success state sits in between and leads there.
+    setSentId(requestId);
   };
 
   const toggleStylePref = (slug: string) => {
@@ -323,6 +384,21 @@ export default function NewRequestScreen() {
 
   // ── Unavailable states ──
   if (!artist && loading) return <FormSkeleton top={insets.top} />;
+  if (sentId && artist) {
+    const sizeSent = SIZE_OPTIONS.find((o) => o.key === sizeCategory)?.label;
+    const typeSent = PROJECT_TYPES.find((p) => p.key === projectType)?.label;
+    const budgetSent = `${Number(budgetMin).toLocaleString('fr-FR')} – ${Number(budgetMax).toLocaleString('fr-FR')} €`;
+    return (
+      <RequestSent
+        artistName={artist.blaze}
+        summary={[typeSent, bodyZone, sizeSent, budgetSent].filter(Boolean).join(' · ')}
+        top={insets.top}
+        bottom={insets.bottom}
+        onOpen={() => openRequest(sentId)}
+        onExplore={() => router.replace('/(tabs)/explore')}
+      />
+    );
+  }
   if (!artist || artist.bookingStatus !== 'open') {
     const closedCopy = artist?.bookingStatus === 'paused'
       ? `${artist.blaze} est sur liste d’attente et n’accepte pas de nouvelle demande pour le moment.`
@@ -347,7 +423,6 @@ export default function NewRequestScreen() {
 
   const meta = STEPS[step];
   const status = BOOKING_STATUS[artist.bookingStatus];
-  const entering = reduced ? undefined : FadeInDown.duration(600).easing(EASE);
   const descLength = description.trim().length;
   const colorLabel = COLORS_OPTIONS.find((c) => c.key === colorPref)?.label ?? '';
   const sizeOpt = SIZE_OPTIONS.find((s) => s.key === sizeCategory);
@@ -404,7 +479,7 @@ export default function NewRequestScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <Animated.View key={step} entering={entering}>
+        <Animated.View key={step} entering={enterUp(0)}>
           <TText variant="displayS" style={styles.stepTitle}>
             {meta.lead}<TText variant="displayS" italic color="accentGlow">{meta.accent}</TText>
           </TText>
@@ -650,6 +725,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.borderDefault, borderRadius: 1, overflow: 'hidden',
   },
   progressFill: { height: 2, backgroundColor: Colors.accentWarm },
+
+  sentBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Layout.gutter },
+  sentRing: {
+    width: 76, height: 76, borderRadius: 38, marginBottom: Spacing.lg,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
+  },
+  sentLine: { width: 120, height: 1, backgroundColor: Colors.accentWarm, opacity: 0.6, marginVertical: Spacing.md },
+  sentActions: { width: '100%', maxWidth: 420, alignSelf: 'center', paddingHorizontal: Layout.gutter, gap: Spacing['2xs'] },
 
   artistContext: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,

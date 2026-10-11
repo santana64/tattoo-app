@@ -35,11 +35,21 @@ Reference implementations: `app/(auth)/welcome.tsx`, `app/(tabs)/explore.tsx`,
 - Cards: avoid boxes when spacing + hairline dividers suffice. Radius tight inside (6–10), soft outside (14–28).
 - Status display: 6px dot + label (see `BOOKING_STATUS` in `components/ArtistCard.tsx`).
 
-## Motion
+## Motion (`components/motion`)
 
-- Entrances: `FadeInDown.duration(600).easing(bezier(0.22,1,0.36,1))`, short stagger, respect `useReducedMotion()`.
-- Press: scale 0.975–0.985 spring, never bouncy wobble. No infinite pulsing/glowing loops.
-- Haptics only on native (`Platform.OS !== 'web'`).
+Gate first — how often is this seen? 100+/day (tab switch, typing, scrolling lists): **no animation**.
+Tens/day (press, row select): < 150ms. Occasional (sheets, step changes, toasts): standard. Rare (success, first visit): delight allowed.
+
+- `PressableScale` — every tappable card/tile/row (0.97, 120ms; 0.92 for small icon buttons). `haptic` only for commits (save, toggle).
+- `RevealImage` — every photograph: fades up + settles 1.04→1 when decoded; pass `fallback` (e.g. `ArtPlaceholder`).
+- `enterUp(index)` — `entering` for screen content above the fold, staggered ≤ 8 items. Never on virtualized list rows (FlatList/FlashList `renderItem`); animate the header/container instead.
+- `BottomSheet` — modal sheets (filters, pickers, confirmations): drag-to-dismiss, velocity snap-back.
+- `GlassSurface` — bars floating over imagery (tab bar, sticky headers, action bars).
+- Scroll-driven effects (parallax cover, header that fades in, sticky glass bar) use Reanimated `useAnimatedScrollHandler` + `useAnimatedStyle`, never `setState` in onScroll, never core `Animated`.
+- Curves: `EASE_OUT` for entrances, `EASE_IN_OUT` for on-screen moves, never ease-in. Springs (`Springs.*`) only when a finger drives it.
+- Animate `transform`/`opacity` only. No infinite pulsing/glowing loops. Respect `useReducedMotion()` (keep fades, drop movement).
+- Haptics only on native (`Platform.OS !== 'web'`), one per user action, always paired with a visual.
+- Web: film grain is global (`app/+html.tsx`); don't add per-screen noise.
 
 ## Layout & a11y
 

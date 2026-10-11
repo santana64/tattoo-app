@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL_STEPS = 5;
@@ -23,7 +23,6 @@ export default function ArtistStep1() {
 
   const handleContinue = () => {
     if (!canContinue) return;
-    haptic('success');
     updateProfile({ displayName: blaze.trim(), city: city.trim() });
     router.push('/(onboarding)/artist/step2');
   };

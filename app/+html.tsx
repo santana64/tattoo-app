@@ -38,6 +38,12 @@ html, body { background-color: #0B0A09; color: #F4EFE6; }
 body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 ::selection { background: rgba(201,164,106,0.35); }
 :focus-visible { outline: 2px solid rgba(221,187,130,0.85); outline-offset: 2px; border-radius: 6px; }
+/* Film grain: breaks digital flatness on the dark walls. Static, GPU-cheap, never intercepts input. */
+body::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 2147483000;
+  opacity: 0.06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

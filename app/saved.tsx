@@ -1,23 +1,21 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Pressable, FlatList, ScrollView, Platform, useWindowDimensions } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import Animated from 'react-native-reanimated';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { BOOKING_STATUS } from '@/components/ArtistCard';
+import { ArtPlaceholder, BOOKING_STATUS } from '@/components/ArtistCard';
 import { VideoPlaceholder, isVideoMedia } from '@/components/PostCard';
+import { PressableScale, RevealImage, enterUp } from '@/components/motion';
 import { useFeedStore, type FeedPost } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const GAP = Spacing.xs;
 
 type Tab = 'saved' | 'liked';
@@ -29,32 +27,32 @@ const TABS: { value: Tab; label: string }[] = [
 
 type SavedArtist = { id: string; blaze: string; avatarUrl: string | null; bookingStatus: FeedPost['artistBookingStatus'] };
 
-function WorkTile({ post, width, index }: { post: FeedPost; width: number; index: number }) {
+// Virtualized grid cell: press feedback and photo reveal only, no entrance animation.
+function WorkTile({ post, width }: { post: FeedPost; width: number }) {
   const router = useRouter();
-  const reduced = useReducedMotion();
   const isVideo = isVideoMedia(post.mediaUrl);
   return (
-    <Animated.View
-      entering={reduced || index > 11 ? undefined : FadeIn.delay(index * 40).duration(400)}
-      style={{ width }}
-    >
-      <Pressable
+    <View style={{ width }}>
+      <PressableScale
         onPress={() => router.push(`/post/${post.id}`)}
         accessibilityRole="link"
         accessibilityLabel={`Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`}
-        style={({ pressed }) => [pressed && { opacity: 0.85 }]}
       >
         <View style={[styles.tile, { height: Math.round(width * 1.25) }]}>
           {isVideo ? (
             <VideoPlaceholder compact />
           ) : (
-            <Image source={{ uri: post.mediaUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={reduced ? 0 : 250} />
+            <RevealImage
+              uri={post.mediaUrl}
+              style={StyleSheet.absoluteFill}
+              fallback={<ArtPlaceholder name={post.artistName} size={40} />}
+            />
           )}
         </View>
         <TText variant="caption" weight="medium" numberOfLines={1} style={styles.tileName}>{post.artistName}</TText>
         {!!post.artistCity && <TText variant="caption" color="tertiary" numberOfLines={1}>{post.artistCity}</TText>}
-      </Pressable>
-    </Animated.View>
+      </PressableScale>
+    </View>
   );
 }
 
@@ -74,7 +72,6 @@ function GridSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
 export default function SavedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reduced = useReducedMotion();
   const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ tab?: string }>();
 
@@ -111,9 +108,8 @@ export default function SavedScreen() {
   const cellW = Math.floor((innerW - GAP * (cols - 1)) / cols);
 
   const selectTab = useCallback((tab: Tab) => {
-    if (tab === activeTab) return;
-    if (Platform.OS !== 'web') Haptics.selectionAsync();
-    setActiveTab(tab);
+    // Tabs are peers switched often: no haptic, no transition (frequency gate).
+    if (tab !== activeTab) setActiveTab(tab);
   }, [activeTab]);
 
   if (!user) {
@@ -133,17 +129,21 @@ export default function SavedScreen() {
 
   const header = (
     <View>
-      <Animated.View entering={reduced ? undefined : FadeInDown.duration(600).easing(EASE)} style={styles.masthead}>
-        <TText variant="displayM" accessibilityRole="header">
-          Vos <TText variant="displayM" italic color="accentGlow">favoris</TText>
-        </TText>
-        <TText variant="bodySmall" color="tertiary" style={{ marginTop: 4 }}>
-          Les pièces et les artistes que vous gardez sous la main.
-        </TText>
-      </Animated.View>
+      <View style={styles.masthead}>
+        <Animated.View entering={enterUp(0)}>
+          <TText variant="displayM" accessibilityRole="header">
+            Vos <TText variant="displayM" italic color="accentGlow">favoris</TText>
+          </TText>
+        </Animated.View>
+        <Animated.View entering={enterUp(1)}>
+          <TText variant="bodySmall" color="tertiary" style={{ marginTop: 4 }}>
+            Les pièces et les artistes que vous gardez sous la main.
+          </TText>
+        </Animated.View>
+      </View>
 
       {/* Tabs */}
-      <View style={styles.tabs} accessibilityRole="tablist">
+      <Animated.View entering={enterUp(2)} style={styles.tabs} accessibilityRole="tablist">
         {TABS.map((t) => {
           const selected = activeTab === t.value;
           const count = t.value === 'saved' ? savedPosts.length : likedPosts.length;
@@ -163,22 +163,22 @@ export default function SavedScreen() {
             </Pressable>
           );
         })}
-      </View>
+      </Animated.View>
 
       {/* Saved artists */}
       {activeTab === 'saved' && savedArtists.length > 0 && (
         <View style={styles.artistsSection}>
           <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Artistes enregistrés</TText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.rail}>
-            {savedArtists.map((artist) => {
+            {savedArtists.map((artist, i) => {
               const status = BOOKING_STATUS[artist.bookingStatus] ?? BOOKING_STATUS.closed;
               return (
-                <Pressable
-                  key={artist.id}
+                <Animated.View key={artist.id} entering={i <= 8 ? enterUp(i, 160) : undefined}>
+                <PressableScale
                   onPress={() => router.push(`/artist/${artist.id}`)}
                   accessibilityRole="link"
                   accessibilityLabel={`${artist.blaze}, ${status.label}`}
-                  style={({ pressed }) => [styles.artistChip, pressed && { opacity: 0.7 }]}
+                  style={styles.artistChip}
                 >
                   <View style={styles.avatarRing}>
                     <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
@@ -188,7 +188,8 @@ export default function SavedScreen() {
                     <View style={[styles.dot, { backgroundColor: status.color }]} />
                     <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
                   </View>
-                </Pressable>
+                </PressableScale>
+                </Animated.View>
               );
             })}
           </ScrollView>
@@ -210,7 +211,7 @@ export default function SavedScreen() {
         key={`${activeTab}-${cols}`}
         data={activePosts}
         keyExtractor={(p) => p.id}
-        renderItem={({ item, index }) => <WorkTile post={item} width={cellW} index={index} />}
+        renderItem={({ item }) => <WorkTile post={item} width={cellW} />}
         numColumns={cols}
         columnWrapperStyle={styles.columnWrapper}
         style={styles.list}
@@ -223,12 +224,12 @@ export default function SavedScreen() {
           ) : (
             <EmptyState
               icon={activeTab === 'saved' ? 'bookmark-outline' : 'heart-outline'}
-              title={activeTab === 'saved' ? 'Aucune réalisation enregistrée' : 'Aucune réalisation aimée'}
+              title={activeTab === 'saved' ? 'Rien d’enregistré pour l’instant' : 'Aucune pièce aimée'}
               description={activeTab === 'saved'
-                ? 'Touchez le signet sur la page d’une réalisation pour la retrouver ici.'
-                : 'Les pièces que vous aimez dans le fil apparaîtront ici.'}
-              ctaLabel="Parcourir le fil"
-              onCta={() => router.push('/(tabs)')}
+                ? 'Enregistrez une réalisation depuis sa page avec le signet : elle vous attendra ici.'
+                : 'Touchez le cœur sous une réalisation pour la retrouver ici.'}
+              ctaLabel="Explorer les artistes"
+              onCta={() => router.push('/(tabs)/explore')}
               style={styles.empty}
             />
           )

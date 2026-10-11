@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 3;
@@ -21,7 +21,6 @@ export default function ClientStep1() {
 
   const handleContinue = () => {
     if (!canContinue) return;
-    haptic('success');
     updateProfile({ displayName: name.trim() });
     router.push('/(onboarding)/client/step2');
   };

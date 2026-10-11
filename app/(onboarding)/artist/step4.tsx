@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, OnboardingChip, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen, OnboardingChip, RadioMark } from '@/components/OnboardingProgress';
+import { PressableScale } from '@/components/motion/PressableScale';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 5;
@@ -46,8 +47,6 @@ const EXCLUSION_OPTIONS = [
   'Pointillisme',
 ];
 
-type InteractionState = { pressed: boolean; hovered?: boolean };
-
 function SectionLabel({ children }: { children: string }) {
   return (
     <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
@@ -64,7 +63,6 @@ export default function ArtistStep4() {
   const [exclusions, setExclusions] = useState<Set<string>>(new Set());
 
   const toggleExclusion = (label: string) => {
-    haptic();
     const s = new Set(exclusions);
     if (s.has(label)) s.delete(label);
     else s.add(label);
@@ -72,7 +70,6 @@ export default function ArtistStep4() {
   };
 
   const handleContinue = () => {
-    haptic('success');
     updateProfile({
       bookingStatus: status,
       minBudget: minBudget ? parseInt(minBudget, 10) : undefined,
@@ -98,23 +95,15 @@ export default function ArtistStep4() {
         {BOOKING_STATUSES.map((opt, i) => {
           const isSelected = status === opt.value;
           return (
-            <Pressable
+            <PressableScale
               key={opt.value}
-              onPress={() => {
-                haptic();
-                setStatus(opt.value);
-              }}
+              onPress={() => setStatus(opt.value)}
+              haptic={!isSelected}
+              pressedScale={0.985}
               accessibilityRole="radio"
               accessibilityState={{ checked: isSelected }}
               accessibilityLabel={`${opt.label}. ${opt.description}`}
-              style={(state) => {
-                const { pressed, hovered } = state as InteractionState;
-                return [
-                  styles.statusRow,
-                  i > 0 && styles.statusDivider,
-                  (pressed || hovered) && styles.statusRowActive,
-                ];
-              }}
+              style={[styles.statusRow, i > 0 && styles.statusDivider, isSelected && styles.statusRowSelected]}
             >
               <View style={[styles.statusDot, { backgroundColor: opt.color }]} />
               <View style={styles.statusText}>
@@ -123,10 +112,8 @@ export default function ArtistStep4() {
                 </TText>
                 <TText variant="caption" color="tertiary">{opt.description}</TText>
               </View>
-              <View style={[styles.radio, isSelected && styles.radioOn]}>
-                {isSelected ? <View style={styles.radioInner} /> : null}
-              </View>
-            </Pressable>
+              <RadioMark selected={isSelected} />
+            </PressableScale>
           );
         })}
       </View>
@@ -186,23 +173,11 @@ const styles = StyleSheet.create({
     minHeight: 60,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
   statusDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault },
-  statusRowActive: { backgroundColor: Colors.glassBgMid },
+  statusRowSelected: { backgroundColor: Colors.glassBg },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { flex: 1, gap: 2 },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.borderGlass,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOn: { borderColor: Colors.accentAction },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.accentAction },
 
   budget: { marginBottom: Spacing.lg },
   budgetInput: { fontVariant: ['tabular-nums'] },

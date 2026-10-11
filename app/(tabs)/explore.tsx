@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
-  FlatList, StyleSheet, View, TextInput, Pressable,
+  StyleSheet, View, TextInput, Pressable,
   ScrollView, RefreshControl, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn, Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue,
+} from 'react-native-reanimated';
+import { BottomSheet, GlassSurface } from '@/components/motion';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -32,20 +35,20 @@ interface ExploreTrendingPost {
 type Availability = 'all' | 'open' | 'paused' | 'closed';
 type SortKey = 'relevance' | 'open' | 'budget_asc';
 
-const AVAILABILITY_OPTIONS: Array<{ value: Availability; label: string; dot?: string }> = [
+const AVAILABILITY_OPTIONS: { value: Availability; label: string; dot?: string }[] = [
   { value: 'all', label: 'Tous' },
   { value: 'open', label: 'Prend des projets', dot: Colors.success },
   { value: 'paused', label: 'Liste d’attente', dot: Colors.warning },
   { value: 'closed', label: 'Complet', dot: Colors.textTertiary },
 ];
 // Minimum budget an artist accepts — not a quote. Artists without a public budget are excluded when a cap is set.
-const BUDGET_OPTIONS: Array<{ label: string; value: number | null }> = [
+const BUDGET_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'Tous', value: null },
   { label: 'Jusqu’à 300 €', value: 300 },
   { label: 'Jusqu’à 500 €', value: 500 },
   { label: 'Jusqu’à 800 €', value: 800 },
 ];
-const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'relevance', label: 'Pertinence' },
   { value: 'open', label: 'Disponibles d’abord' },
   { value: 'budget_asc', label: 'Budget croissant' },
@@ -296,6 +299,21 @@ export default function ExploreScreen() {
     [savedArtistIds, toggleSaveArtist, viewMode, previews, columns],
   );
 
+  // ── Scroll-driven masthead (UI thread only)
+  const [barH, setBarH] = useState(0);
+  const [titleH, setTitleH] = useState(0);
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
+  const barStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -interpolate(scrollY.get(), [0, titleH], [0, titleH], Extrapolation.CLAMP) }],
+  }));
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [0, titleH * 0.7], [1, 0], Extrapolation.CLAMP),
+  }));
+  const glassStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [titleH * 0.4, titleH], [0, 1], Extrapolation.CLAMP),
+  }));
+
   const openCount = artists.filter((a) => a.bookingStatus === 'open').length;
   const styleName = selectedStyle ? STYLES.find((s) => s.slug === selectedStyle)?.name : null;
 
@@ -351,17 +369,26 @@ export default function ExploreScreen() {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
+      {/* Pinned bar: the masthead slides away under the status bar, search + styles stay on frosted glass. */}
+      <Animated.View
+        style={[styles.bar, { paddingTop: insets.top }, barStyle]}
+        onLayout={(e) => setBarH(e.nativeEvent.layout.height)}
+      >
+        <Animated.View style={[StyleSheet.absoluteFill, glassStyle]} pointerEvents="none">
+          <GlassSurface style={StyleSheet.absoluteFill} />
+          <View style={styles.barHairline} />
+        </Animated.View>
       <View style={styles.frame}>
         {/* Masthead */}
-        <View style={styles.header}>
+        <Animated.View style={[styles.header, titleStyle]} onLayout={(e) => setTitleH(e.nativeEvent.layout.height)}>
           <TText variant="displayM" accessibilityRole="header">
             Trouver <TText variant="displayM" italic color="accentGlow">un artiste</TText>
           </TText>
           <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }}>
             {isLoading || fetchError ? 'Tatoueurs, studios et guest spots' : `${artists.length} artistes · ${openCount} prennent des projets`}
           </TText>
-        </View>
+        </Animated.View>
 
         {/* Search */}
         <View style={styles.searchRow}>
@@ -420,9 +447,15 @@ export default function ExploreScreen() {
           ))}
         </ScrollView>
       </View>
+      </Animated.View>
+
+      {/* Status-bar cover once the masthead has slid under it */}
+      <Animated.View style={[styles.statusCover, { height: insets.top }, glassStyle]} pointerEvents="none">
+        <GlassSurface style={StyleSheet.absoluteFill} />
+      </Animated.View>
 
       {/* Results */}
-      <FlatList
+      <Animated.FlatList
         data={isLoading ? [] : listed}
         keyExtractor={(item) => item.id}
         renderItem={renderArtist}
@@ -430,12 +463,14 @@ export default function ExploreScreen() {
         numColumns={columns}
         columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
         style={styles.list}
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
+        contentContainerStyle={[styles.listContent, { paddingTop: barH + Spacing.xs, paddingBottom: insets.bottom + 110 }]}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
         keyboardDismissMode="on-drag"
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} />
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} progressViewOffset={barH} />
         }
         ListEmptyComponent={
           isLoading ? <ListSkeleton /> : fetchError ? (
@@ -459,58 +494,44 @@ export default function ExploreScreen() {
       />
 
       {/* ── Filter sheet ── */}
-      {showFilters && (
-        <>
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(160)} style={StyleSheet.absoluteFill}>
-            <Pressable style={styles.backdrop} onPress={() => setShowFilters(false)} accessibilityLabel="Fermer les filtres" />
-          </Animated.View>
+      <BottomSheet visible={showFilters} onClose={() => setShowFilters(false)} accessibilityLabel="Filtres">
+        <View style={styles.sheetHeader}>
+          <TText variant="displayS">Filtres</TText>
+          <Pressable onPress={() => { setAvailability('all'); setBudgetMax(null); setSortBy('relevance'); }} hitSlop={8} accessibilityRole="button">
+            <TText variant="bodySmall" color="secondary" style={{ textDecorationLine: 'underline' }}>Réinitialiser</TText>
+          </Pressable>
+        </View>
 
-          <Animated.View
-            entering={SlideInDown.duration(320)}
-            exiting={SlideOutDown.duration(220)}
-            style={[styles.sheet, { paddingBottom: insets.bottom + Spacing.md }]}
-            accessibilityViewIsModal
-          >
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <TText variant="displayS">Filtres</TText>
-              <Pressable onPress={() => { setAvailability('all'); setBudgetMax(null); setSortBy('relevance'); }} hitSlop={8} accessibilityRole="button">
-                <TText variant="bodySmall" color="secondary" style={{ textDecorationLine: 'underline' }}>Réinitialiser</TText>
-              </Pressable>
-            </View>
+        <SectionLabel>Disponibilité</SectionLabel>
+        <View style={styles.wrapRow}>
+          {AVAILABILITY_OPTIONS.map((o) => (
+            <Chip key={o.value} label={o.label} dot={o.dot} selected={availability === o.value} onPress={() => setAvailability(o.value)} />
+          ))}
+        </View>
 
-            <SectionLabel>Disponibilité</SectionLabel>
-            <View style={styles.wrapRow}>
-              {AVAILABILITY_OPTIONS.map((o) => (
-                <Chip key={o.value} label={o.label} dot={o.dot} selected={availability === o.value} onPress={() => setAvailability(o.value)} />
-              ))}
-            </View>
+        <SectionLabel>Budget minimum de l’artiste</SectionLabel>
+        <View style={styles.wrapRow}>
+          {BUDGET_OPTIONS.map((o) => (
+            <Chip key={o.label} label={o.label} selected={budgetMax === o.value} onPress={() => setBudgetMax(o.value)} />
+          ))}
+        </View>
+        <TText variant="caption" color="tertiary" style={styles.sheetNote}>
+          Indicatif : le prix final dépend du projet et fait l’objet d’un devis par l’artiste.
+        </TText>
 
-            <SectionLabel>Budget minimum de l’artiste</SectionLabel>
-            <View style={styles.wrapRow}>
-              {BUDGET_OPTIONS.map((o) => (
-                <Chip key={o.label} label={o.label} selected={budgetMax === o.value} onPress={() => setBudgetMax(o.value)} />
-              ))}
-            </View>
-            <TText variant="caption" color="tertiary" style={styles.sheetNote}>
-              Indicatif : le prix final dépend du projet et fait l’objet d’un devis par l’artiste.
-            </TText>
+        <SectionLabel>Trier par</SectionLabel>
+        <View style={styles.wrapRow}>
+          {SORT_OPTIONS.map((o) => (
+            <Chip key={o.value} label={o.label} selected={sortBy === o.value} onPress={() => setSortBy(o.value)} />
+          ))}
+        </View>
 
-            <SectionLabel>Trier par</SectionLabel>
-            <View style={styles.wrapRow}>
-              {SORT_OPTIONS.map((o) => (
-                <Chip key={o.value} label={o.label} selected={sortBy === o.value} onPress={() => setSortBy(o.value)} />
-              ))}
-            </View>
-
-            <TButton
-              title={isLoading ? 'Voir les artistes' : `Voir ${filtered.length} artiste${filtered.length > 1 ? 's' : ''}`}
-              onPress={() => setShowFilters(false)}
-              style={{ marginTop: Spacing.md }}
-            />
-          </Animated.View>
-        </>
-      )}
+        <TButton
+          title={isLoading ? 'Voir les artistes' : `Voir ${filtered.length} artiste${filtered.length > 1 ? 's' : ''}`}
+          onPress={() => setShowFilters(false)}
+          style={{ marginTop: Spacing.md }}
+        />
+      </BottomSheet>
     </View>
   );
 }
@@ -518,6 +539,9 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  bar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  barHairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
+  statusCover: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 11 },
 
   header: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.sm, paddingBottom: Spacing.md },
 
@@ -544,7 +568,7 @@ const styles = StyleSheet.create({
   },
   filterBtnActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
 
-  chipScroller: { flexGrow: 0, marginBottom: Spacing.xs },
+  chipScroller: { flexGrow: 0, paddingBottom: Spacing.sm },
   chipRow: { paddingHorizontal: Layout.gutter, gap: 8 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 7,

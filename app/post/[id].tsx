@@ -1,24 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, StyleSheet, Pressable, ScrollView,
-  Share, ActionSheetIOS, Platform, Alert, useWindowDimensions,
+  View, StyleSheet, Share, Platform, useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSequence, withSpring, FadeIn, FadeInDown, Easing, useReducedMotion,
+  useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, useReducedMotion,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout, SpringConfig } from '@/constants/theme';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
-import { BOOKING_STATUS, styleName } from '@/components/ArtistCard';
-import { VideoPlaceholder, isVideoMedia } from '@/components/PostCard';
+import { ArtPlaceholder, BOOKING_STATUS, styleName } from '@/components/ArtistCard';
+import { VideoPlaceholder, isVideoMedia, popScale } from '@/components/PostCard';
+import { BottomSheet, GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
 import { useFeedStore } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
@@ -27,9 +25,15 @@ import type { Artist } from '@/constants/mock-data';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const WIDE = 900;
 const SIDE_W = 400;
+
+type ReportReason = 'spam' | 'inappropriate' | 'fake';
+const REPORT_REASONS: { value: ReportReason; label: string }[] = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'inappropriate', label: 'Contenu inapproprié' },
+  { value: 'fake', label: 'Faux contenu' },
+];
 
 /** Shared layout maths: the work gets the room, the label sits beside it on wide screens. */
 function useArtworkFrame() {
@@ -109,25 +113,36 @@ export default function PostDetailScreen() {
   return <PostContent key={id} row={resource.post} artist={resource.artist} />;
 }
 
-function ActionButton({ icon, label, onPress, active, count, disabled, children }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void;
-  active?: boolean; count?: number; disabled?: boolean; children?: React.ReactNode;
+function ActionButton({ label, onPress, active, count, haptic, children }: {
+  label: string; onPress: () => void; active?: boolean; count?: number; haptic?: boolean; children: React.ReactNode;
 }) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
-      disabled={disabled}
+      haptic={haptic}
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: !!active, disabled: !!disabled }}
+      accessibilityState={{ selected: !!active }}
       hitSlop={4}
-      style={({ pressed }) => [styles.action, pressed && { opacity: 0.6 }]}
+      style={styles.action}
     >
-      {children ?? <Ionicons name={icon} size={21} color={active ? Colors.accentGlow : Colors.textSecondary} />}
+      {children}
       {count !== undefined && (
         <TText variant="bodySmall" weight="medium" color="secondary" tabular>{count.toLocaleString('fr-FR')}</TText>
       )}
-    </Pressable>
+    </PressableScale>
+  );
+}
+
+function SheetRow({ icon, label, onPress, destructive }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; destructive?: boolean;
+}) {
+  return (
+    <PressableScale onPress={onPress} pressedScale={0.98} accessibilityRole="button" accessibilityLabel={label} style={styles.sheetRow}>
+      <Ionicons name={icon} size={19} color={destructive ? Colors.errorLight : Colors.textSecondary} />
+      <TText variant="body" weight="medium" style={destructive ? { color: Colors.errorLight } : undefined}>{label}</TText>
+    </PressableScale>
   );
 }
 
@@ -143,6 +158,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const [likes, setLikes] = useState(row.likes_count ?? 0);
   const [busy, setBusy] = useState(false);
   const [membershipReady, setMembershipReady] = useState(false);
+  const [sheet, setSheet] = useState<'options' | 'report' | null>(null);
   const post = { id, mediaUrl: row.media_url, caption: row.caption, styles: row.styles ?? [], likes };
   const status = artist ? BOOKING_STATUS[artist.bookingStatus] : null;
   useEffect(() => {
@@ -163,8 +179,20 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const heartScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
 
-  const heartStyle = useAnimatedStyle(() => ({ transform: [{ scale: heartScale.value }] }));
-  const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.value }] }));
+  const heartStyle = useAnimatedStyle(() => ({ transform: [{ scale: heartScale.get() }] }));
+  const saveStyle = useAnimatedStyle(() => ({ transform: [{ scale: saveScale.get() }] }));
+
+  // ── Scroll-driven artwork: gentle parallax, stretches on pull-down (phones only).
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
+  const parallax = !wide && !reduced;
+  const artMotion = useAnimatedStyle(() => {
+    if (!parallax) return { transform: [{ translateY: 0 }, { scale: 1 }] };
+    const y = scrollY.get();
+    return y < 0
+      ? { transform: [{ translateY: y / 2 }, { scale: 1 + -y / artH }] }
+      : { transform: [{ translateY: y * 0.3 }, { scale: 1 }] };
+  });
 
   const mutate = async (kind: 'like' | 'save') => {
     if (!user?.id) { router.push('/(auth)/sign-in'); return; }
@@ -192,18 +220,15 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     } catch { Toast.error('Modification non enregistrée. Réessayez.'); }
     finally { setBusy(false); }
   };
-  const pop = (value: typeof heartScale) => {
-    if (!reduced) value.value = withSequence(withSpring(1.15, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
-  };
+
+  // Haptics come from PressableScale (native only); the pop accompanies the commit.
   const handleLike = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    pop(heartScale);
+    if (!isLiked) popScale(heartScale, reduced);
     void mutate('like');
   };
 
   const handleSave = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    pop(saveScale);
+    if (!isSaved) popScale(saveScale, reduced);
     void mutate('save');
   };
 
@@ -216,20 +241,11 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   };
 
   const handleReport = () => {
-    if (!user?.id) { router.push('/(auth)/sign-in'); return; }
-    Alert.alert(
-      'Signaler ce contenu',
-      'Pourquoi signalez-vous cette publication ?',
-      [
-        { text: 'Spam', onPress: () => submitReport('spam') },
-        { text: 'Contenu inapproprié', onPress: () => submitReport('inappropriate') },
-        { text: 'Faux contenu', onPress: () => submitReport('fake') },
-        { text: 'Annuler', style: 'cancel' },
-      ]
-    );
+    if (!user?.id) { setSheet(null); router.push('/(auth)/sign-in'); return; }
+    setSheet('report');
   };
 
-  const submitReport = async (reason: 'spam' | 'inappropriate' | 'fake') => {
+  const submitReport = async (reason: ReportReason) => {
     if (!user?.id) return;
     try {
       const { error } = await supabase.from('reports').insert({
@@ -245,26 +261,8 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     }
   };
 
-  const handleOptions = () => {
-    const options = ['Partager', 'Signaler', 'Annuler'];
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 2, destructiveButtonIndex: 1 },
-        (idx) => {
-          if (idx === 0) handleShare();
-          if (idx === 1) handleReport();
-        }
-      );
-    } else {
-      Alert.alert('Options', '', [
-        { text: 'Partager', onPress: handleShare },
-        { text: 'Signaler', onPress: handleReport, style: 'destructive' },
-        { text: 'Annuler', style: 'cancel' },
-      ]);
-    }
-  };
+  const handleOptions = () => setSheet('options');
 
-  const enter = (delay: number) => (reduced ? undefined : FadeInDown.delay(delay).duration(600).easing(EASE));
   const isVideo = isVideoMedia(row.media_url, row.media_type);
   const stylesLabel = post.styles.slice(0, 3).map(styleName).join(' · ');
   const firstName = artist?.blaze.split(' ')[0] ?? '';
@@ -285,44 +283,46 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       <THeader
         showBack
         rightElement={
-          <Pressable
+          <PressableScale
             onPress={handleOptions}
+            pressedScale={0.92}
             accessibilityRole="button"
             accessibilityLabel="Plus d’options"
             hitSlop={8}
-            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+            style={styles.headerBtn}
           >
             <Ionicons name="ellipsis-horizontal" size={18} color={Colors.textPrimary} />
-          </Pressable>
+          </PressableScale>
         }
       />
 
-      <ScrollView
+      <Animated.ScrollView
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: wide ? Spacing['3xl'] : insets.bottom + (artist ? 110 : 40) }}
       >
         <View style={[styles.frame, wide && styles.frameWide]}>
           {/* ── The work, matted like a print ── */}
           <Animated.View
-            entering={reduced ? undefined : FadeIn.duration(500)}
-            style={[styles.art, { height: artH }, wide && styles.artColWide, wide && styles.artWide]}
+            style={[styles.art, { height: artH }, wide ? [styles.artColWide, styles.artWide] : null, artMotion]}
           >
             {isVideo ? (
               <VideoPlaceholder note="La lecture n’est pas encore disponible sur cette page." />
             ) : (
-              <Image
-                source={{ uri: post.mediaUrl }}
-                style={StyleSheet.absoluteFill}
+              <RevealImage
+                uri={post.mediaUrl}
                 contentFit="contain"
-                transition={reduced ? 0 : 300}
+                style={[StyleSheet.absoluteFill, styles.mat]}
                 accessibilityLabel={post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
+                fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={96} />}
               />
             )}
           </Animated.View>
 
           {/* ── Wall label ── */}
           <View style={[styles.side, wide && styles.sideWide]}>
-            <Animated.View entering={enter(80)}>
+            <Animated.View entering={enterUp(0, 120)}>
               {!!stylesLabel && (
                 <TText variant="label" color="accentWarm" uppercase numberOfLines={1}>{stylesLabel}</TText>
               )}
@@ -334,51 +334,53 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
             </Animated.View>
 
             {/* Actions */}
-            <Animated.View entering={enter(140)} style={styles.actions}>
+            <Animated.View entering={enterUp(1, 120)} style={styles.actions}>
               <ActionButton
-                icon="heart-outline"
                 label={isLiked ? 'Retirer le j’aime' : 'Aimer cette réalisation'}
                 onPress={handleLike}
                 active={isLiked}
                 count={post.likes}
+                haptic
               >
                 <Animated.View style={heartStyle}>
                   <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={21} color={isLiked ? Colors.accentGlow : Colors.textSecondary} />
                 </Animated.View>
               </ActionButton>
               <ActionButton
-                icon="bookmark-outline"
                 label={isSaved ? 'Retirer des enregistrements' : 'Enregistrer cette réalisation'}
                 onPress={handleSave}
                 active={isSaved}
+                haptic
               >
                 <Animated.View style={saveStyle}>
                   <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={isSaved ? Colors.accentGlow : Colors.textSecondary} />
                 </Animated.View>
               </ActionButton>
-              <ActionButton icon="arrow-redo-outline" label="Partager" onPress={handleShare} />
+              <ActionButton label="Partager" onPress={handleShare}>
+                <Ionicons name="arrow-redo-outline" size={21} color={Colors.textSecondary} />
+              </ActionButton>
               <View style={{ flex: 1 }} />
-              <ActionButton icon="flag-outline" label="Signaler cette publication" onPress={handleReport}>
+              <ActionButton label="Signaler cette publication" onPress={handleReport}>
                 <Ionicons name="flag-outline" size={18} color={Colors.textTertiary} />
               </ActionButton>
             </Animated.View>
 
             {/* Caption */}
             {!!post.caption && (
-              <Animated.View entering={enter(200)}>
+              <Animated.View entering={enterUp(2, 120)}>
                 <TText variant="body" color="secondary" style={styles.caption}>{post.caption}</TText>
               </Animated.View>
             )}
 
             {/* Artist */}
             {artist && status && (
-              <Animated.View entering={enter(260)} style={styles.artistSection}>
+              <Animated.View entering={enterUp(3, 120)} style={styles.artistSection}>
                 <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing.sm }}>L’artiste</TText>
-                <Pressable
+                <PressableScale
                   onPress={openArtist}
                   accessibilityRole="link"
                   accessibilityLabel={`Voir le profil de ${artist.blaze}, ${artist.city}, ${status.label}`}
-                  style={({ pressed }) => [styles.artistRow, pressed && { opacity: 0.7 }]}
+                  style={styles.artistRow}
                 >
                   <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
                   <View style={styles.artistInfo}>
@@ -393,7 +395,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                     </TText>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
-                </Pressable>
+                </PressableScale>
                 <View style={styles.statusRow}>
                   <View style={[styles.dot, { backgroundColor: status.color }]} />
                   <TText variant="caption" color="secondary">{status.label}</TText>
@@ -406,20 +408,50 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
               </Animated.View>
             )}
 
-            {wide && cta && <View style={{ marginTop: Spacing.lg }}>{cta}</View>}
+            {wide && cta && <Animated.View entering={enterUp(4, 120)} style={{ marginTop: Spacing.lg }}>{cta}</Animated.View>}
           </View>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
-      {/* Sticky CTA on phones and tablets */}
+      {/* Sticky CTA on phones and tablets, frosted over the work */}
       {!wide && cta && (
-        <Animated.View
-          entering={reduced ? undefined : FadeInDown.delay(300).duration(500).easing(EASE)}
-          style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}
-        >
-          <View style={styles.stickyInner}>{cta}</View>
+        <Animated.View entering={fadeIn(250)} style={styles.stickyBar}>
+          <GlassSurface style={[styles.stickyGlass, { paddingBottom: insets.bottom + 12 }]}>
+            <View style={styles.stickyInner}>{cta}</View>
+          </GlassSurface>
         </Animated.View>
       )}
+
+      {/* Options & report */}
+      <BottomSheet
+        visible={sheet !== null}
+        onClose={() => setSheet(null)}
+        accessibilityLabel={sheet === 'report' ? 'Signaler ce contenu' : 'Options'}
+      >
+        {sheet === 'report' ? (
+          <View>
+            <TText variant="displayS">Signaler ce contenu</TText>
+            <TText variant="bodySmall" color="secondary" style={styles.sheetLead}>
+              Pourquoi signalez-vous cette publication ?
+            </TText>
+            {REPORT_REASONS.map((r) => (
+              <SheetRow
+                key={r.value}
+                icon="flag-outline"
+                label={r.label}
+                onPress={() => { setSheet(null); void submitReport(r.value); }}
+              />
+            ))}
+          </View>
+        ) : (
+          <View>
+            <TText variant="displayS" style={styles.sheetTitle}>Options</TText>
+            <SheetRow icon="arrow-redo-outline" label="Partager" onPress={() => { setSheet(null); void handleShare(); }} />
+            <SheetRow icon="flag-outline" label="Signaler" destructive onPress={handleReport} />
+          </View>
+        )}
+        <TButton title="Annuler" variant="ghost" size="md" onPress={() => setSheet(null)} style={{ marginTop: Spacing.xs }} />
+      </BottomSheet>
     </View>
   );
 }
@@ -439,11 +471,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
   },
 
-  art: { width: '100%', overflow: 'hidden', backgroundColor: Colors.bgInk },
+  // Phones: no clipping, so the stretch can grow above the fold; the label below is opaque.
+  art: { width: '100%', backgroundColor: Colors.bgInk },
   artColWide: { flex: 1, width: undefined },
-  artWide: { borderRadius: Radius.xl, backgroundColor: Colors.bgElevated },
+  artWide: { borderRadius: Radius.xl, overflow: 'hidden', backgroundColor: Colors.bgElevated },
+  mat: { backgroundColor: 'transparent' },
 
-  side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg },
+  side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
   sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
 
   title: { marginTop: 8 },
@@ -470,11 +504,18 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   budget: { marginLeft: 'auto', color: Colors.accentGlow },
 
-  stickyBar: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
+  stickyBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  stickyGlass: {
     paddingHorizontal: Layout.gutter, paddingTop: 12,
-    backgroundColor: 'rgba(11,10,9,0.96)',
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
   stickyInner: { width: '100%', maxWidth: Layout.maxReading, alignSelf: 'center' },
+
+  sheetTitle: { marginBottom: Spacing.xs },
+  sheetLead: { marginTop: 4, marginBottom: Spacing.xs },
+  sheetRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    minHeight: 52,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+  },
 });

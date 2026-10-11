@@ -1,16 +1,16 @@
 import React, { useCallback } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
-import { Image } from 'expo-image';
+import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, withSequence, useReducedMotion,
+  useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming, useReducedMotion,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Radius, SpringConfig } from '@/constants/theme';
+import type { SharedValue } from 'react-native-reanimated';
+import { Colors, Spacing, Radius } from '@/constants/theme';
+import { PressableScale, RevealImage, Springs, EASE_OUT } from '@/components/motion';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
-import { BOOKING_STATUS, styleName } from './ArtistCard';
+import { ArtPlaceholder, BOOKING_STATUS, styleName } from './ArtistCard';
 
 export interface PostCardData {
   id: string;
@@ -54,6 +54,15 @@ export function isVideoMedia(url: string | null | undefined, mediaType?: 'photo'
   return mediaType === 'video' || (!!url && VIDEO_EXT.test(url));
 }
 
+/**
+ * Brief "pop" for commits (like, save): a quick lift, then an under-damped settle.
+ * Only on the way in — undoing a like stays quiet. Reduced motion: no movement.
+ */
+export function popScale(value: SharedValue<number>, reduced: boolean) {
+  if (reduced) return;
+  value.set(withSequence(withTiming(1.22, { duration: 110, easing: EASE_OUT }), withSpring(1, Springs.pop)));
+}
+
 /** Quiet stand-in for video posts: the feed only renders still photography. */
 export function VideoPlaceholder({ compact = false, note }: { compact?: boolean; note?: string }) {
   const ring = compact ? 40 : 56;
@@ -81,28 +90,26 @@ function LikeButton({
 }: { liked: boolean; count?: number; onPress: () => void; onImage?: boolean; small?: boolean }) {
   const reduced = useReducedMotion();
   const scale = useSharedValue(1);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
 
   const press = useCallback(() => {
-    if (!reduced) scale.value = withSequence(withSpring(1.15, SpringConfig.snappy), withSpring(1, SpringConfig.gentle));
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!liked) popScale(scale, reduced);
     onPress();
-  }, [onPress, reduced, scale]);
+  }, [liked, onPress, reduced, scale]);
 
   const iconColor = liked ? Colors.accentGlow : onImage ? Colors.textPrimary : Colors.textSecondary;
   const label = liked ? 'Retirer le j’aime' : 'Aimer cette réalisation';
 
   return (
-    <Pressable
+    <PressableScale
       onPress={press}
+      haptic
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel={count ? `${label}, ${count} j’aime` : label}
       accessibilityState={{ selected: liked }}
       hitSlop={6}
-      style={({ pressed }) => [
-        onImage ? [styles.likeOnImage, small && styles.likeOnImageSmall] : styles.likeInline,
-        pressed && { opacity: 0.7 },
-      ]}
+      style={onImage ? [styles.likeOnImage, small && styles.likeOnImageSmall] : styles.likeInline}
     >
       <Animated.View style={anim}>
         <Ionicons name={liked ? 'heart' : 'heart-outline'} size={small ? 16 : 19} color={iconColor} />
@@ -110,19 +117,13 @@ function LikeButton({
       {!onImage && count !== undefined && count > 0 && (
         <TText variant="caption" color="secondary" tabular>{count.toLocaleString('fr-FR')}</TText>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
 export function PostCard({
   post, onLike, onPress, onArtistPress, onQuickBook, variant = 'full', imageHeight,
 }: PostCardProps) {
-  const reduced = useReducedMotion();
-  const lift = useSharedValue(1);
-  const liftStyle = useAnimatedStyle(() => ({ transform: [{ scale: lift.value }] }));
-
-  const pressIn = () => { if (!reduced) lift.value = withSpring(0.985, SpringConfig.snappy); };
-  const pressOut = () => { if (!reduced) lift.value = withSpring(1, SpringConfig.gentle); };
   const like = useCallback(() => onLike?.(), [onLike]);
 
   const isHalf = variant === 'half';
@@ -136,59 +137,58 @@ export function PostCard({
   return (
     <View style={styles.card}>
       {/* ── The work ── */}
-      <Animated.View style={[styles.media, isHalf ? styles.mediaHalf : styles.mediaLarge, mediaSize, liftStyle]}>
-        <Pressable
+      <View>
+        <PressableScale
           onPress={onPress}
-          onPressIn={pressIn}
-          onPressOut={pressOut}
           accessibilityRole="link"
           accessibilityLabel={mediaLabel}
-          style={({ pressed }) => [StyleSheet.absoluteFill, reduced && pressed && { opacity: 0.85 }]}
+          style={[styles.media, isHalf ? styles.mediaHalf : styles.mediaLarge, mediaSize]}
         >
           {isVideo ? (
             <VideoPlaceholder compact={isHalf} />
           ) : (
-            <Image
-              source={{ uri: post.mediaUrl }}
+            <RevealImage
+              uri={post.mediaUrl}
               style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              transition={reduced ? 0 : 300}
+              fallback={<ArtPlaceholder name={post.artistName} size={isHalf ? 40 : 72} />}
             />
           )}
-        </Pressable>
+        </PressableScale>
         {isHalf && onLike && (
           <View style={styles.likeCorner}>
             <LikeButton liked={post.isLiked} onPress={like} onImage small />
           </View>
         )}
-      </Animated.View>
+      </View>
 
       {/* ── Wall label ── */}
       {isHalf ? (
-        <Pressable
+        <PressableScale
           onPress={onArtistPress}
           accessibilityRole="link"
           accessibilityLabel={`Voir le profil de ${post.artistName}`}
-          style={({ pressed }) => [styles.halfLabel, pressed && { opacity: 0.7 }]}
+          style={styles.halfLabel}
         >
           <TText variant="bodySmall" weight="medium" numberOfLines={1}>{post.artistName}</TText>
           {!!meta && <TText variant="caption" color="tertiary" numberOfLines={1}>{meta}</TText>}
-        </Pressable>
+        </PressableScale>
       ) : (
         <View style={styles.label}>
           <View style={styles.labelRow}>
-            <Pressable
-              onPress={onArtistPress}
-              accessibilityRole="link"
-              accessibilityLabel={`Voir le profil de ${post.artistName}`}
-              style={({ pressed }) => [styles.artist, pressed && { opacity: 0.7 }]}
-            >
-              <TAvatar uri={post.artistAvatarUrl} name={post.artistName} size="sm" />
-              <View style={styles.artistText}>
-                <TText variant="title2" serif numberOfLines={1} style={styles.artistName}>{post.artistName}</TText>
-                {!!meta && <TText variant="caption" color="secondary" numberOfLines={1}>{meta}</TText>}
-              </View>
-            </Pressable>
+            <View style={styles.artistSlot}>
+              <PressableScale
+                onPress={onArtistPress}
+                accessibilityRole="link"
+                accessibilityLabel={`Voir le profil de ${post.artistName}`}
+                style={styles.artist}
+              >
+                <TAvatar uri={post.artistAvatarUrl} name={post.artistName} size="sm" />
+                <View style={styles.artistText}>
+                  <TText variant="title2" serif numberOfLines={1} style={styles.artistName}>{post.artistName}</TText>
+                  {!!meta && <TText variant="caption" color="secondary" numberOfLines={1}>{meta}</TText>}
+                </View>
+              </PressableScale>
+            </View>
             {onLike && <LikeButton liked={post.isLiked} count={post.likesCount} onPress={like} />}
           </View>
 
@@ -212,16 +212,16 @@ export function PostCard({
                 </View>
               ) : <View />}
               {onQuickBook && (
-                <Pressable
+                <PressableScale
                   onPress={onQuickBook}
                   accessibilityRole="button"
                   accessibilityLabel={`Demander un projet à ${post.artistName}`}
                   hitSlop={8}
-                  style={({ pressed }) => [styles.requestLink, pressed && { opacity: 0.7 }]}
+                  style={styles.requestLink}
                 >
                   <TText variant="bodySmall" weight="medium" color="accentGlow">Demander un projet</TText>
                   <Ionicons name="arrow-forward" size={14} color={Colors.accentGlow} />
-                </Pressable>
+                </PressableScale>
               )}
             </View>
           )}
@@ -268,7 +268,8 @@ const styles = StyleSheet.create({
 
   label: { paddingTop: 14 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  artist: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
+  artistSlot: { flex: 1 },
+  artist: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
   artistText: { flex: 1, gap: 1 },
   artistName: { fontSize: 21, lineHeight: 24 },
   caption: { marginTop: Spacing['2xs'], maxWidth: 640 },

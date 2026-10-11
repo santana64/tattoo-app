@@ -1,13 +1,15 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
-  StyleSheet, View, Pressable, Animated as RNAnimated, useWindowDimensions, Platform,
+  StyleSheet, View, Pressable, useWindowDimensions, Platform,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn, Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, useReducedMotion,
+} from 'react-native-reanimated';
+import { GlassSurface, PressableScale, RevealImage, enterUp } from '@/components/motion';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -137,10 +139,31 @@ export default function ArtistProfileScreen() {
   const cell = (contentW - Layout.gutter * 2 - GAP * (cols - 1)) / cols;
 
   // Scroll-linked header
-  const scrollY = useRef(new RNAnimated.Value(0)).current;
-  const coverParallax = scrollY.interpolate({ inputRange: [-200, 0, coverH], outputRange: [-60, 0, coverH * 0.3], extrapolate: 'clamp' });
-  const headerBg = scrollY.interpolate({ inputRange: [coverH * 0.55, coverH * 0.85], outputRange: ['rgba(11,10,9,0)', 'rgba(11,10,9,0.96)'], extrapolate: 'clamp' });
-  const headerTitleOpacity = scrollY.interpolate({ inputRange: [coverH * 0.7, coverH * 0.95], outputRange: [0, 1], extrapolate: 'clamp' });
+  // Scroll-driven cover & header, entirely on the UI thread.
+  const reduced = useReducedMotion();
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
+  const coverStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    if (reduced) return { transform: [] };
+    return {
+      transform: [
+        // Pull down: the print stretches from its top edge. Scroll up: slower parallax.
+        { translateY: y < 0 ? y / 2 : y * 0.35 },
+        { scale: y < 0 ? 1 + -y / coverH : 1 },
+      ],
+    };
+  });
+  const coverCopyStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [0, coverH * 0.45], [1, 0], Extrapolation.CLAMP),
+  }));
+  const headerGlassStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [coverH * 0.55, coverH * 0.85], [0, 1], Extrapolation.CLAMP),
+  }));
+  const headerTitleStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [coverH * 0.7, coverH * 0.95], [0, 1], Extrapolation.CLAMP),
+    transform: [{ translateY: interpolate(scrollY.get(), [coverH * 0.7, coverH * 0.95], [6, 0], Extrapolation.CLAMP) }],
+  }));
 
   const handleSave = useCallback(async () => {
     if (!artist) return;
@@ -183,12 +206,16 @@ export default function ArtistProfileScreen() {
   return (
     <View style={styles.container}>
       {/* ─── Floating header ─── */}
-      <RNAnimated.View style={[styles.floatingHeader, { paddingTop: insets.top + 6, backgroundColor: headerBg }]}>
+      <View style={[styles.floatingHeader, { paddingTop: insets.top + 6 }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, headerGlassStyle]} pointerEvents="none">
+          <GlassSurface style={StyleSheet.absoluteFill} />
+          <View style={styles.headerHairline} />
+        </Animated.View>
         <View style={styles.floatingHeaderInner}>
           <RoundButton icon="chevron-back" label="Retour" onPress={goBack} />
-          <RNAnimated.View style={{ opacity: headerTitleOpacity, flex: 1, alignItems: 'center' }}>
+          <Animated.View style={[{ flex: 1, alignItems: 'center' }, headerTitleStyle]}>
             <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{artist.blaze}</TText>
-          </RNAnimated.View>
+          </Animated.View>
           <RoundButton
             icon={isSaved ? 'bookmark' : 'bookmark-outline'}
             label={isSaved ? 'Retirer des favoris' : 'Ajouter aux favoris'}
@@ -197,30 +224,35 @@ export default function ArtistProfileScreen() {
             active={isSaved}
           />
         </View>
-      </RNAnimated.View>
+      </View>
 
-      <RNAnimated.ScrollView
+      <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-        onScroll={RNAnimated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        onScroll={onScroll}
         scrollEventThrottle={16}
       >
         {/* ─── Cover ─── */}
         <View style={[styles.cover, { height: coverH }]}>
-          <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: coverParallax }] }]}>
+          <Animated.View style={[StyleSheet.absoluteFill, styles.coverOrigin, coverStyle]}>
             {coverUri ? (
-              <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={400} accessibilityLabel={`Travail de ${artist.blaze}`} />
+              <RevealImage
+                uri={coverUri}
+                style={StyleSheet.absoluteFill}
+                accessibilityLabel={`Travail de ${artist.blaze}`}
+                fallback={<ArtPlaceholder name={artist.blaze} size={Math.min(width * 0.45, 220)} />}
+              />
             ) : (
               <ArtPlaceholder name={artist.blaze} size={Math.min(width * 0.45, 220)} />
             )}
-          </RNAnimated.View>
+          </Animated.View>
           <LinearGradient
             colors={['rgba(11,10,9,0.45)', 'rgba(11,10,9,0)', 'rgba(11,10,9,0.55)', Colors.bgPrimary]}
             locations={[0, 0.25, 0.7, 1]}
             style={StyleSheet.absoluteFill}
           />
-          <View style={[styles.coverCopy, { maxWidth: Layout.maxContent }]}>
-            <Animated.View entering={FadeInDown.duration(600)}>
+          <Animated.View style={[styles.coverCopy, { maxWidth: Layout.maxContent }, coverCopyStyle]}>
+            <Animated.View entering={enterUp(0, 80)}>
               <View style={styles.kickerRow}>
                 <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="sm" />
                 <TText variant="label" color="accentWarm" uppercase numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -236,7 +268,7 @@ export default function ArtistProfileScreen() {
                 )}
               </View>
             </Animated.View>
-          </View>
+          </Animated.View>
         </View>
 
         <View style={styles.body}>
@@ -293,15 +325,16 @@ export default function ArtistProfileScreen() {
                 const feature = cols > 1 && i % 5 === 0 && i + 1 < photos.length;
                 const w = feature ? cell * 2 + GAP : cell;
                 return (
-                  <Pressable
-                    key={post.id}
-                    onPress={() => router.push(`/post/${post.id}`)}
-                    accessibilityRole="link"
-                    accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
-                    style={({ pressed }) => [styles.cell, { width: w, height: feature ? cell * 1.25 : cell * 1.25 }, pressed && { opacity: 0.85 }]}
-                  >
-                    <Image source={{ uri: post.media_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
-                  </Pressable>
+                  <Animated.View key={post.id} entering={i < 8 ? enterUp(i, 100) : undefined}>
+                    <PressableScale
+                      onPress={() => router.push(`/post/${post.id}`)}
+                      accessibilityRole="link"
+                      accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
+                      style={[styles.cell, { width: w, height: cell * 1.25 }]}
+                    >
+                      <RevealImage uri={post.media_url} style={StyleSheet.absoluteFill} />
+                    </PressableScale>
+                  </Animated.View>
                 );
               })}
             </View>
@@ -335,7 +368,7 @@ export default function ArtistProfileScreen() {
             </Section>
           )}
         </View>
-      </RNAnimated.ScrollView>
+      </Animated.ScrollView>
 
       {/* ─── Sticky action bar ─── */}
       <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}>
@@ -372,6 +405,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
   floatingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100, paddingBottom: 8 },
+  headerHairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
+  coverOrigin: { transformOrigin: 'top' },
   floatingHeaderInner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: Spacing.sm, width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',

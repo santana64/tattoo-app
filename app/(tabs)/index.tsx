@@ -1,13 +1,13 @@
-import React, { useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
-  FlatList, StyleSheet, View, Pressable, RefreshControl,
-  Animated as RNAnimated, ScrollView, Platform, useWindowDimensions, ActivityIndicator,
+  StyleSheet, View, RefreshControl, ScrollView, useWindowDimensions, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import Animated, {
+  useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, useReducedMotion,
+} from 'react-native-reanimated';
 import { Colors, Spacing, Radius, Layout, Shadow } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
@@ -17,17 +17,15 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PostCard, type PostCardData } from '@/components/PostCard';
 import { BOOKING_STATUS } from '@/components/ArtistCard';
 import { Logo } from '@/components/ui/Logo';
+import { GlassSurface, PressableScale, enterUp, fadeIn } from '@/components/motion';
 import { useFeedStore, FeedPost } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationStore } from '@/store/notification-store';
 import { Toast } from '@/components/ui/TToast';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const HEADER_H = 56;
 const GAP = Spacing.md;
 const ROW_GAP = Spacing['2xl'];
-/** Only the first rows animate in; recycled rows further down appear instantly. */
-const ANIMATED_ROWS = 4;
 
 // ── Editorial rhythm ──────────────────────────────────────────────────────────
 // Phones: one large piece, a pair, a wide piece, repeat.
@@ -78,19 +76,15 @@ type RailArtist = { id: string; blaze: string; avatarUrl: string | null; isPremi
 
 function ArtistChip({ artist, index }: { artist: RailArtist; index: number }) {
   const router = useRouter();
-  const reduced = useReducedMotion();
   const status = BOOKING_STATUS[artist.bookingStatus] ?? BOOKING_STATUS.closed;
 
   return (
-    <Animated.View entering={reduced || index > 7 ? undefined : FadeInDown.delay(120 + index * 40).duration(600).easing(EASE)}>
-      <Pressable
-        onPress={() => {
-          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.push(`/artist/${artist.id}`);
-        }}
+    <Animated.View entering={index <= 8 ? enterUp(index, 160) : undefined}>
+      <PressableScale
+        onPress={() => router.push(`/artist/${artist.id}`)}
         accessibilityRole="link"
         accessibilityLabel={`${artist.blaze}, ${status.label}`}
-        style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+        style={styles.chip}
       >
         <View style={[styles.chipRing, artist.isPremium && styles.chipRingPremium]}>
           <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="xl" />
@@ -100,7 +94,7 @@ function ArtistChip({ artist, index }: { artist: RailArtist; index: number }) {
           <View style={[styles.dot, { backgroundColor: status.color }]} />
           <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
         </View>
-      </Pressable>
+      </PressableScale>
     </Animated.View>
   );
 }
@@ -109,12 +103,13 @@ function IconButton({ icon, label, onPress, badge }: {
   icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; badge?: number;
 }) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
+      pressedScale={0.92}
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={4}
-      style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+      style={styles.iconBtn}
     >
       <Ionicons name={icon} size={19} color={Colors.textPrimary} />
       {!!badge && badge > 0 && (
@@ -122,7 +117,46 @@ function IconButton({ icon, label, onPress, badge }: {
           <TText variant="micro" tabular style={styles.badgeText}>{badge > 9 ? '9+' : badge}</TText>
         </View>
       )}
-    </Pressable>
+    </PressableScale>
+  );
+}
+
+/** First run: the tables are empty — say so plainly and point to the next step. */
+function FirstRun({ isArtist, signedIn, onExplore, onPublish, onSignIn }: {
+  isArtist: boolean; signedIn: boolean; onExplore: () => void; onPublish: () => void; onSignIn: () => void;
+}) {
+  return (
+    <View style={styles.firstRun}>
+      <Animated.View entering={enterUp(0, 80)} style={styles.firstRunRing}>
+        <Ionicons name="images-outline" size={22} color={Colors.accentWarm} />
+      </Animated.View>
+      <Animated.View entering={enterUp(1, 80)}>
+        <TText variant="label" color="accentWarm" uppercase style={styles.center}>Le fil</TText>
+        <TText variant="displayM" accessibilityRole="header" style={[styles.center, styles.firstRunTitle]}>
+          Le fil attend ses <TText variant="displayM" italic color="accentGlow">premières pièces</TText>
+        </TText>
+      </Animated.View>
+      <Animated.View entering={enterUp(2, 80)}>
+        <TText variant="body" color="secondary" style={[styles.center, styles.firstRunText]}>
+          {isArtist
+            ? 'Publiez une première réalisation : elle ouvrira le fil et rendra votre profil visible.'
+            : 'Les réalisations des artistes apparaîtront ici dès leur publication. Commencez par découvrir les profils.'}
+        </TText>
+      </Animated.View>
+      <Animated.View entering={enterUp(3, 80)} style={styles.firstRunActions}>
+        {isArtist ? (
+          <>
+            <TButton title="Publier une réalisation" onPress={onPublish} size="md" fullWidth={false} />
+            <TButton title="Explorer les artistes" variant="secondary" onPress={onExplore} size="md" fullWidth={false} />
+          </>
+        ) : (
+          <>
+            <TButton title="Explorer les artistes" onPress={onExplore} size="md" fullWidth={false} />
+            {!signedIn && <TButton title="Se connecter" variant="ghost" onPress={onSignIn} size="md" fullWidth={false} />}
+          </>
+        )}
+      </Animated.View>
+    </View>
   );
 }
 
@@ -178,13 +212,19 @@ export default function FeedScreen() {
   const { posts, error, isLoading, isRefreshing, hasMore, fetchFeed, fetchMore, refresh, toggleLike } = useFeedStore();
   const { unreadCount } = useNotificationStore();
 
-  const scrollY = useRef(new RNAnimated.Value(0)).current;
-  const headerBg = scrollY.interpolate({
-    inputRange: [0, 60],
-    outputRange: ['rgba(11,10,9,0)', 'rgba(11,10,9,0.96)'],
-    extrapolate: 'clamp',
+  // ── Scroll-driven chrome: the masthead recedes, the header frosts over the work.
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
+  const glassStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [8, 72], [0, 1], Extrapolation.CLAMP),
+  }));
+  const mastheadStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    return {
+      opacity: interpolate(y, [0, 150], [1, 0], Extrapolation.CLAMP),
+      transform: [{ translateY: reduced ? 0 : interpolate(y, [0, 150], [0, 48], Extrapolation.CLAMP) }],
+    };
   });
-  const headerBorderOpacity = scrollY.interpolate({ inputRange: [50, 80], outputRange: [0, 1], extrapolate: 'clamp' });
 
   useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
 
@@ -218,11 +258,8 @@ export default function FeedScreen() {
     onArtistPress: () => router.push(`/artist/${p.artistId}`),
   }), [handleLike, router]);
 
-  const renderRow = useCallback(({ item: row, index }: { item: FeedRow; index: number }) => {
-    const entering = reduced || index >= ANIMATED_ROWS
-      ? undefined
-      : FadeInDown.delay(80 + index * 70).duration(600).easing(EASE);
-
+  // Rows are virtualized and scrolled past constantly: no entrance animation here.
+  const renderRow = useCallback(({ item: row }: { item: FeedRow }) => {
     let content: React.ReactNode;
     switch (row.kind) {
       case 'lead':
@@ -270,35 +307,42 @@ export default function FeedScreen() {
         );
         break;
     }
+    return <View style={styles.row}>{content}</View>;
+  }, [cardProps, router, cols, cellW, innerW, tileH]);
 
-    return <Animated.View entering={entering} style={styles.row}>{content}</Animated.View>;
-  }, [cardProps, router, reduced, cols, cellW, innerW, tileH]);
+  const goExplore = useCallback(() => router.push('/(tabs)/explore'), [router]);
+  const hasPosts = posts.length > 0;
 
   const ListHeader = (
     <View>
       <View style={{ height: HEADER_H + insets.top }} />
 
-      <Animated.View entering={reduced ? undefined : FadeInDown.duration(600).easing(EASE)} style={styles.masthead}>
-        <TText variant="label" color="accentWarm" uppercase>Le fil</TText>
-        <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-          Les dernières <TText variant="displayM" italic color="accentGlow">réalisations</TText>
-        </TText>
-        <TText variant="bodySmall" color="tertiary">Les pièces publiées récemment par les artistes INKR.</TText>
-      </Animated.View>
+      {hasPosts && (
+        <Animated.View style={mastheadStyle}>
+          <View style={styles.masthead}>
+            <Animated.View entering={enterUp(0)}>
+              <TText variant="label" color="accentWarm" uppercase>Le fil</TText>
+            </Animated.View>
+            <Animated.View entering={enterUp(1)}>
+              <TText variant="displayM" accessibilityRole="header" style={styles.title}>
+                Les dernières <TText variant="displayM" italic color="accentGlow">réalisations</TText>
+              </TText>
+            </Animated.View>
+            <Animated.View entering={enterUp(2)}>
+              <TText variant="bodySmall" color="tertiary">Les pièces publiées récemment par les artistes INKR.</TText>
+            </Animated.View>
+          </View>
+        </Animated.View>
+      )}
 
       {railArtists.length > 0 && (
         <View style={styles.railSection}>
           <View style={styles.sectionHead}>
             <TText variant="label" color="tertiary" uppercase>Récemment actifs</TText>
-            <Pressable
-              onPress={() => router.push('/(tabs)/explore')}
-              accessibilityRole="link"
-              hitSlop={8}
-              style={({ pressed }) => [styles.textLink, pressed && { opacity: 0.6 }]}
-            >
+            <PressableScale onPress={goExplore} accessibilityRole="link" hitSlop={8} style={styles.textLink}>
               <TText variant="caption" weight="medium" color="secondary">Tous les artistes</TText>
               <Ionicons name="arrow-forward" size={13} color={Colors.textSecondary} />
-            </Pressable>
+            </PressableScale>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.rail}>
             {railArtists.map((a, i) => <ArtistChip key={a.id} artist={a} index={i} />)}
@@ -306,34 +350,34 @@ export default function FeedScreen() {
         </View>
       )}
 
-      {!!error && posts.length > 0 && (
-        <View style={styles.notice} accessibilityLiveRegion="polite">
+      {!!error && hasPosts && (
+        <Animated.View entering={fadeIn()} style={styles.notice} accessibilityLiveRegion="polite">
           <Ionicons name="cloud-offline-outline" size={16} color={Colors.warning} />
           <TText variant="caption" color="secondary" style={{ flex: 1 }}>Actualisation impossible. Vérifiez votre connexion.</TText>
-          <Pressable onPress={handleRefresh} accessibilityRole="button" hitSlop={8}>
+          <PressableScale onPress={handleRefresh} accessibilityRole="button" hitSlop={8} style={styles.noticeAction}>
             <TText variant="caption" weight="semibold">Réessayer</TText>
-          </Pressable>
-        </View>
+          </PressableScale>
+        </Animated.View>
       )}
 
-      {posts.length > 0 && <View style={styles.feedHead} />}
+      {hasPosts && <View style={styles.feedHead} />}
     </View>
   );
 
-  const showSkeleton = isLoading && posts.length === 0;
+  const showSkeleton = isLoading && !hasPosts;
 
   return (
     <View style={styles.container}>
-      {/* Floating header */}
-      <RNAnimated.View
-        style={[styles.floatingHeader, { paddingTop: insets.top, backgroundColor: headerBg }]}
-        pointerEvents="box-none"
-      >
-        <RNAnimated.View style={[styles.headerBorder, { opacity: headerBorderOpacity }]} />
+      {/* Floating header — frosts over the work once the feed scrolls */}
+      <View style={[styles.floatingHeader, { paddingTop: insets.top }]} pointerEvents="box-none">
+        <Animated.View style={[StyleSheet.absoluteFill, glassStyle]} pointerEvents="none">
+          <GlassSurface style={StyleSheet.absoluteFill} />
+          <View style={styles.headerBorder} />
+        </Animated.View>
         <View style={styles.headerInner}>
           <Logo size="sm" variant="full" />
           <View style={styles.headerActions}>
-            <IconButton icon="search-outline" label="Rechercher un artiste" onPress={() => router.push('/(tabs)/explore')} />
+            <IconButton icon="search-outline" label="Rechercher un artiste" onPress={goExplore} />
             <IconButton
               icon="notifications-outline"
               label={unreadCount > 0 ? `Notifications, ${unreadCount} non lue${unreadCount > 1 ? 's' : ''}` : 'Notifications'}
@@ -342,14 +386,14 @@ export default function FeedScreen() {
             />
           </View>
         </View>
-      </RNAnimated.View>
+      </View>
 
       {showSkeleton ? (
         <View style={[styles.frame, { paddingTop: insets.top + HEADER_H }]} accessibilityLabel="Chargement du fil">
           <FeedSkeleton cols={cols} cellW={cellW} />
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={rows}
           keyExtractor={(row) => `${cols}:${row.key}`}
           renderItem={renderRow}
@@ -367,7 +411,7 @@ export default function FeedScreen() {
           }
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
-          onScroll={RNAnimated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+          onScroll={onScroll}
           scrollEventThrottle={16}
           ListHeaderComponent={ListHeader}
           ListEmptyComponent={
@@ -381,57 +425,50 @@ export default function FeedScreen() {
                 style={styles.empty}
               />
             ) : (
-              <EmptyState
-                icon="images-outline"
-                title="Le fil est encore vide"
-                description="Les nouvelles réalisations des artistes apparaîtront ici. En attendant, parcourez les profils."
-                ctaLabel="Explorer les artistes"
-                onCta={() => router.push('/(tabs)/explore')}
-                style={styles.empty}
+              <FirstRun
+                isArtist={user?.role === 'artist'}
+                signedIn={!!user}
+                onExplore={goExplore}
+                onPublish={() => router.push('/create')}
+                onSignIn={() => router.push('/(auth)/sign-in')}
               />
             )
           }
           ListFooterComponent={
-            posts.length === 0 ? null : hasMore ? (
+            !hasPosts ? null : hasMore ? (
               <View style={styles.footer}>
                 {isLoading && <ActivityIndicator color={Colors.textTertiary} accessibilityLabel="Chargement des publications suivantes" />}
               </View>
             ) : (
-              <Animated.View entering={reduced ? undefined : FadeIn.duration(400)} style={styles.end}>
-                <TText variant="displayS" style={styles.endTitle}>
+              <Animated.View entering={fadeIn()} style={styles.end}>
+                <TText variant="displayS" style={styles.center}>
                   Vous êtes <TText variant="displayS" italic color="accentGlow">à jour</TText>
                 </TText>
-                <TText variant="bodySmall" color="tertiary" style={styles.endText}>
+                <TText variant="bodySmall" color="tertiary" style={[styles.center, styles.endText]}>
                   Découvrez d’autres artistes par style ou par ville.
                 </TText>
-                <TButton
-                  title="Explorer les artistes"
-                  variant="secondary"
-                  size="md"
-                  fullWidth={false}
-                  onPress={() => router.push('/(tabs)/explore')}
-                />
+                <TButton title="Explorer les artistes" variant="secondary" size="md" fullWidth={false} onPress={goExplore} />
               </Animated.View>
             )
           }
         />
       )}
 
-      {/* Artist shortcut: publish a new piece */}
-      {user?.role === 'artist' && (
+      {/* Artist shortcut: publish a new piece (hidden on first run, where the CTA is inline) */}
+      {user?.role === 'artist' && hasPosts && (
         <Animated.View
-          entering={reduced ? undefined : FadeIn.delay(600).duration(500)}
+          entering={fadeIn(500)}
           style={[styles.fab, { bottom: 88 + insets.bottom, right: Math.max(Layout.gutter, (width - Layout.maxContent) / 2 + Layout.gutter) }]}
         >
-          <Pressable
+          <PressableScale
             onPress={() => router.push('/create')}
             accessibilityRole="button"
             accessibilityLabel="Publier une réalisation"
-            style={({ pressed }) => [styles.fabBtn, cols > 1 && styles.fabBtnWide, pressed && { opacity: 0.88 }]}
+            style={[styles.fabBtn, cols > 1 && styles.fabBtnWide]}
           >
             <Ionicons name="add" size={24} color={Colors.textInverse} />
             {cols > 1 && <TText variant="bodySmall" weight="semibold" color="inverse">Publier</TText>}
-          </Pressable>
+          </PressableScale>
         </Animated.View>
       )}
     </View>
@@ -442,6 +479,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   list: { flex: 1 },
   frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
+  center: { textAlign: 'center' },
 
   // Header
   floatingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100 },
@@ -459,6 +497,7 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    backgroundColor: 'rgba(11,10,9,0.35)',
   },
   badge: {
     position: 'absolute', top: -3, right: -3,
@@ -500,6 +539,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
   },
+  noticeAction: { minHeight: 32, justifyContent: 'center' },
 
   feedHead: {
     marginBottom: Spacing.lg,
@@ -514,7 +554,26 @@ const styles = StyleSheet.create({
   skeletonRail: { flexDirection: 'row', gap: Spacing.sm, overflow: 'hidden' },
   skeletonLabel: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
 
+  // First run / empty
   empty: { paddingTop: Spacing['2xl'] },
+  firstRun: {
+    alignItems: 'center', alignSelf: 'center',
+    width: '100%', maxWidth: Layout.maxReading,
+    paddingTop: Spacing['3xl'], paddingBottom: Spacing['2xl'],
+  },
+  firstRunRing: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
+    marginBottom: Spacing.lg,
+  },
+  firstRunTitle: { marginTop: Spacing['2xs'] },
+  firstRunText: { marginTop: Spacing.sm, maxWidth: 440, alignSelf: 'center' },
+  firstRunActions: {
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: Spacing.xs,
+    marginTop: Spacing.xl,
+  },
 
   footer: { height: 80, alignItems: 'center', justifyContent: 'center' },
   end: {
@@ -522,8 +581,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.xl, paddingBottom: Spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  endTitle: { textAlign: 'center' },
-  endText: { textAlign: 'center', marginTop: 6, marginBottom: Spacing.md },
+  endText: { marginTop: 6, marginBottom: Spacing.md },
 
   // FAB
   fab: { position: 'absolute', zIndex: 50 },

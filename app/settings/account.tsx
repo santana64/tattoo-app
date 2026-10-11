@@ -3,7 +3,6 @@ import { ScrollView, StyleSheet, View, Platform, Alert, KeyboardAvoidingView } f
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { Easing, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -14,11 +13,6 @@ import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
 import { useAuthStore } from '@/store/auth-store';
 
-const EASE = Easing.bezier(0.22, 1, 0.36, 1);
-
-function enter(i: number, reduced: boolean) {
-  return reduced ? undefined : FadeInDown.delay(i * 60).duration(600).easing(EASE);
-}
 
 const PROVIDERS: Record<string, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   email:  { label: 'E-mail (lien de connexion)', icon: 'mail-outline' },
@@ -30,7 +24,6 @@ const PROVIDERS: Record<string, { label: string; icon: keyof typeof Ionicons.gly
 export default function AccountSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reduced = useReducedMotion();
   const { user, session, updateProfile } = useAuthStore();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
@@ -69,7 +62,7 @@ export default function AccountSettingsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Identity */}
-        <Animated.View entering={enter(0, reduced)} style={styles.identity}>
+        <View style={styles.identity}>
           <TAvatar uri={user?.avatarUrl} name={displayName || user?.displayName} size="2xl" />
           <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
             <TText variant="displayS" numberOfLines={1}>{displayName || user?.displayName || 'Votre nom'}</TText>
@@ -86,10 +79,10 @@ export default function AccountSettingsScreen() {
               onPress={() => Alert.alert('Photo de profil', 'Cette fonctionnalité arrive bientôt.')}
             />
           </View>
-        </Animated.View>
+        </View>
 
         {/* Form */}
-        <Animated.View entering={enter(1, reduced)}>
+        <View>
           <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Profil</TText>
           <TInput
             label="Nom affiché"
@@ -108,10 +101,10 @@ export default function AccountSettingsScreen() {
             autoCapitalize="words"
             textContentType="addressCity"
           />
-        </Animated.View>
+        </View>
 
         {/* E-mail, read-only */}
-        <Animated.View entering={enter(2, reduced)} style={styles.block}>
+        <View style={styles.block}>
           <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Connexion</TText>
           <View style={styles.list}>
             <View style={styles.row} accessible accessibilityLabel={`Adresse e-mail : ${email || 'non renseignée'}`}>
@@ -142,10 +135,10 @@ export default function AccountSettingsScreen() {
           <TText variant="caption" color="tertiary" style={styles.helper}>
             L’adresse e-mail sert à vous connecter. Pour la modifier, écrivez-nous depuis Aide et support.
           </TText>
-        </Animated.View>
+        </View>
 
         {/* Save */}
-        <Animated.View entering={enter(3, reduced)} style={styles.save}>
+        <View style={styles.save}>
           <TButton
             title={saved ? 'Enregistré' : 'Enregistrer les modifications'}
             onPress={handleSave}
@@ -157,7 +150,7 @@ export default function AccountSettingsScreen() {
               Aucune modification à enregistrer.
             </TText>
           )}
-        </Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );

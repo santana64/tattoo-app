@@ -1,12 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
-  withSequence,
   withTiming,
   Easing,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { Colors, Radius } from '@/constants/theme';
 
@@ -17,26 +18,40 @@ interface SkeletonProps {
   style?: ViewStyle;
 }
 
+/** Loading placeholder: a soft band of light sweeps across, like a gallery spotlight passing. */
 export function TSkeleton({ width = '100%', height = 16, radius = Radius.sm, style }: SkeletonProps) {
-  const opacity = useSharedValue(0.45);
+  const reduced = useReducedMotion();
+  const [w, setW] = useState(0);
+  const sweep = useSharedValue(0);
 
   useEffect(() => {
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.85, { duration: 900, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.45, { duration: 900, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-  }, []);
+    if (reduced || !w) return;
+    // Constant motion → linear, as a single continuous pass.
+    sweep.set(withRepeat(withTiming(1, { duration: 1400, easing: Easing.linear }), -1, false));
+  }, [reduced, w, sweep]);
 
-  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const bandStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -w + sweep.get() * w * 2 }],
+  }));
 
   return (
-    <Animated.View
-      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgElevated }, animStyle, style]}
-    />
+    <View
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgElevated, overflow: 'hidden' }, style]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {!reduced && w > 0 && (
+        <Animated.View style={[StyleSheet.absoluteFill, bandStyle]}>
+          <LinearGradient
+            colors={['rgba(244,239,230,0)', 'rgba(244,239,230,0.055)', 'rgba(244,239,230,0)']}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      )}
+    </View>
   );
 }
 

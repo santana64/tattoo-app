@@ -1,60 +1,93 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
   ActivityIndicator,
-  Pressable,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing, Radius, GlowShadow } from '@/constants/theme';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { EASE_OUT, MotionDuration, enterUp, fadeIn } from '@/components/motion/tokens';
+import { PressableScale } from '@/components/motion/PressableScale';
 import { TText } from '@/components/ui/TText';
 import { Logo } from '@/components/ui/Logo';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 import { Toast } from '@/components/ui/TToast';
 
-// ── Animated card wrapper with spring press scale ─────────────
-function ScaleCard({
-  children,
-  onPress,
-  disabled,
-  style,
-}: {
-  children: React.ReactNode;
-  onPress: () => void;
-  disabled: boolean;
-  style?: object;
-}) {
-  const scale = useSharedValue(1);
+const FORM_MAX_WIDTH = 480;
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+type Role = 'user' | 'artist';
+
+// ── Role option: hairline card, paper ring fades in when chosen ─────────────
+function RoleOption({
+  icon,
+  title,
+  description,
+  state,
+  disabled,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  description: string;
+  /** idle: nothing chosen · selected: this one is saving · dimmed: the other one was chosen */
+  state: 'idle' | 'selected' | 'dimmed';
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const selected = useSharedValue(state === 'selected' ? 1 : 0);
+  const opacity = useSharedValue(state === 'dimmed' ? 0.45 : 1);
+
+  useEffect(() => {
+    const timing = { duration: MotionDuration.state, easing: EASE_OUT };
+    selected.set(withTiming(state === 'selected' ? 1 : 0, timing));
+    opacity.set(withTiming(state === 'dimmed' ? 0.45 : 1, timing));
+  }, [state, selected, opacity]);
+
+  const cardStyle = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+  const ringStyle = useAnimatedStyle(() => ({ opacity: selected.get() }));
 
   return (
-    <Animated.View style={[animStyle, style]}>
-      <Pressable
+    <Animated.View style={cardStyle}>
+      <PressableScale
         onPress={onPress}
         disabled={disabled}
-        onPressIn={() => {
-          scale.value = withSpring(0.97, { damping: 18, stiffness: 400 });
-        }}
-        onPressOut={() => {
-          scale.value = withSpring(1, { damping: 18, stiffness: 400 });
-        }}
+        haptic
+        accessibilityRole="button"
+        accessibilityLabel={`${title}. ${description}`}
+        accessibilityState={{ disabled, busy: state === 'selected', selected: state === 'selected' }}
+        style={styles.card}
       >
-        {children}
-      </Pressable>
+        {/* Selection ring: opacity-only transition, no layout shift. */}
+        <Animated.View pointerEvents="none" style={[styles.cardRing, ringStyle]} />
+
+        <View style={styles.iconRing}>
+          <Ionicons name={icon} size={20} color={Colors.accentWarm} />
+        </View>
+
+        <View style={styles.cardText}>
+          <TText variant="title2" weight="semibold">{title}</TText>
+          <TText variant="bodySmall" color="secondary">{description}</TText>
+        </View>
+
+        <View style={styles.cardTrailing}>
+          {state === 'selected' ? (
+            <ActivityIndicator color={Colors.textPrimary} size="small" />
+          ) : (
+            <Ionicons name="arrow-forward" size={18} color={Colors.textTertiary} />
+          )}
+        </View>
+      </PressableScale>
     </Animated.View>
   );
 }
@@ -62,6 +95,7 @@ function ScaleCard({
 export default function RoleSelectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const { setRole, session, user, refreshProfile } = useAuthStore();
   const [loading, setLoading] = useState<'user' | 'artist' | null>(null);
 
@@ -85,260 +119,128 @@ export default function RoleSelectScreen() {
       }
       router.replace(role === 'user' ? '/(onboarding)/client/step1' : '/(onboarding)/artist/step1');
     } catch (e: any) {
-      Toast.error(e.message ?? 'Erreur');
+      Toast.error(e.message ?? 'Une erreur est survenue. Réessayez.');
     } finally {
       setLoading(null);
     }
   };
 
+  const stateFor = (role: Role): 'idle' | 'selected' | 'dimmed' =>
+    loading === null ? 'idle' : loading === role ? 'selected' : 'dimmed';
+
   return (
-    <View
-      style={[
-        styles.container,
-        { paddingTop: insets.top + Spacing.xl, paddingBottom: insets.bottom + Spacing.lg },
-      ]}
-    >
-      {/* Aurora orbs */}
-      <View style={styles.orbViolet} pointerEvents="none" />
-      <View style={styles.orbAmber} pointerEvents="none" />
+    <View style={styles.container}>
+      {/* One warm spotlight from above. */}
+      <LinearGradient
+        colors={['rgba(201,164,106,0.09)', 'rgba(201,164,106,0.02)', 'rgba(11,10,9,0)']}
+        locations={[0, 0.4, 1]}
+        style={styles.spotlight}
+        pointerEvents="none"
+      />
 
-      {/* Logo */}
-      <Animated.View entering={FadeIn.duration(500)} style={styles.logoWrap}>
-        <Logo variant="full" size="md" animate />
-      </Animated.View>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.column}>
+          <Animated.View entering={fadeIn()} style={styles.topBar}>
+            <Logo size="sm" variant="wordmark" />
+          </Animated.View>
 
-      {/* Header */}
-      <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.header}>
-        <TText variant="displayL" weight="bold">Qui es-tu ?</TText>
-        <TText variant="body" color="secondary" style={styles.subtitle}>
-          Choisis ton profil pour personnaliser ton expérience.
-        </TText>
-      </Animated.View>
+          <View style={styles.spacer} />
 
-      {/* Cards */}
-      <View style={styles.cards}>
+          <Animated.View entering={enterUp(0, 80)} style={styles.kicker}>
+            <View style={styles.kickerRule} />
+            <TText variant="label" color="accentWarm" uppercase>Bienvenue</TText>
+          </Animated.View>
 
-        {/* ── Client card ── */}
-        <Animated.View entering={FadeInDown.delay(300).springify()}>
-          <ScaleCard
-            onPress={() => selectRole('user')}
-            disabled={!!loading}
-            style={styles.cardShadowWrap}
-          >
-            <View style={styles.clientCard}>
-              {/* Icon area */}
-              <View style={styles.clientIconWrap}>
-                {loading === 'user' ? (
-                  <ActivityIndicator color={Colors.accentWarm} />
-                ) : (
-                  <Ionicons name="search" size={28} color={Colors.accentWarm} />
-                )}
-              </View>
+          <Animated.View entering={enterUp(1, 80)}>
+            <TText variant="displayL" style={styles.headline} accessibilityRole="header">
+              Comment utiliserez-vous{' '}
+              <TText variant="displayL" italic color="accentGlow">Inkr ?</TText>
+            </TText>
+          </Animated.View>
 
-              {/* Text */}
-              <View style={styles.cardTextBlock}>
-                <TText variant="title2" weight="bold" style={styles.cardTitle}>
-                  Je cherche un tatoueur
-                </TText>
-                <TText variant="bodySmall" color="secondary" style={styles.cardDesc}>
-                  Explore des artistes, découvre leurs univers, envoie des demandes structurées.
-                </TText>
-              </View>
+          <Animated.View entering={enterUp(2, 80)}>
+            <TText variant="body" color="secondary" style={styles.lede}>
+              Choisissez votre profil : nous adaptons l’expérience à votre usage.
+            </TText>
+          </Animated.View>
 
-              {/* Arrow */}
-              <View style={styles.cardArrow}>
-                <Ionicons name="arrow-forward" size={20} color={Colors.textTertiary} />
-              </View>
-            </View>
-          </ScaleCard>
-        </Animated.View>
-
-        {/* ── Artist card ── */}
-        <Animated.View entering={FadeInDown.delay(420).springify()}>
-          <ScaleCard
-            onPress={() => selectRole('artist')}
-            disabled={!!loading}
-            style={styles.cardShadowWrap}
-          >
-            <View style={styles.artistCard}>
-              {/* PRO pill */}
-              <View style={styles.proPillWrap}>
-                <LinearGradient
-                  colors={[Colors.accentGlow, Colors.accentWarm]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.proPill}
-                >
-                  <TText
-                    style={{
-                      color: '#FFFFFF',
-                      fontSize: 10,
-                      fontWeight: 'bold',
-                      letterSpacing: 1,
-                    }}
-                  >
-                    PRO
-                  </TText>
-                </LinearGradient>
-              </View>
-
-              {/* Icon area */}
-              <LinearGradient
-                colors={[Colors.accentGlow, Colors.accentWarm]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.artistIconWrap}
-              >
-                {loading === 'artist' ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="brush" size={28} color="#FFFFFF" />
-                )}
-              </LinearGradient>
-
-              {/* Text */}
-              <View style={styles.cardTextBlock}>
-                <TText variant="title2" weight="bold" style={styles.cardTitle}>
-                  Je suis tatoueur
-                </TText>
-                <TText variant="bodySmall" color="secondary" style={styles.cardDesc}>
-                  Crée ton profil pro, reçois des demandes qualifiées, gère ton agenda.
-                </TText>
-              </View>
-
-              {/* Arrow */}
-              <View style={styles.cardArrow}>
-                <Ionicons name="arrow-forward" size={20} color={Colors.accentWarm} />
-              </View>
-            </View>
-          </ScaleCard>
-        </Animated.View>
-
-      </View>
+          <View style={styles.cards}>
+            <Animated.View entering={enterUp(3, 80)}>
+              <RoleOption
+                icon="search-outline"
+                title="Je cherche un artiste"
+                description="Explorez les portfolios, enregistrez vos artistes et envoyez des demandes détaillées."
+                state={stateFor('user')}
+                disabled={!!loading}
+                onPress={() => selectRole('user')}
+              />
+            </Animated.View>
+            <Animated.View entering={enterUp(4, 80)}>
+              <RoleOption
+                icon="brush-outline"
+                title="Je suis tatoueur·se"
+                description="Présentez votre travail, recevez des demandes qualifiées et organisez vos rendez-vous."
+                state={stateFor('artist')}
+                disabled={!!loading}
+                onPress={() => selectRole('artist')}
+              />
+            </Animated.View>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgPrimary,
-    paddingHorizontal: Spacing.lg,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  spotlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 420 },
 
-  // ── Aurora orbs ────────────────────────────────────────────
-  orbViolet: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: Colors.violet,
-    opacity: 0.055,
-    top: -60,
-    right: -80,
-  },
-  orbAmber: {
-    position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: Colors.accentWarm,
-    opacity: 0.05,
-    bottom: 60,
-    left: -60,
-  },
+  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
+  column: { flex: 1, width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
 
-  // ── Header ─────────────────────────────────────────────────
-  logoWrap: {
+  topBar: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
+  spacer: { flex: 1, minHeight: Spacing['2xl'], maxHeight: 160 },
+
+  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
+  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
+  headline: { marginBottom: Spacing.sm },
+  lede: { maxWidth: 440, marginBottom: Spacing.xl },
+
+  cards: { gap: Spacing.xs },
+  card: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.xl,
-  },
-  header: {
-    gap: Spacing['2xs'],
-    marginBottom: Spacing['2xl'],
-  },
-  subtitle: {
-    marginTop: 4,
-    lineHeight: 24,
-  },
-
-  // ── Cards container ────────────────────────────────────────
-  cards: {
-    gap: Spacing.md,
-    flex: 1,
-    justifyContent: 'center',
-  },
-
-  cardShadowWrap: {},
-
-  // ── Client card ────────────────────────────────────────────
-  clientCard: {
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1.5,
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: Radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.borderDefault,
+    backgroundColor: Colors.bgCard,
+  },
+  cardRing: {
+    ...StyleSheet.absoluteFillObject,
     borderRadius: Radius.xl,
-    padding: Spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  clientIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.glassAmber,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-
-  // ── Artist card ────────────────────────────────────────────
-  artistCard: {
+    borderWidth: 1,
+    borderColor: Colors.accent,
     backgroundColor: Colors.glassBg,
-    borderWidth: 1.5,
-    borderColor: 'rgba(212,168,100,0.25)',
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    ...GlowShadow.amber,
   },
-  artistIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: Radius.md,
+  iconRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
   },
-
-  // ── PRO pill ───────────────────────────────────────────────
-  proPillWrap: {
-    position: 'absolute',
-    top: Spacing.sm,
-    right: Spacing.sm,
-    zIndex: 10,
-  },
-  proPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
-
-  // ── Shared card internals ──────────────────────────────────
-  cardTextBlock: {
-    flex: 1,
-    gap: Spacing['3xs'],
-  },
-  cardTitle: {
-    marginBottom: 2,
-  },
-  cardDesc: {
-    lineHeight: 20,
-  },
-  cardArrow: {
-    flexShrink: 0,
-    marginLeft: Spacing['3xs'],
-  },
+  cardText: { flex: 1, gap: 4 },
+  cardTrailing: { width: 24, alignItems: 'center' },
 });

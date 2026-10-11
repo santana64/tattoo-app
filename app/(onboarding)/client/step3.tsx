@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, OnboardingChip, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen, OnboardingChip, useOnboardingFinale } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 import { STYLES } from '@/constants/mock-data';
 
@@ -15,16 +15,15 @@ export default function ClientStep3() {
   const router = useRouter();
   const { updateProfile, completeOnboarding } = useAuthStore();
   const [selected, setSelected] = useState<string[]>([]);
+  const finale = useOnboardingFinale();
 
   const toggle = (slug: string) => {
-    haptic();
     setSelected((prev) =>
       prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
   };
 
   const handleFinish = () => {
-    haptic('success');
     updateProfile({ stylePreferences: selected });
     completeOnboarding();
     router.replace('/(tabs)');
@@ -39,6 +38,12 @@ export default function ClientStep3() {
   const hasSelection = selected.length > 0;
   const count = selected.length;
 
+  // Rare moment: a short welcome before the original finish/skip handlers run.
+  const finish = (then: () => void) => finale.celebrate(
+    { title: 'Bienvenue', accent: 'sur Inkr.', lede: 'Votre fil est prêt. Bonne exploration.' },
+    then,
+  );
+
   return (
     <OnboardingScreen
       step={STEP}
@@ -47,15 +52,23 @@ export default function ClientStep3() {
       accent="vous attirent ?"
       lede="Votre fil s’adapte à vos choix. Sélectionnez-en autant que vous le souhaitez."
       onBack={router.canGoBack() ? () => router.back() : undefined}
+      overlay={finale.overlay}
       footer={
         <>
           <TButton
             title={hasSelection ? 'Terminer' : 'Passer cette étape'}
             variant={hasSelection ? 'primary' : 'secondary'}
-            onPress={handleFinish}
+            onPress={() => finish(handleFinish)}
+            disabled={finale.active}
           />
           {hasSelection ? (
-            <TButton title="Continuer sans préférence" variant="ghost" size="md" onPress={handleSkip} />
+            <TButton
+              title="Continuer sans préférence"
+              variant="ghost"
+              size="md"
+              onPress={() => finish(handleSkip)}
+              disabled={finale.active}
+            />
           ) : null}
         </>
       }

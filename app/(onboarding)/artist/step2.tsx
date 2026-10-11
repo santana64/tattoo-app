@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, OnboardingChip, haptic } from '@/components/OnboardingProgress';
+import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 import { STYLES } from '@/constants/mock-data';
 
@@ -18,7 +18,6 @@ export default function ArtistStep2() {
   const [attempted, setAttempted] = useState(false);
 
   const toggle = (slug: string) => {
-    haptic();
     const s = new Set(selected);
     if (s.has(slug)) s.delete(slug);
     else s.add(slug);
@@ -29,7 +28,6 @@ export default function ArtistStep2() {
 
   const handleContinue = () => {
     if (!canContinue) return;
-    haptic('success');
     const styleNames = STYLES.filter((s) => selected.has(s.slug)).map((s) => s.name);
     updateProfile({ styles: styleNames } as any);
     router.push('/(onboarding)/artist/step3');
