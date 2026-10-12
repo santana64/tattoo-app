@@ -16,5 +16,7 @@ export function authRedirect(segments: readonly string[], authenticated: boolean
   }
   if (group === '(onboarding)' || (isPublicRoute(segments) && group !== '(auth)')) return null;
   if (group === '(auth)' && screen === 'role-select') return null;
-  return user.role === 'artist' ? '/(onboarding)/artist/step1' : '/(onboarding)/client/step1';
+  // profiles.role defaults to 'user', so an unfinished 'user' has not necessarily chosen:
+  // let them pick client or artist first. Artists resume their own steps.
+  return user.role === 'artist' ? '/(onboarding)/artist/step1' : '/(auth)/role-select';
 }

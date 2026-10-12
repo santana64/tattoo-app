@@ -85,7 +85,16 @@ function SuccessView() {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ReviewScreen() {
-  const { appointmentId, artistId } = useLocalSearchParams<{ appointmentId: string; artistId: string }>();
+  const { appointmentId, artistId: artistParam } = useLocalSearchParams<{ appointmentId: string; artistId: string }>();
+  // Callers may pass only the appointment: resolve its artist (readable by the client via RLS).
+  const [artistId, setArtistId] = useState<string | undefined>(artistParam);
+  useEffect(() => {
+    if (artistParam || !appointmentId) return;
+    let active = true;
+    void supabase.from('appointments').select('artist_id').eq('id', appointmentId).maybeSingle()
+      .then(({ data }) => { if (active && data?.artist_id) setArtistId(data.artist_id); });
+    return () => { active = false; };
+  }, [appointmentId, artistParam]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
@@ -109,8 +118,13 @@ export default function ReviewScreen() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Persist to Supabase if we have real IDs
-    if (appointmentId && artistId && user?.id && appointmentId.length > 20) {
+    // Never report success without a stored review.
+    if (!appointmentId || !artistId || !user?.id) {
+      setIsSubmitting(false);
+      setSubmitError('Ce rendez-vous est introuvable : votre avis ne peut pas être publié.');
+      return;
+    }
+    {
       const comment = [review, ...(selectedTags.size > 0 ? [`Tags: ${[...selectedTags].join(', ')}`] : [])].filter(Boolean).join('\n');
       const { error } = await supabase.from('reviews').insert({
         appointment_id: appointmentId,

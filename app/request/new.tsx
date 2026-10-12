@@ -569,7 +569,7 @@ export default function NewRequestScreen() {
                 </View>
                 <TText variant="caption" color="tertiary" style={{ marginTop: Spacing.xs }}>
                   {artist.minBudget > 0
-                    ? `Les projets de ${artist.blaze} commencent à ${artist.minBudget.toLocaleString('fr-FR')} €. Le prix final fait l’objet d’un devis.`
+                    ? `Les projets ${/^[aeiouyhâàéèêëîïôûü]/i.test(artist.blaze) ? 'd’' : 'de '}${artist.blaze} commencent à ${artist.minBudget.toLocaleString('fr-FR')} €. Le prix final fait l’objet d’un devis.`
                     : 'Indicatif : le prix final fait l’objet d’un devis de l’artiste.'}
                 </TText>
               </View>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Platform, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import {
   type Appointment, DURATIONS_MIN, buildSlot, completeAppointment, dayTimes, fetchRequestAppointments,
   formatDuration, formatSlot, proposeAppointment, respondToAppointment, upcomingDays,
 } from '@/lib/appointments';
+import { supabase } from '@/lib/supabase';
 
 interface AppointmentPanelProps {
   requestId: string;
@@ -163,7 +164,27 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
     setItems(data);
   }, [requestId]);
 
-  useEffect(() => { void load(); }, [load]);
+  const onChangedRef = React.useRef(onChanged);
+  onChangedRef.current = onChanged;
+
+  // Reload when the request moves on (e.g. the other party confirmed) …
+  useEffect(() => { void load(); }, [load, requestStatus]);
+
+  // … and live, whenever an appointment of this request changes on the other side.
+  // Two panels for the same request can be mounted at once (request page + conversation
+  // in the stack): channel names must be unique per instance.
+  const instance = useId();
+  useEffect(() => {
+    const channel = supabase
+      .channel(`appointments:${requestId}:${instance}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `request_id=eq.${requestId}` }, () => {
+        // The other party moved the booking on: refresh the panel and let the
+        // screen refresh the request status shown in its header.
+        void load().then(() => onChangedRef.current?.());
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [requestId, load, instance]);
 
   const run = async (key: string, action: () => Promise<{ error: string | null }>, success: string) => {
     if (busy) return;

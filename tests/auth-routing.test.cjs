@@ -45,3 +45,12 @@ test('a completed client can open role selection to become an artist', () => {
   // An existing artist has nothing to pick again.
   assert.equal(authRedirect(['(auth)', 'role-select'], true, { role: 'artist', onboardingCompleted: true }), '/(tabs)');
 });
+test('a brand-new account chooses client or artist before any onboarding', () => {
+  const fresh = { role: 'user', onboardingCompleted: false };
+  // Right after sign-up (auth screen) and on private screens: go to role selection.
+  assert.equal(authRedirect(['(auth)', 'sign-in'], true, fresh), '/(auth)/role-select');
+  assert.equal(authRedirect(['(tabs)', 'inbox'], true, fresh), '/(auth)/role-select');
+  // Role selection itself and the client steps it leads to stay reachable.
+  assert.equal(authRedirect(['(auth)', 'role-select'], true, fresh), null);
+  assert.equal(authRedirect(['(onboarding)', 'client', 'step2'], true, fresh), null);
+});
