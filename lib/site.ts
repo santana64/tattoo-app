@@ -43,6 +43,7 @@ const PAGES: Record<string, PageMeta> = {
   saved: page('Favoris'),
   create: page('Publier une réalisation'),
   analytics: page('Statistiques'),
+  admin: page('Modération'),
   customization: page('Personnalisation'),
   'premium-guide': page('Inkr Premium'),
   'request/new': page('Nouveau projet'),

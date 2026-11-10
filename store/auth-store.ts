@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Session } from '@supabase/supabase-js';
 import { supabase, Tables } from '@/lib/supabase';
+import { fetchIsAdmin } from '@/lib/moderation';
 import { Platform } from 'react-native';
 import { authErrorMessage } from '@/lib/auth-errors';
 
@@ -49,6 +50,10 @@ export interface AppUser {
   artistTier?: ArtistTier;
   artistBlaze?: string;
   artistBookingStatus?: 'open' | 'paused' | 'closed';
+  artistIsVerified?: boolean;
+  artistVerificationStatus?: 'pending' | 'submitted' | 'approved' | 'rejected';
+  /** Moderator. Display only: every moderation action is checked again by the database. */
+  isAdmin?: boolean;
 }
 
 interface AuthState {
@@ -81,15 +86,16 @@ interface AuthState {
 // Explicit column lists: the API only exposes these columns (migration 005).
 // The e-mail is private and comes from the auth session, never from `profiles`.
 const PROFILE_COLUMNS = 'id,display_name,avatar_url,role,city,style_prefs,onboarding_completed' as const;
-const OWN_ARTIST_COLUMNS = 'id,tier,blaze,booking_status' as const;
+const OWN_ARTIST_COLUMNS = 'id,tier,blaze,booking_status,is_verified,verification_status' as const;
 
 type ProfileRow = Pick<Tables<'profiles'>, 'id' | 'display_name' | 'avatar_url' | 'role' | 'city' | 'style_prefs' | 'onboarding_completed'>;
-type OwnArtistRow = Pick<Tables<'artists'>, 'id' | 'tier' | 'blaze' | 'booking_status'>;
+type OwnArtistRow = Pick<Tables<'artists'>, 'id' | 'tier' | 'blaze' | 'booking_status' | 'is_verified' | 'verification_status'>;
 
 function mapProfile(
   profile: ProfileRow,
   email: string,
-  artist?: OwnArtistRow | null
+  artist?: OwnArtistRow | null,
+  isAdmin = false,
 ): AppUser {
   return {
     id: profile.id,
@@ -104,6 +110,9 @@ function mapProfile(
     artistTier: artist?.tier ?? undefined,
     artistBlaze: artist?.blaze ?? undefined,
     artistBookingStatus: artist?.booking_status ?? undefined,
+    artistIsVerified: artist?.is_verified ?? undefined,
+    artistVerificationStatus: artist?.verification_status ?? undefined,
+    isAdmin,
   };
 }
 
@@ -154,8 +163,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (result.error) throw new Error('Impossible de charger ton profil artiste.');
         artist = result.data;
       }
+      // Absent before migration 009, or on a network error: simply not an administrator.
+      const isAdmin = await fetchIsAdmin().catch(() => false);
       if (version === profileLoadVersion && get().session?.user.id === session.user.id) {
-        set({ user: mapProfile(profile, session.user.email ?? '', artist), isLoading: false, error: null });
+        set({ user: mapProfile(profile, session.user.email ?? '', artist, isAdmin), isLoading: false, error: null });
       }
     } catch (error) {
       if (version === profileLoadVersion) {

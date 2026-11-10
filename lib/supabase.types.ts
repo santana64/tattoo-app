@@ -553,6 +553,48 @@ export interface Database {
         Args: { p_request_id: string };
         Returns: number;
       };
+      is_admin: { Args: Record<string, never>; Returns: boolean };
+      is_banned: { Args: Record<string, never>; Returns: boolean };
+      request_verification: { Args: Record<string, never>; Returns: string };
+      admin_list_reports: {
+        Args: { p_status?: string };
+        Returns: {
+          id: string;
+          created_at: string | null;
+          status: string;
+          reason: 'spam' | 'inappropriate' | 'fake' | 'harassment' | 'other';
+          description: string | null;
+          target_type: 'post' | 'artist' | 'message' | 'review';
+          target_id: string;
+          reporter_name: string | null;
+          target_label: string | null;
+          target_excerpt: string | null;
+          target_media_url: string | null;
+          target_owner_id: string | null;
+          target_owner_name: string | null;
+          target_owner_banned: boolean;
+          resolution_note: string | null;
+        }[];
+      };
+      admin_resolve_report: {
+        Args: { p_report_id: string; p_status: string; p_remove_content?: boolean; p_ban_owner?: boolean; p_note?: string | null };
+        Returns: undefined;
+      };
+      admin_set_ban: { Args: { p_profile_id: string; p_banned: boolean }; Returns: undefined };
+      admin_list_verifications: {
+        Args: Record<string, never>;
+        Returns: {
+          artist_id: string;
+          blaze: string;
+          city: string;
+          avatar_url: string | null;
+          bio: string | null;
+          stat_posts: number | null;
+          submitted_at: string | null;
+          account_created_at: string | null;
+        }[];
+      };
+      admin_review_verification: { Args: { p_artist_id: string; p_approve: boolean }; Returns: undefined };
       search_artists: {
         Args: {
           p_query?: string | null;

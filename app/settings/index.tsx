@@ -16,6 +16,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Toast } from '@/components/ui/TToast';
 import { PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
+import { requestVerification } from '@/lib/moderation';
 
 const ICON_COL = 34;
 const APP_VERSION = Constants.expoConfig?.version;
@@ -63,10 +64,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, refreshProfile } = useAuthStore();
   const isArtist = user?.role === 'artist';
   const isPremium = isArtist && user?.artistTier === 'premium';
   const name = (isArtist ? user?.artistBlaze : undefined) ?? user?.displayName ?? 'Votre compte';
+
+  const verification = user?.artistIsVerified
+    ? { detail: 'Vérifié', subtitle: 'Votre profil affiche le badge vérifié' }
+    : user?.artistVerificationStatus === 'submitted'
+      ? { detail: 'En cours', subtitle: 'Votre demande est en cours d’examen' }
+      : user?.artistVerificationStatus === 'rejected'
+        ? { detail: 'Refusée', subtitle: 'Complétez votre profil puis renouvelez la demande' }
+        : { detail: 'Demander', subtitle: 'Obtenez le badge vérifié' };
+  const canRequestVerification = isArtist && !user?.artistIsVerified && user?.artistVerificationStatus !== 'submitted';
+
+  const handleVerification = async () => {
+    if (!canRequestVerification) return;
+    const { error } = await requestVerification();
+    if (error) {
+      Toast.error(error);
+      return;
+    }
+    Toast.success('Demande de vérification envoyée');
+    await refreshProfile();
+  };
 
   const handleSignOut = () => {
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -133,6 +154,20 @@ export default function SettingsScreen() {
             />
             <SettingRow icon="color-palette-outline" label="Personnalisation" subtitle="Sections et informations du profil" onPress={() => router.push('/customization')} />
             <SettingRow icon="analytics-outline" label="Statistiques" subtitle="Vues, demandes, acceptation" onPress={() => router.push('/analytics')} />
+            <SettingRow
+              icon="ribbon-outline"
+              label="Vérification du profil"
+              subtitle={verification.subtitle}
+              detail={verification.detail}
+              accent={canRequestVerification}
+              onPress={() => { void handleVerification(); }}
+            />
+          </Section>
+        )}
+
+        {user?.isAdmin && (
+          <Section title="Équipe">
+            <SettingRow icon="shield-checkmark-outline" label="Modération" subtitle="Signalements et vérifications" onPress={() => router.push('/admin')} />
           </Section>
         )}
 

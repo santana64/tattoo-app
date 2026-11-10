@@ -57,7 +57,7 @@ const LEGACY_SEED_POLICIES = `
     for all using (bucket_id = 'verification-docs' and auth.uid() is not null);
 `;
 
-const DENIED = /permission denied|row-level security|not_request_party/;
+const DENIED = /permission denied|row-level security|not_request_party|not_admin/;
 
 let db;
 const ids = {};
@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -487,6 +487,107 @@ test('artists are searched, filtered, sorted and paged in the database', async (
   assert.equal((await search({ limit: -5, offset: -5 })).length, 1);
 
   for (const uid of created) await db.query(`delete from auth.users where id = $1`, [uid]);
+});
+
+// ── moderation ───────────────────────────────────────────────
+
+test('only administrators moderate, and nobody can make themselves one', async () => {
+  for (const uid of [ids.client, ids.artistUser]) {
+    await as(uid, async () => {
+      await assert.rejects(db.query(`select is_admin from public.profiles`), DENIED);
+      await assert.rejects(db.query(`update public.profiles set is_admin = true where id = $1`, [uid]), DENIED);
+      await assert.rejects(db.query(`select * from public.admin_list_reports('pending')`), DENIED);
+      await assert.rejects(db.query(`select * from public.admin_list_verifications()`), DENIED);
+      await assert.rejects(db.query(`select public.admin_set_ban($1, true)`, [ids.outsider]), DENIED);
+      await assert.rejects(db.query(`select public.admin_review_verification($1, true)`, [ids.artist]), DENIED);
+      await assert.rejects(db.query(`select public.assert_admin()`), DENIED);
+      assert.equal((await one(`select public.is_admin() as admin`)).admin, false);
+    });
+  }
+  await as(null, async () => {
+    await assert.rejects(db.query(`select public.is_admin()`), DENIED);
+    await assert.rejects(db.query(`select * from public.admin_list_reports('pending')`), DENIED);
+  });
+});
+
+test('an administrator handles reports, verification and bans end to end', async () => {
+  await db.query(`update public.profiles set is_admin = true where id = $1`, [ids.outsider]);
+
+  // A client reports the artist's post; the artist asks to be verified.
+  await as(ids.client, () => db.query(
+    `insert into public.reports (reporter_id, target_type, target_id, reason, description) values ($1, 'post', $2, 'inappropriate', 'Contenu choquant')`,
+    [ids.client, ids.post],
+  ));
+  await as(ids.artistUser, async () => {
+    assert.equal((await one(`select public.request_verification() as status`)).status, 'submitted');
+    // Asking twice changes nothing.
+    assert.equal((await one(`select public.request_verification() as status`)).status, 'submitted');
+  });
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(`select public.request_verification()`), /not_an_artist/);
+  });
+
+  await as(ids.outsider, async () => {
+    assert.equal((await one(`select public.is_admin() as admin`)).admin, true);
+
+    const [report] = await rows(`select * from public.admin_list_reports('pending')`);
+    assert.equal(report.target_label, 'Publication de Atelier');
+    assert.equal(report.target_excerpt, 'Dragon');
+    assert.equal(report.reason, 'inappropriate');
+    assert.equal(report.target_owner_id, ids.artistUser);
+    assert.equal(report.target_owner_banned, false);
+
+    const [pending] = await rows(`select * from public.admin_list_verifications()`);
+    assert.equal(pending.artist_id, ids.artist);
+    await db.query(`select public.admin_review_verification($1, true)`, [ids.artist]);
+    await assert.rejects(db.query(`select public.admin_review_verification($1, true)`, [ids.artist]), /verification_not_pending/);
+    assert.equal((await rows(`select * from public.admin_list_verifications()`)).length, 0);
+
+    await assert.rejects(db.query(`select public.admin_resolve_report($1, 'nonsense')`, [report.id]), /invalid_status/);
+    await db.query(`select public.admin_resolve_report($1, 'actioned', true, true, '  Retiré  ')`, [report.id]);
+    assert.equal((await rows(`select * from public.admin_list_reports('pending')`)).length, 0);
+    const [closed] = await rows(`select * from public.admin_list_reports('actioned')`);
+    assert.equal(closed.resolution_note, 'Retiré');
+    assert.equal(closed.target_owner_banned, true);
+
+    // An administrator cannot be banned from the moderation screen.
+    await assert.rejects(db.query(`select public.admin_set_ban($1, true)`, [ids.outsider]), /profile_not_found_or_admin/);
+  });
+
+  const artist = await one(`select is_verified, verification_status from public.artists where id = $1`, [ids.artist]);
+  assert.deepEqual(artist, { is_verified: true, verification_status: 'approved' });
+  assert.equal((await one(`select is_published from public.posts where id = $1`, [ids.post])).is_published, false);
+  assert.equal(
+    (await one(`select count(*)::int as n from public.notifications where user_id = $1 and title = 'Profil vérifié'`, [ids.artistUser])).n,
+    1,
+  );
+
+  // The banned artist still reads their data but can no longer publish or write.
+  await as(ids.artistUser, async () => {
+    assert.equal((await one(`select public.is_banned() as banned`)).banned, true);
+    assert.ok((await rows(`select id from public.tattoo_requests`)).length > 0);
+    await assert.rejects(
+      db.query(`insert into public.posts (artist_id, media_url) values ($1, 'https://example.test/c.jpg')`, [ids.artist]),
+      DENIED,
+    );
+    await assert.rejects(
+      db.query(`insert into public.messages (request_id, sender_id, content) values ($1, $2, 'Encore là')`, [ids.request, ids.artistUser]),
+      DENIED,
+    );
+  });
+
+  // Lifting the ban restores the account; leave the fixtures as they were.
+  await as(ids.outsider, () => db.query(`select public.admin_set_ban($1, false)`, [ids.artistUser]));
+  await as(ids.artistUser, async () => {
+    const sent = await db.query(
+      `insert into public.messages (request_id, sender_id, content) values ($1, $2, 'De retour')`, [ids.request, ids.artistUser],
+    );
+    assert.equal(sent.affectedRows, 1);
+  });
+  await db.exec(`delete from public.reports;`);
+  await db.query(`update public.posts set is_published = true where id = $1`, [ids.post]);
+  await db.query(`update public.artists set is_verified = false, verification_status = 'pending' where id = $1`, [ids.artist]);
+  await db.query(`update public.profiles set is_admin = false where id = $1`, [ids.outsider]);
 });
 
 // ── push delivery ────────────────────────────────────────────

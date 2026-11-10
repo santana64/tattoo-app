@@ -14,6 +14,7 @@ Disallow: /notifications
 Disallow: /saved
 Disallow: /create
 Disallow: /analytics
+Disallow: /admin
 Disallow: /customization
 
 Sitemap: https://tattoo-app-4gmu.vercel.app/sitemap.xml

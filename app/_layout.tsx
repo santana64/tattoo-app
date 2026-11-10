@@ -88,6 +88,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings/support" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/delete-account" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="analytics" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="admin" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="customization" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="premium-guide" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="saved" options={{ animation: 'slide_from_right' }} />
