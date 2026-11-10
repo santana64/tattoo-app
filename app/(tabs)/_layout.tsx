@@ -58,6 +58,10 @@ export default function TabLayout() {
   // Visitors may browse Découvrir/Rechercher; the root layout's authRedirect
   // sends private tabs to sign-in, so no blanket redirect here.
   const isArtist = user?.role === 'artist';
+  // A visitor sees what they can use, plus one clear way in. Private tabs would
+  // only bounce them to the sign-in screen. Wait for the session check so a
+  // signed-in user never sees the visitor bar flash.
+  const isVisitor = useAuthStore((s) => !s.isAuthenticated && !s.isLoading);
   const newRequests = isArtist
     ? requests.filter((r) => r.status === 'submitted').length
     : 0;
@@ -120,6 +124,7 @@ export default function TabLayout() {
         name="inbox"
         options={{
           title: isArtist ? 'Demandes' : 'Projets',
+          href: isVisitor ? null : undefined,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={isArtist ? 'mail' : 'document-text'}
@@ -134,6 +139,7 @@ export default function TabLayout() {
         name="messages"
         options={{
           title: 'Messages',
+          href: isVisitor ? null : undefined,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="chatbubbles" color={color} focused={focused} />
           ),
@@ -153,9 +159,10 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Compte',
+          title: isVisitor ? 'Se connecter' : 'Compte',
+          tabBarAccessibilityLabel: isVisitor ? 'Se connecter ou créer un compte' : 'Compte',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="person" color={color} focused={focused} />
+            <TabIcon name={isVisitor ? 'log-in' : 'person'} color={color} focused={focused} />
           ),
         }}
       />

@@ -7,7 +7,11 @@
 //   2. Checks that the inline script Expo emits still matches the hash allowed
 //      by the Content-Security-Policy in vercel.json. If Expo changes it, the
 //      build fails here instead of shipping a site that cannot hydrate.
-//   3. Writes sitemap.xml (public pages + artist profiles) and points
+//   3. Writes one HTML file per artist (dist/artist/<id>.html) carrying that
+//      artist's title, description and image, so search engines and link
+//      previews (which do not run JavaScript) see the real profile. The page
+//      body is still rendered by the app once it loads.
+//   4. Writes sitemap.xml (public pages + artist profiles) and points
 //      robots.txt at it.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -19,6 +23,9 @@ const DYNAMIC_ROUTES = ['artist', 'post', 'request', 'conversation', 'appointmen
 const STATIC_PAGES = ['', '/explore', '/welcome', '/legal/terms', '/legal/privacy-policy'];
 const SITEMAP_TIMEOUT_MS = 8000;
 const MAX_ARTISTS = 5000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ARTIST_COLUMNS = 'id,blaze,city,bio,styles,cover_url,avatar_url,updated_at';
+const DESCRIPTION_MAX = 160;
 
 function siteUrl() {
   return (process.env.EXPO_PUBLIC_SITE_URL || 'https://tattoo-app-4gmu.vercel.app').replace(/\/+$/, '');
@@ -75,15 +82,77 @@ async function fetchArtists() {
   }
   try {
     const response = await fetch(
-      `${url.replace(/\/+$/, '')}/rest/v1/artists?select=id,updated_at&order=updated_at.desc&limit=${MAX_ARTISTS}`,
+      `${url.replace(/\/+$/, '')}/rest/v1/artists?select=${ARTIST_COLUMNS}&order=updated_at.desc&limit=${MAX_ARTISTS}`,
       { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(SITEMAP_TIMEOUT_MS) },
     );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const rows = await response.json();
-    return Array.isArray(rows) ? rows.filter((row) => typeof row.id === 'string') : [];
+    // Ids become file names: only well-formed UUIDs are accepted.
+    return Array.isArray(rows) ? rows.filter((row) => typeof row.id === 'string' && UUID_PATTERN.test(row.id)) : [];
   } catch (error) {
     console.warn(`postexport: artists not listed in the sitemap (${error.message}).`);
     return [];
+  }
+}
+
+const htmlEscape = (value) => String(value).replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function shorten(text, max = DESCRIPTION_MAX) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 30))}…`;
+}
+
+const styleLabel = (slug) => String(slug).replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+
+/** Title, description and image of an artist page: same wording as app/artist/[id].tsx. */
+function artistMeta(artist, base) {
+  const name = String(artist.blaze || 'Artiste').trim();
+  const city = String(artist.city || '').trim();
+  const styles = (Array.isArray(artist.styles) ? artist.styles : []).slice(0, 3).map(styleLabel).join(', ');
+  const summary = `${name}, artiste tatoueur${city ? ` à ${city}` : ''}${styles ? ` (${styles})` : ''}.`;
+  const bio = String(artist.bio || '').trim() || 'Découvrez son portfolio et envoyez-lui votre projet sur Inkr.';
+  const image = [artist.cover_url, artist.avatar_url].find((url) => typeof url === 'string' && /^https:\/\//.test(url));
+  return {
+    title: `${name} — Tatoueur${city ? ` à ${city}` : ''} | Inkr`,
+    description: shorten(`${summary} ${bio}`),
+    url: `${base}/artist/${artist.id}`,
+    image: image || `${base}/og-image.png`,
+  };
+}
+
+/**
+ * Fills the head of the generic artist shell with one artist's metadata.
+ * Throws when a tag is missing, so a change in the exported markup is noticed.
+ */
+function renderArtistPage(shell, artist, base) {
+  const meta = artistMeta(artist, base);
+  let html = shell;
+  const replace = (pattern, value, label) => {
+    if (!pattern.test(html)) throw new Error(`Artist shell has no ${label} tag to fill.`);
+    html = html.replace(pattern, (_, before, after) => `${before}${htmlEscape(value)}${after}`);
+  };
+  const metaTag = (attr, key) => new RegExp(`(<meta data-rh="true" ${attr}="${key}" content=")[^"]*(")`);
+
+  replace(/(<title data-rh="true">)[^<]*(<\/title>)/, meta.title, 'title');
+  replace(metaTag('name', 'description'), meta.description, 'description');
+  replace(/(<link data-rh="true" rel="canonical" href=")[^"]*(")/, meta.url, 'canonical');
+  replace(metaTag('property', 'og:type'), 'profile', 'og:type');
+  replace(metaTag('property', 'og:title'), meta.title, 'og:title');
+  replace(metaTag('property', 'og:description'), meta.description, 'og:description');
+  replace(metaTag('property', 'og:url'), meta.url, 'og:url');
+  replace(metaTag('property', 'og:image'), meta.image, 'og:image');
+  replace(metaTag('name', 'twitter:title'), meta.title, 'twitter:title');
+  replace(metaTag('name', 'twitter:description'), meta.description, 'twitter:description');
+  replace(metaTag('name', 'twitter:image'), meta.image, 'twitter:image');
+  return html;
+}
+
+function writeArtistPages(artists, base) {
+  const shell = fs.readFileSync(path.join(DIST, 'artist', '[id].html'), 'utf8');
+  for (const artist of artists) {
+    fs.writeFileSync(path.join(DIST, 'artist', `${artist.id}.html`), renderArtistPage(shell, artist, base));
   }
 }
 
@@ -113,9 +182,10 @@ async function main() {
   checkContentSecurityPolicy();
   const base = siteUrl();
   const artists = await fetchArtists();
+  writeArtistPages(artists, base);
   fs.writeFileSync(path.join(DIST, 'sitemap.xml'), buildSitemap(base, artists));
   writeRobots(base);
-  console.log(`postexport: ${DYNAMIC_ROUTES.length} dynamic shells, sitemap with ${STATIC_PAGES.length + artists.length} URLs.`);
+  console.log(`postexport: ${DYNAMIC_ROUTES.length} dynamic shells, ${artists.length} artist pages, sitemap with ${STATIC_PAGES.length + artists.length} URLs.`);
 }
 
 if (require.main === module) {
@@ -125,4 +195,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildSitemap, inlineScriptHashes };
+module.exports = { artistMeta, buildSitemap, inlineScriptHashes, renderArtistPage };

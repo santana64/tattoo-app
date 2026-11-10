@@ -15,8 +15,9 @@ import { TButton } from '@/components/ui/TButton';
 import { Logo } from '@/components/ui/Logo';
 import { STYLES } from '@/constants/tattoo';
 
-// Remote placeholder until the product hosts rights-cleared artist photography.
-const HERO_IMAGE = 'https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=1600&q=80';
+// Served from our own assets: no third-party request on the landing screen.
+// Photograph from Unsplash (free licence); replace with our own artist photography when available.
+const HERO_IMAGE = require('../../assets/images/welcome-hero.jpg');
 // Slugs from the shared STYLES taxonomy.
 const QUICK_STYLES = STYLES.filter((s) => ['fine-line', 'blackwork', 'realisme', 'japonais', 'old-school', 'neo-trad'].includes(s.slug));
 const EASE = Easing.bezier(0.22, 1, 0.36, 1);
@@ -66,7 +67,7 @@ export default function WelcomeScreen() {
           />
         ) : (
           <Image
-            source={{ uri: HERO_IMAGE }}
+            source={HERO_IMAGE}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={600}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   StyleSheet, View, TextInput, Pressable,
-  ScrollView, RefreshControl, useWindowDimensions, Platform,
+  ScrollView, RefreshControl, useWindowDimensions, Platform, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -25,7 +25,7 @@ import { STYLES } from '@/constants/tattoo';
 import { useAutoRetry } from '@/hooks/use-auto-retry';
 import type { Artist } from '@/constants/tattoo';
 import { supabase } from '@/lib/supabase';
-import { mapArtist, PUBLIC_ARTIST_COLUMNS } from '@/lib/catalog';
+import { mapArtist } from '@/lib/catalog';
 
 interface ExploreTrendingPost {
   id: string;
@@ -55,6 +55,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'budget_asc', label: 'Budget croissant' },
 ];
 const PREVIEWS_PER_ARTIST = 3;
+const PAGE_SIZE = 24;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
@@ -155,9 +157,20 @@ export default function ExploreScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [openTotal, setOpenTotal] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Only the latest search may write its results (filters change while a request is in flight).
+  const searchSeq = useRef(0);
 
   // ── Filters
   const [query, setQuery] = useState('');
+  // The search runs in the database: wait for a pause in typing before asking.
+  const [searchTerm, setSearchTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(query.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
   const [selectedStyle, setSelectedStyle] = useState<string | null>(() => resolveStyleSlug(params.style));
   const [availability, setAvailability] = useState<Availability>('all');
   const [budgetMax, setBudgetMax] = useState<number | null>(null);
@@ -175,63 +188,113 @@ export default function ExploreScreen() {
     if (slug) setSelectedStyle(slug);
   }, [params.style]);
 
-  const fetchData = useCallback(async () => {
-    setFetchError(null);
-    try {
-      const [artistsRes, postsRes] = await Promise.all([
-        supabase
-          .from('artists')
-          .select(PUBLIC_ARTIST_COLUMNS)
-          .order('tier', { ascending: false })
-          .order('stat_profile_views', { ascending: false })
-          .limit(60),
-        supabase
-          .from('posts')
-          .select('id, media_url, likes_count, artists!posts_artist_id_fkey!inner(blaze)')
-          .eq('is_published', true)
-          .eq('media_type', 'photo')
-          .order('likes_count', { ascending: false })
-          .limit(10),
-      ]);
-
-      if (artistsRes.error) throw artistsRes.error;
-      const mapped = (artistsRes.data ?? []).map(mapArtist);
-      setArtists(mapped);
-
-      if (!postsRes.error && postsRes.data) {
-        setTrendingPosts(postsRes.data.map((p: any) => ({
-          id: p.id,
-          mediaUrl: p.media_url,
-          artistName: (p.artists as any)?.blaze ?? '',
-        })));
-      }
-
-      // Portfolio previews for the cards: latest published photos per artist.
-      if (mapped.length) {
-        const { data: work } = await supabase
-          .from('posts')
-          .select('artist_id, media_url')
-          .in('artist_id', mapped.map((a) => a.id))
-          .eq('is_published', true)
-          .eq('media_type', 'photo')
-          .order('published_at', { ascending: false })
-          .limit(mapped.length * 6);
-        const grouped: Record<string, string[]> = {};
-        for (const row of work ?? []) {
-          const list = (grouped[row.artist_id] ??= []);
-          if (list.length < PREVIEWS_PER_ARTIST) list.push(row.media_url);
-        }
-        setPreviews(grouped);
-      }
-    } catch (e: any) {
-      setFetchError(e?.message ? 'Le service ne répond pas. Vérifiez votre connexion.' : 'Erreur de chargement');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+  /** Portfolio previews for the cards: latest published photos of the given artists. */
+  const fetchPreviews = useCallback(async (artistIds: string[]) => {
+    if (!artistIds.length) return {};
+    const { data: work } = await supabase
+      .from('posts')
+      .select('artist_id, media_url')
+      .in('artist_id', artistIds)
+      .eq('is_published', true)
+      .eq('media_type', 'photo')
+      .order('published_at', { ascending: false })
+      .limit(artistIds.length * 6);
+    const grouped: Record<string, string[]> = {};
+    for (const row of work ?? []) {
+      const list = (grouped[row.artist_id] ??= []);
+      if (list.length < PREVIEWS_PER_ARTIST) list.push(row.media_url);
     }
+    return grouped;
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  /** One page of artists matching the current filters, searched and sorted by the database. */
+  const fetchPage = useCallback(async (offset: number) => {
+    const { data, error } = await supabase.rpc('search_artists', {
+      p_query: searchTerm || null,
+      p_style: selectedStyle,
+      p_availability: availability === 'all' ? null : availability,
+      p_budget_max: budgetMax,
+      p_sort: sortBy,
+      p_limit: PAGE_SIZE,
+      p_offset: offset,
+    });
+    if (error) throw error;
+    const rows = data ?? [];
+    return {
+      artists: rows.map(mapArtist),
+      total: rows.length ? Number(rows[0].total_count) : offset,
+      openTotal: rows.length ? Number(rows[0].open_count) : 0,
+    };
+  }, [searchTerm, selectedStyle, availability, budgetMax, sortBy]);
+
+  const fetchData = useCallback(async () => {
+    const seq = ++searchSeq.current;
+    setFetchError(null);
+    try {
+      const page = await fetchPage(0);
+      if (seq !== searchSeq.current) return;
+      setArtists(page.artists);
+      setTotal(page.total);
+      setOpenTotal(page.openTotal);
+      const grouped = await fetchPreviews(page.artists.map((a) => a.id));
+      if (seq === searchSeq.current) setPreviews(grouped);
+    } catch (e: any) {
+      if (seq !== searchSeq.current) return;
+      setFetchError(e?.message ? 'Le service ne répond pas. Vérifiez votre connexion.' : 'Erreur de chargement');
+    } finally {
+      if (seq === searchSeq.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, [fetchPage, fetchPreviews]);
+
+  // A new search (first load, or any filter change) restarts from the first page.
+  useEffect(() => {
+    setIsLoading(true);
+    void fetchData();
+  }, [fetchData]);
+
+  const hasMore = artists.length < total;
+  const fetchMore = useCallback(async () => {
+    if (isLoading || isLoadingMore || !hasMore || fetchError) return;
+    const seq = searchSeq.current;
+    setIsLoadingMore(true);
+    try {
+      const page = await fetchPage(artists.length);
+      if (seq !== searchSeq.current) return;
+      setArtists((current) => {
+        const known = new Set(current.map((a) => a.id));
+        return [...current, ...page.artists.filter((a) => !known.has(a.id))];
+      });
+      // An empty page means the list shrank meanwhile: stop asking for more.
+      setTotal(page.artists.length ? page.total : artists.length);
+      const grouped = await fetchPreviews(page.artists.map((a) => a.id));
+      if (seq === searchSeq.current) setPreviews((current) => ({ ...current, ...grouped }));
+    } catch {
+      Toast.error('Impossible de charger la suite. Réessayez.');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [artists.length, fetchError, fetchPage, fetchPreviews, hasMore, isLoading, isLoadingMore]);
+
+  // Trending work is independent from the artist filters: loaded once, and on refresh.
+  const fetchTrending = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('id, media_url, likes_count, artists!posts_artist_id_fkey!inner(blaze)')
+      .eq('is_published', true)
+      .eq('media_type', 'photo')
+      .order('likes_count', { ascending: false })
+      .limit(10);
+    if (error || !data) return;
+    setTrendingPosts(data.map((p: any) => ({
+      id: p.id,
+      mediaUrl: p.media_url,
+      artistName: (p.artists as any)?.blaze ?? '',
+    })));
+  }, []);
+  useEffect(() => { void fetchTrending(); }, [fetchTrending]);
   // A failed load retries on its own (and as soon as the connection is back).
   useAutoRetry(!!fetchError, isLoading, () => { setIsLoading(true); void fetchData(); });
 
@@ -244,8 +307,9 @@ export default function ExploreScreen() {
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchData();
-  }, [fetchData]);
+    void fetchTrending();
+    void fetchData();
+  }, [fetchData, fetchTrending]);
 
   const resetAll = () => {
     setQuery('');
@@ -258,21 +322,8 @@ export default function ExploreScreen() {
   const sheetFilterCount = Number(availability !== 'all') + Number(budgetMax !== null) + Number(sortBy !== 'relevance');
   const hasFilters = !!query || !!selectedStyle || sheetFilterCount > 0;
 
-  const filtered = useMemo(() => {
-    const q = normalize(query);
-    let result = artists.filter((a) => {
-      const matchQ = !q || normalize(a.blaze).includes(q) || normalize(a.city).includes(q)
-        || a.styles.some((s) => normalize(s).includes(q) || normalize(STYLES.find((x) => x.slug === s)?.name ?? '').includes(q));
-      const matchStyle = !selectedStyle || a.styles.some((s) => normalize(s).replace(/ /g, '-') === selectedStyle);
-      const matchAvail = availability === 'all' || a.bookingStatus === availability;
-      const matchBudget = budgetMax === null || (a.minBudget > 0 && a.minBudget <= budgetMax);
-      return matchQ && matchStyle && matchAvail && matchBudget;
-    });
-
-    if (sortBy === 'open') result = [...result].sort((a, b) => Number(b.bookingStatus === 'open') - Number(a.bookingStatus === 'open'));
-    else if (sortBy === 'budget_asc') result = [...result].sort((a, b) => (a.minBudget || Infinity) - (b.minBudget || Infinity));
-    return result;
-  }, [artists, query, selectedStyle, availability, budgetMax, sortBy]);
+  // Filtering and sorting happen in the database (search_artists): `artists` is already the result.
+  const filtered = artists;
 
   const spotlightArtist = useMemo(
     () => artists.find((a) => a.tier === 'premium' && a.bookingStatus === 'open'),
@@ -317,7 +368,7 @@ export default function ExploreScreen() {
     opacity: interpolate(scrollY.get(), [titleH * 0.4, titleH], [0, 1], Extrapolation.CLAMP),
   }));
 
-  const openCount = artists.filter((a) => a.bookingStatus === 'open').length;
+  const openCount = openTotal;
   const styleName = selectedStyle ? STYLES.find((s) => s.slug === selectedStyle)?.name : null;
 
   const ListHeader = (
@@ -350,7 +401,7 @@ export default function ExploreScreen() {
       {!fetchError && (
         <View style={styles.countRow}>
           <TText variant="bodySmall" color="secondary" tabular accessibilityLiveRegion="polite">
-            {isLoading ? 'Recherche…' : `${filtered.length} artiste${filtered.length > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
+            {isLoading ? 'Recherche…' : `${total} artiste${total > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
           </TText>
           <View style={styles.viewToggle} accessibilityRole="radiogroup">
             {(['list', 'grid'] as const).map((m) => (
@@ -389,7 +440,7 @@ export default function ExploreScreen() {
             Trouver <TText variant="displayM" italic color="accentGlow">un artiste</TText>
           </TText>
           <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }}>
-            {isLoading || fetchError ? 'Tatoueurs, studios et guest spots' : `${artists.length} artistes · ${openCount} prennent des projets`}
+            {isLoading || fetchError ? 'Tatoueurs, studios et guest spots' : `${total} artiste${total > 1 ? 's' : ''} · ${openCount} ${openCount > 1 ? 'prennent' : 'prend'} des projets`}
           </TText>
         </Animated.View>
 
@@ -471,6 +522,11 @@ export default function ExploreScreen() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
+        onEndReached={() => { void fetchMore(); }}
+        onEndReachedThreshold={0.6}
+        ListFooterComponent={isLoadingMore ? (
+          <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: Spacing.md }} accessibilityLabel="Chargement des artistes suivants" />
+        ) : null}
         keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} progressViewOffset={barH} />
@@ -530,7 +586,7 @@ export default function ExploreScreen() {
         </View>
 
         <TButton
-          title={isLoading ? 'Voir les artistes' : `Voir ${filtered.length} artiste${filtered.length > 1 ? 's' : ''}`}
+          title={isLoading ? 'Voir les artistes' : `Voir ${total} artiste${total > 1 ? 's' : ''}`}
           onPress={() => setShowFilters(false)}
           style={{ marginTop: Spacing.md }}
         />

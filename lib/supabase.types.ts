@@ -553,6 +553,23 @@ export interface Database {
         Args: { p_request_id: string };
         Returns: number;
       };
+      search_artists: {
+        Args: {
+          p_query?: string | null;
+          p_style?: string | null;
+          p_availability?: string | null;
+          p_budget_max?: number | null;
+          p_sort?: string;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: (Pick<
+          Database['public']['Tables']['artists']['Row'],
+          'id' | 'blaze' | 'city' | 'bio' | 'cover_url' | 'avatar_url' | 'styles' | 'specialties' | 'booking_status'
+          | 'min_budget' | 'tier' | 'is_verified' | 'exclusions' | 'rules' | 'process' | 'show_min_budget'
+          | 'stat_posts' | 'stat_profile_views' | 'stat_requests_month'
+        > & { total_count: number; open_count: number })[];
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

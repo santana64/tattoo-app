@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -418,6 +418,134 @@ test('users read and tick their own notifications but cannot write any', async (
     const ticked = await db.query(`update public.notifications set is_read = true where user_id = $1 and is_read is not true`, [ids.client]);
     assert.ok(ticked.affectedRows > 0);
   });
+});
+
+// ── artist search ────────────────────────────────────────────
+
+test('artists are searched, filtered, sorted and paged in the database', async () => {
+  // Three more artists next to the fixture ("Atelier", Lyon, paused, 150 € minimum).
+  const extra = [
+    { name: 'Encre Noire', city: 'Lyon', styles: ['blackwork', 'fine-line'], status: 'open', budget: 400, show: true, tier: 'premium', views: 10 },
+    { name: 'Studio Réaliste', city: 'Paris', styles: ['realisme'], status: 'open', budget: 0, show: false, tier: 'normal', views: 50 },
+    { name: 'Vieux Port', city: 'Marseille', styles: ['old-school'], status: 'closed', budget: 250, show: true, tier: 'normal', views: 5 },
+  ];
+  const created = [];
+  for (const a of extra) {
+    const uid = await createUser(`search-${created.length}`);
+    await db.query(
+      `insert into public.artists (profile_id, blaze, city, styles, booking_status, min_budget, show_min_budget, tier, stat_profile_views)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [uid, a.name, a.city, a.styles, a.status, a.budget, a.show, a.tier, a.views],
+    );
+    created.push(uid);
+  }
+
+  const search = (args = {}) => as(null, () => rows(
+    `select blaze, total_count::int as total, open_count::int as open
+     from public.search_artists($1, $2, $3, $4, $5, $6, $7)`,
+    [args.query ?? null, args.style ?? null, args.availability ?? null, args.budgetMax ?? null,
+      args.sort ?? 'relevance', args.limit ?? 24, args.offset ?? 0],
+  ));
+  const names = async (args) => (await search(args)).map((r) => r.blaze);
+
+  // No filter: everyone, Premium first, then by profile views.
+  const all = await search();
+  assert.deepEqual(all.map((r) => r.blaze), ['Encre Noire', 'Studio Réaliste', 'Vieux Port', 'Atelier']);
+  assert.equal(all[0].total, 4);
+  assert.equal(all[0].open, 2);
+
+  // Text: name, city and style, without caring about case or accents.
+  assert.deepEqual(await names({ query: 'lyon' }), ['Encre Noire', 'Atelier']);
+  assert.deepEqual(await names({ query: '  RÉALISTE ' }), ['Studio Réaliste']);
+  assert.deepEqual(await names({ query: 'realisme' }), ['Studio Réaliste']);
+  assert.deepEqual(await names({ query: 'Old School' }), ['Vieux Port']);
+  assert.deepEqual(await names({ query: 'noire lyon' }), ['Encre Noire']);
+  assert.deepEqual(await names({ query: 'introuvable' }), []);
+
+  // LIKE wildcards typed by a user are plain characters.
+  assert.deepEqual(await names({ query: '%' }), []);
+  assert.deepEqual(await names({ query: '_' }), []);
+
+  // Filters.
+  assert.deepEqual(await names({ style: 'fine-line' }), ['Encre Noire']);
+  assert.deepEqual(await names({ availability: 'open' }), ['Encre Noire', 'Studio Réaliste']);
+  assert.deepEqual(await names({ availability: 'nonsense' }), ['Encre Noire', 'Studio Réaliste', 'Vieux Port', 'Atelier']);
+  // A cap excludes artists who do not publish a minimum budget.
+  assert.deepEqual(await names({ budgetMax: 300 }), ['Vieux Port', 'Atelier']);
+  assert.deepEqual(await names({ query: 'lyon', budgetMax: 300, availability: 'paused' }), ['Atelier']);
+
+  // Sorting.
+  assert.deepEqual(await names({ sort: 'budget_asc' }), ['Atelier', 'Vieux Port', 'Encre Noire', 'Studio Réaliste']);
+  assert.deepEqual((await names({ sort: 'open' })).slice(0, 2), ['Encre Noire', 'Studio Réaliste']);
+
+  // Paging: stable order, no overlap, the total travels with every page.
+  const first = await search({ limit: 3, offset: 0 });
+  const second = await search({ limit: 3, offset: 3 });
+  assert.deepEqual([...first, ...second].map((r) => r.blaze), all.map((r) => r.blaze));
+  assert.ok(first.every((r) => r.total === 4) && second.every((r) => r.total === 4));
+  assert.equal((await search({ limit: 100000 })).length, 4);
+  assert.equal((await search({ limit: -5, offset: -5 })).length, 1);
+
+  for (const uid of created) await db.query(`delete from auth.users where id = $1`, [uid]);
+});
+
+// ── push delivery ────────────────────────────────────────────
+
+test('notifications are forwarded to send-push once configured, and never blocked by it', async () => {
+  // Minimal stand-ins for pg_net and Vault, which only exist on hosted Supabase.
+  await db.exec(`
+    create schema net;
+    create table net.calls (url text, body jsonb, headers jsonb);
+    create function net.http_post(url text, body jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb)
+      returns bigint language plpgsql as $$
+      begin
+        insert into net.calls values (url, body, headers);
+        return 1;
+      end $$;
+    create schema vault;
+    create table vault.decrypted_secrets (name text primary key, decrypted_secret text);
+  `);
+  const calls = () => rows(`select url, body, headers from net.calls`);
+  const notify = (title) => db.query(
+    `select public.notify_user($1, 'system', $2, 'Corps du message', '{"request_id":"r1"}'::jsonb)`, [ids.outsider, title],
+  );
+  const delivered = async (title) =>
+    (await one(`select count(*)::int as n from public.notifications where user_id = $1 and title = $2`, [ids.outsider, title])).n;
+
+  // Not configured: the notification exists, nothing is sent.
+  await notify('Sans configuration');
+  assert.equal(await delivered('Sans configuration'), 1);
+  assert.equal((await calls()).length, 0);
+
+  await db.exec(`
+    insert into vault.decrypted_secrets values
+      ('push_function_url', 'https://project.example/functions/v1/send-push'),
+      ('push_service_role_key', 'service-role-secret');
+  `);
+  await notify('Avec configuration');
+  const [call] = await calls();
+  assert.equal(call.url, 'https://project.example/functions/v1/send-push');
+  assert.equal(call.headers.Authorization, 'Bearer service-role-secret');
+  assert.equal(call.body.userId, ids.outsider);
+  assert.equal(call.body.title, 'Avec configuration');
+  assert.equal(call.body.data.request_id, 'r1');
+  assert.equal(call.body.data.type, 'system');
+
+  // The secret is not reachable by API callers.
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(`select * from vault.decrypted_secrets`), DENIED);
+  });
+
+  // A broken push pipeline does not lose the notification.
+  await db.exec(`
+    create or replace function net.http_post(url text, body jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb)
+      returns bigint language plpgsql as $$ begin raise exception 'network down'; end $$;
+  `);
+  await notify('Push en panne');
+  assert.equal(await delivered('Push en panne'), 1);
+
+  await db.exec(`drop schema net cascade; drop schema vault cascade;`);
+  await db.query(`delete from public.notifications where user_id = $1`, [ids.outsider]);
 });
 
 // ── account deletion (runs last: it removes the fixtures) ────
