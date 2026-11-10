@@ -88,7 +88,14 @@ export default function SubscriptionScreen() {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: { period },
+        // On the web Stripe must come back to this page; native keeps the app scheme defaults.
+        body: Platform.OS === 'web' && typeof window !== 'undefined'
+          ? {
+              period,
+              successUrl: `${window.location.origin}/settings/subscription?checkout=success`,
+              cancelUrl: `${window.location.origin}/settings/subscription?checkout=cancel`,
+            }
+          : { period },
       });
       if (error || !data?.url) {
         Alert.alert('Erreur', error?.message ?? 'Impossible de démarrer le paiement. Réessayez.');

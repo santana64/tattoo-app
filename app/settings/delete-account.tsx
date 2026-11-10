@@ -19,26 +19,34 @@ const CONSEQUENCES = [
   'Votre profil et vos informations personnelles',
   'Vos publications, votre galerie et tout votre contenu',
   'Vos demandes, conversations et historique',
-  'Vos préférences et données de paiement',
-  'Votre accès Premium et ses avantages',
+  'Vos rendez-vous, passés et à venir',
+  'Votre abonnement Premium, résilié immédiatement',
 ];
 
 export default function DeleteAccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { signOut } = useAuthStore();
+  const { deleteAccount } = useAuthStore();
   const [confirmation, setConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isConfirmed = confirmation === CONFIRM_WORD;
 
   const handleDelete = async () => {
     if (!isConfirmed || isDeleting) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
-      await signOut();
+      const { error } = await deleteAccount();
+      if (error) {
+        setDeleteError(error);
+        return;
+      }
       router.replace('/(auth)/welcome');
+    } catch {
+      setDeleteError('La suppression a échoué. Votre compte est intact : vérifiez votre connexion puis réessayez.');
     } finally {
       setIsDeleting(false);
     }
@@ -47,6 +55,7 @@ export default function DeleteAccountScreen() {
   const openConfirmation = () => {
     if (!isConfirmed) return;
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setDeleteError(null);
     setSheetOpen(true);
   };
 
@@ -67,7 +76,7 @@ export default function DeleteAccountScreen() {
             Supprimer <TText variant="displayM" italic style={{ color: Colors.errorLight }}>votre compte</TText>
           </TText>
           <TText variant="body" color="secondary" style={styles.lead}>
-            Votre compte sera désactivé immédiatement. Vous disposez de 30 jours pour changer d’avis ; passé ce délai, vos données seront supprimées définitivement.
+            Votre compte et vos données seront supprimés immédiatement et définitivement. Cette action est irréversible.
           </TText>
         </View>
 
@@ -88,7 +97,7 @@ export default function DeleteAccountScreen() {
         <View style={styles.note}>
           <Ionicons name="time-outline" size={16} color={Colors.warning} />
           <TText variant="caption" color="secondary" style={{ flex: 1 }}>
-            Les rendez-vous déjà confirmés restent visibles dans l’agenda de vos clients pendant 30 jours.
+            Vos demandes et rendez-vous disparaissent aussi chez les personnes concernées. Prévenez-les avant de supprimer votre compte.
           </TText>
         </View>
 
@@ -123,8 +132,13 @@ export default function DeleteAccountScreen() {
       <BottomSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} accessibilityLabel="Confirmer la suppression du compte">
         <TText variant="displayS">Dernière confirmation</TText>
         <TText variant="bodySmall" color="secondary" style={styles.sheetBody}>
-          Vous allez être déconnecté et votre compte sera désactivé. Cette action ne peut pas être annulée depuis l’application.
+          Votre compte et toutes vos données vont être supprimés maintenant. Cette action ne peut pas être annulée.
         </TText>
+        {deleteError ? (
+          <TText variant="bodySmall" style={styles.sheetError} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+            {deleteError}
+          </TText>
+        ) : null}
         <View style={styles.actions}>
           <TButton
             title="Supprimer définitivement"
@@ -164,4 +178,5 @@ const styles = StyleSheet.create({
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: Spacing.md },
   actions: { gap: 10, marginTop: Spacing.xs },
   sheetBody: { marginTop: Spacing['2xs'], marginBottom: Spacing.lg },
+  sheetError: { color: Colors.errorLight, marginTop: -Spacing.sm, marginBottom: Spacing.md },
 });

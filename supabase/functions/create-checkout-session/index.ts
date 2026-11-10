@@ -1,51 +1,66 @@
+// Supabase Edge Function: create-checkout-session
+// Starts a Stripe Checkout session for the signed-in artist's Premium plan.
+//
+// Deploy: supabase functions deploy create-checkout-session
+// Secrets: STRIPE_SECRET_KEY, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY, ALLOWED_ORIGINS
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import Stripe from 'https://esm.sh/stripe@13.10.0?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { bearerToken, corsHeaders, isAllowedReturnUrl, json } from '../_shared/http.ts';
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
   apiVersion: '2023-10-16',
   httpClient: Stripe.createFetchHttpClient(),
 });
 
-const PRICES = {
+const PRICES: Record<string, string> = {
   monthly: Deno.env.get('STRIPE_PRICE_MONTHLY') ?? '',
-  yearly:  Deno.env.get('STRIPE_PRICE_YEARLY')  ?? '',
+  yearly: Deno.env.get('STRIPE_PRICE_YEARLY') ?? '',
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+const DEFAULT_SUCCESS_URL = 'inkr://subscription/success';
+const DEFAULT_CANCEL_URL = 'inkr://subscription/cancel';
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(req) });
+  if (req.method !== 'POST') return json(req, { error: 'method_not_allowed' }, 405);
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) return new Response('Unauthorized', { status: 401 });
+    const jwt = bearerToken(req);
+    if (!jwt) return json(req, { error: 'unauthorized' }, 401);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
-
-    const jwt = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
-    if (authError || !user) return new Response('Unauthorized', { status: 401 });
+    if (authError || !user) return json(req, { error: 'unauthorized' }, 401);
 
-    const { period = 'monthly', successUrl, cancelUrl } = await req.json();
+    let body: Record<string, unknown> = {};
+    try {
+      const parsed = await req.json();
+      if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>;
+    } catch {
+      return json(req, { error: 'invalid_body' }, 400);
+    }
 
-    // Get or create Stripe customer for this artist
+    const period = typeof body.period === 'string' ? body.period : 'monthly';
+    const priceId = Object.hasOwn(PRICES, period) ? PRICES[period] : '';
+    if (!priceId) return json(req, { error: 'invalid_period' }, 400);
+
+    // Return URLs come from the client: only the app itself is accepted, so a
+    // crafted request cannot turn Stripe's redirect into an open redirect.
+    const successUrl = isAllowedReturnUrl(body.successUrl) ? body.successUrl : DEFAULT_SUCCESS_URL;
+    const cancelUrl = isAllowedReturnUrl(body.cancelUrl) ? body.cancelUrl : DEFAULT_CANCEL_URL;
+
     const { data: artist } = await supabase
       .from('artists')
       .select('id, stripe_customer_id')
       .eq('profile_id', user.id)
       .single();
+    if (!artist) return json(req, { error: 'artist_not_found' }, 404);
 
-    if (!artist) return new Response('Artist not found', { status: 404 });
-
+    // Get or create the Stripe customer for this artist.
     let customerId = artist.stripe_customer_id;
     if (!customerId) {
       const { data: profile } = await supabase
@@ -61,34 +76,27 @@ serve(async (req) => {
       });
       customerId = customer.id;
 
-      await supabase
+      const { error: saveError } = await supabase
         .from('artists')
         .update({ stripe_customer_id: customerId })
         .eq('id', artist.id);
+      if (saveError) throw new Error(`customer id not saved: ${saveError.message}`);
     }
-
-    const priceId = PRICES[period as 'monthly' | 'yearly'];
-    if (!priceId) return new Response('Invalid price period', { status: 400 });
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: 'subscription',
-      success_url: successUrl ?? 'inkr://subscription/success',
-      cancel_url:  cancelUrl  ?? 'inkr://subscription/cancel',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: { artist_id: artist.id },
     });
 
-    return new Response(
-      JSON.stringify({ url: session.url, sessionId: session.id }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (err: any) {
+    return json(req, { url: session.url, sessionId: session.id });
+  } catch (err) {
+    // Details stay in the function logs; the caller gets a stable code.
     console.error('checkout error', err);
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return json(req, { error: 'checkout_failed' }, 500);
   }
 });

@@ -138,16 +138,16 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   markAsRead: async (requestId, userId) => {
-    await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('request_id', requestId)
-      .neq('sender_id', userId)
-      .eq('is_read', false);
+    // Recipients cannot UPDATE messages directly: the database function checks
+    // that the caller is a party to the request and only flags the other side's messages.
+    const { error } = await supabase.rpc('mark_messages_read', { p_request_id: requestId });
+    if (error) return;
     set((s) => ({
       messagesByRequest: {
         ...s.messagesByRequest,
-        [requestId]: (s.messagesByRequest[requestId] ?? []).map((m) => ({ ...m, isRead: true })),
+        [requestId]: (s.messagesByRequest[requestId] ?? []).map((m) =>
+          m.senderId === userId ? m : { ...m, isRead: true }
+        ),
       },
     }));
   },

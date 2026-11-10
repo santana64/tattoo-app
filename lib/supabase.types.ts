@@ -456,7 +456,7 @@ export interface Database {
       reports: {
         Row: {
           id: string;
-          reporter_id: string;
+          reporter_id: string | null;
           target_type: 'post' | 'artist' | 'message' | 'review';
           target_id: string;
           reason: 'spam' | 'inappropriate' | 'fake' | 'harassment' | 'other';
@@ -548,6 +548,10 @@ export interface Database {
       complete_appointment: {
         Args: { p_appointment_id: string };
         Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+      mark_messages_read: {
+        Args: { p_request_id: string };
+        Returns: number;
       };
     };
     Enums: { [_ in never]: never };

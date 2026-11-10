@@ -68,7 +68,8 @@ interface AuthState {
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   setRole: (role: UserRole) => Promise<void>;
-  setArtistTier: (tier: ArtistTier) => Promise<void>;
+  /** Permanently deletes the account server-side, then clears the local session. */
+  deleteAccount: () => Promise<{ error: string | null }>;
   completeOnboarding: () => Promise<void>;
   updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<{ error: string | null }>;
   /** Creates the artist row if needed, then saves the public artist fields. */
@@ -77,13 +78,22 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
 }
 
+// Explicit column lists: the API only exposes these columns (migration 005).
+// The e-mail is private and comes from the auth session, never from `profiles`.
+const PROFILE_COLUMNS = 'id,display_name,avatar_url,role,city,style_prefs,onboarding_completed' as const;
+const OWN_ARTIST_COLUMNS = 'id,tier,blaze,booking_status' as const;
+
+type ProfileRow = Pick<Tables<'profiles'>, 'id' | 'display_name' | 'avatar_url' | 'role' | 'city' | 'style_prefs' | 'onboarding_completed'>;
+type OwnArtistRow = Pick<Tables<'artists'>, 'id' | 'tier' | 'blaze' | 'booking_status'>;
+
 function mapProfile(
-  profile: Tables<'profiles'>,
-  artist?: Tables<'artists'> | null
+  profile: ProfileRow,
+  email: string,
+  artist?: OwnArtistRow | null
 ): AppUser {
   return {
     id: profile.id,
-    email: profile.email,
+    email,
     displayName: profile.display_name,
     avatarUrl: profile.avatar_url ?? undefined,
     role: profile.role,
@@ -136,16 +146,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const version = ++profileLoadVersion;
     try {
       const { data: profile, error } = await supabase
-        .from('profiles').select('*').eq('id', session.user.id).single();
+        .from('profiles').select(PROFILE_COLUMNS).eq('id', session.user.id).single();
       if (error || !profile) throw new Error('Impossible de charger ton profil. Réessaie dans un instant.');
-      let artist: Tables<'artists'> | null = null;
+      let artist: OwnArtistRow | null = null;
       if (profile.role === 'artist') {
-        const result = await supabase.from('artists').select('*').eq('profile_id', profile.id).maybeSingle();
+        const result = await supabase.from('artists').select(OWN_ARTIST_COLUMNS).eq('profile_id', profile.id).maybeSingle();
         if (result.error) throw new Error('Impossible de charger ton profil artiste.');
         artist = result.data;
       }
       if (version === profileLoadVersion && get().session?.user.id === session.user.id) {
-        set({ user: mapProfile(profile, artist), isLoading: false, error: null });
+        set({ user: mapProfile(profile, session.user.email ?? '', artist), isLoading: false, error: null });
       }
     } catch (error) {
       if (version === profileLoadVersion) {
@@ -233,11 +243,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set((s) => ({ user: s.user ? { ...s.user, role, ...(becomesArtist ? { onboardingCompleted: false } : {}) } : null }));
   },
 
-  setArtistTier: async (tier) => {
-    const { user } = get();
-    if (!user?.artistId) return;
-    await supabase.from('artists').update({ tier }).eq('id', user.artistId);
-    set((s) => ({ user: s.user ? { ...s.user, artistTier: tier } : null }));
+  deleteAccount: async () => {
+    if (!get().session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const { data, error } = await supabase.functions.invoke('delete-account', { method: 'POST' });
+    if (error || !data?.deleted) {
+      let code: string | undefined;
+      try {
+        code = (await (error as { context?: Response } | null)?.context?.json())?.error;
+      } catch { /* no readable body */ }
+      console.warn('[auth] account deletion failed', code ?? error?.message);
+      return {
+        error: code === 'subscription_cancel_failed'
+          ? 'Votre abonnement Premium n’a pas pu être résilié. Votre compte n’a pas été supprimé : réessayez ou contactez le support.'
+          : 'La suppression a échoué. Votre compte est intact : vérifiez votre connexion puis réessayez.',
+      };
+    }
+    // The user no longer exists server-side: only the local session is left to clear.
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    profileLoadVersion++;
+    set({ session: null, user: null, isAuthenticated: false, error: null });
+    return { error: null };
   },
 
   completeOnboarding: async () => {
