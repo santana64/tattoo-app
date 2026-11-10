@@ -4,7 +4,7 @@ import {
   ScrollView, RefreshControl, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
@@ -21,8 +21,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
-import { STYLES } from '@/constants/mock-data';
-import type { Artist } from '@/constants/mock-data';
+import { STYLES } from '@/constants/tattoo';
+import { useAutoRetry } from '@/hooks/use-auto-retry';
+import type { Artist } from '@/constants/tattoo';
 import { supabase } from '@/lib/supabase';
 import { mapArtist, PUBLIC_ARTIST_COLUMNS } from '@/lib/catalog';
 
@@ -231,6 +232,8 @@ export default function ExploreScreen() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  // A failed load retries on its own (and as soon as the connection is back).
+  useAutoRetry(!!fetchError, isLoading, () => { setIsLoading(true); void fetchData(); });
 
   // Keep the selected style visible in the rail (e.g. after a deep link from the welcome screen).
   const revealChip = useCallback((slug: string | null) => {

@@ -9,7 +9,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Radius, Spacing, Fonts, Layout } from '@/constants/theme';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';

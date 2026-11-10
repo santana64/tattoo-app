@@ -1,5 +1,5 @@
 import { supabase, type Tables } from './supabase';
-import type { Artist } from '@/constants/mock-data';
+import type { Artist } from '@/constants/tattoo';
 
 export const isUuid = (value: string | undefined): value is string =>
   !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

@@ -1,16 +1,20 @@
 import React, { useCallback, useEffect } from 'react';
 import { View, StyleSheet, Pressable, type PressableProps } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { useSharedValue, useAnimatedStyle, withDelay, withTiming, useReducedMotion } from 'react-native-reanimated';
-import { format, isSameYear, isToday, isValid, parseISO } from 'date-fns';
-import { fr } from 'date-fns/locale';
+import { format } from 'date-fns/format';
+import { isSameYear } from 'date-fns/isSameYear';
+import { isToday } from 'date-fns/isToday';
+import { isValid } from 'date-fns/isValid';
+import { parseISO } from 'date-fns/parseISO';
+import { fr } from 'date-fns/locale/fr';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 import { PressableScale, EASE_OUT } from './motion';
 import type { TattooRequest, RequestStatus } from '@/store/request-store';
-import { PROJECT_TYPE_LABELS } from '@/constants/mock-data';
+import { PROJECT_TYPE_LABELS } from '@/constants/tattoo';
 
 // ─── Shared request vocabulary (used by inbox, request detail, conversation) ──
 

@@ -3,7 +3,7 @@ import {
   View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, BackHandler,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useReducedMotion, useSharedValue, useAnimatedStyle, withDelay, withTiming,
@@ -20,7 +20,7 @@ import { BOOKING_STATUS, styleName } from '@/components/ArtistCard';
 import { useRequestStore } from '@/store/request-store';
 import type { SubmitPayload } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import { STYLES } from '@/constants/mock-data';
+import { STYLES } from '@/constants/tattoo';
 import { useArtist } from '@/hooks/use-artist';
 import { enterUp, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, ViewStyle, Modal } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { PressableScale } from '@/components/motion/PressableScale';
 import { RevealImage } from '@/components/motion/RevealImage';

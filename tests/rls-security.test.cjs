@@ -28,6 +28,10 @@ const SUPABASE_STUB = `
     $$ select nullif(current_setting('request.jwt.claim.role', true), '') $$;
 
   create schema storage;
+  create table storage.buckets (
+    id text primary key, name text not null, public boolean default false,
+    file_size_limit bigint, allowed_mime_types text[]
+  );
   create table storage.objects (
     id uuid primary key default gen_random_uuid(),
     bucket_id text not null,
@@ -103,8 +107,10 @@ before(async () => {
     if (file === '005_p0_security.sql') await db.exec(LEGACY_SEED_POLICIES);
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
-  // The migration claims to be idempotent: prove it.
-  await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, '005_p0_security.sql'), 'utf8'));
+  // These migrations claim to be idempotent: prove it.
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql']) {
+    await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
+  }
 
   ids.client = await createUser('client');
   ids.artistUser = await createUser('artist');
@@ -362,15 +368,86 @@ test('the artist can still answer a request and book it (migrations 003 and 004)
   assert.equal((await one(`select status from public.tattoo_requests where id = $1`, [ids.request])).status, 'confirmed');
 });
 
+// ── notifications ────────────────────────────────────────────
+
+test('the database notifies the right person, once per conversation', async () => {
+  const types = async (uid) => (await rows(
+    `select type from public.notifications where user_id = $1 order by type`, [uid],
+  )).map((n) => n.type);
+
+  assert.deepEqual(await types(ids.artistUser), ['appointment_confirmed', 'new_message', 'new_request']);
+  assert.deepEqual(await types(ids.client), ['accepted', 'appointment_proposed']);
+  assert.deepEqual(await types(ids.outsider), []);
+
+  // More messages in the same conversation do not stack unread notifications.
+  await as(ids.client, async () => {
+    for (const content of ['Encore moi', 'Et encore']) {
+      await db.query(`insert into public.messages (request_id, sender_id, content) values ($1, $2, $3)`, [ids.request, ids.client, content]);
+    }
+  });
+  assert.equal((await types(ids.artistUser)).filter((t) => t === 'new_message').length, 1);
+
+  // The artist answers: the client gets one.
+  await as(ids.artistUser, () => db.query(
+    `insert into public.messages (request_id, sender_id, content) values ($1, $2, 'Bonjour !')`, [ids.request, ids.artistUser],
+  ));
+  const fromArtist = await one(
+    `select body, data from public.notifications where user_id = $1 and type = 'new_message'`, [ids.client],
+  );
+  assert.match(fromArtist.body, /^Atelier /);
+  assert.equal(fromArtist.data.request_id, ids.request);
+});
+
+test('users read and tick their own notifications but cannot write any', async () => {
+  await as(ids.outsider, async () => {
+    await assert.rejects(
+      db.query(`insert into public.notifications (user_id, type, title, body) values ($1, 'system', 'Gagné', 'Cliquez ici')`, [ids.client]),
+      DENIED,
+    );
+    await assert.rejects(
+      db.query(`insert into public.notifications (user_id, type, title, body) values ($1, 'system', 'Gagné', 'Cliquez ici')`, [ids.outsider]),
+      DENIED,
+    );
+    await assert.rejects(db.query(`select public.notify_user($1, 'system', 'Gagné', 'Cliquez ici', '{}'::jsonb)`, [ids.client]), DENIED);
+    assert.equal((await rows(`select id from public.notifications`)).length, 0);
+  });
+  await as(ids.client, async () => {
+    const mine = await rows(`select user_id from public.notifications`);
+    assert.ok(mine.length > 0 && mine.every((n) => n.user_id === ids.client));
+    await assert.rejects(db.query(`update public.notifications set title = 'Réécrit' where user_id = $1`, [ids.client]), DENIED);
+    const ticked = await db.query(`update public.notifications set is_read = true where user_id = $1 and is_read is not true`, [ids.client]);
+    assert.ok(ticked.affectedRows > 0);
+  });
+});
+
 // ── account deletion (runs last: it removes the fixtures) ────
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
   // Owner-level fixtures: a finished session, its review, and a report.
   await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);
-  await db.query(
-    `insert into public.reviews (appointment_id, artist_id, client_id, rating, comment) values ($1, $2, $3, 5, 'Parfait')`,
-    [ids.appointment, ids.artist, ids.client],
+  assert.equal(
+    (await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'appointment_completed'`, [ids.client])).n,
+    1,
   );
+
+  // A review can only target the artist of the completed appointment.
+  const otherArtist = (await one(
+    `insert into public.artists (profile_id, blaze, city) values ($1, 'Autre', 'Nice') returning id`, [ids.outsider],
+  )).id;
+  await as(ids.client, async () => {
+    await assert.rejects(
+      db.query(
+        `insert into public.reviews (appointment_id, artist_id, client_id, rating, comment) values ($1, $2, $3, 1, 'Faux avis')`,
+        [ids.appointment, otherArtist, ids.client],
+      ),
+      DENIED,
+    );
+    await db.query(
+      `insert into public.reviews (appointment_id, artist_id, client_id, rating, comment) values ($1, $2, $3, 5, 'Parfait')`,
+      [ids.appointment, ids.artist, ids.client],
+    );
+  });
+  await db.query(`delete from public.artists where id = $1`, [otherArtist]);
   await db.query(
     `insert into public.reports (reporter_id, target_type, target_id, reason) values ($1, 'post', $2, 'spam')`,
     [ids.client, ids.post],

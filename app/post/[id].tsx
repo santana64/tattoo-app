@@ -3,7 +3,7 @@ import {
   View, StyleSheet, Share, Platform, useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, useReducedMotion,
@@ -21,7 +21,9 @@ import { useFeedStore } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
 import { fetchArtist, isUuid } from '@/lib/catalog';
-import type { Artist } from '@/constants/mock-data';
+import type { Artist } from '@/constants/tattoo';
+import { Seo } from '@/components/Seo';
+import { toDescription } from '@/lib/site';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 
@@ -277,9 +279,16 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       <TButton title={`Voir le profil de ${firstName}`} variant="secondary" onPress={openArtist} />
     )
   ) : null;
+  const seoArtist = artist ? `${artist.blaze}${artist.city ? `, ${artist.city}` : ''}` : 'un artiste Inkr';
 
   return (
     <View style={styles.container}>
+      <Seo
+        title={`Tatouage ${stylesLabel || 'réalisé'} par ${artist?.blaze ?? 'un artiste'} | Inkr`}
+        description={toDescription(`${post.caption ? `${post.caption} — ` : ''}Réalisation de ${seoArtist}. Découvrez son portfolio sur Inkr.`)}
+        image={post.mediaUrl}
+        type="article"
+      />
       <THeader
         showBack
         rightElement={

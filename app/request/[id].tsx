@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { format, isValid, parseISO } from 'date-fns';
-import { fr } from 'date-fns/locale';
+import { format } from 'date-fns/format';
+import { isValid } from 'date-fns/isValid';
+import { parseISO } from 'date-fns/parseISO';
+import { fr } from 'date-fns/locale/fr';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
@@ -24,7 +26,7 @@ import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store
 import { AppointmentPanel } from '@/components/AppointmentPanel';
 import { useAuthStore } from '@/store/auth-store';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
-import { DECLINE_REASONS } from '@/constants/mock-data';
+import { DECLINE_REASONS } from '@/constants/tattoo';
 
 const DOSSIER_MAX = 720;
 

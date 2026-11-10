@@ -11,18 +11,12 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#0B0A09" />
         <meta name="color-scheme" content="dark" />
-        <title>Inkr — Trouvez l’artiste tatoueur qui vous ressemble</title>
-        <meta
-          name="description"
-          content="Parcourez les portfolios de tatoueurs, studios et guest spots par style et par ville, puis envoyez votre projet directement à l’artiste."
-        />
-        <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="Inkr" />
-        <meta property="og:title" content="Inkr — Trouvez l’artiste tatoueur qui vous ressemble" />
-        <meta
-          property="og:description"
-          content="Portfolios, styles et villes : découvrez des tatoueurs et confiez-leur votre projet."
-        />
+        {/* Title, description, canonical and social tags are set per route by <Seo> (components/Seo.tsx):
+            a second <title> here would lose to the router's own, which is emitted first. */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{ __html: documentStyle }} />
       </head>

@@ -4,34 +4,61 @@
     {
       "name": "Expo (all platforms)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
       "port": 8081,
       "autoPort": true
     },
     {
       "name": "Expo (web)",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web"
+      ],
       "port": 19006,
       "autoPort": true
     },
     {
       "name": "Expo web 8090",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8090"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8090"
+      ],
       "port": 8090
     },
     {
       "name": "Expo (Android)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "android"],
+      "runtimeArgs": [
+        "run",
+        "android"
+      ],
       "port": 8081
     },
     {
       "name": "Expo (iOS)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "ios"],
+      "runtimeArgs": [
+        "run",
+        "ios"
+      ],
       "port": 8081
+    },
+    {
+      "name": "Web export preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/preview-web.js"
+      ],
+      "port": 4173
     }
   ]
 }

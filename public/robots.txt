@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /settings/
+Disallow: /conversation/
+Disallow: /request/
+Disallow: /appointment/
+Disallow: /review/
+Disallow: /auth/
+Disallow: /messages
+Disallow: /inbox
+Disallow: /agenda
+Disallow: /profile
+Disallow: /notifications
+Disallow: /saved
+Disallow: /create
+Disallow: /analytics
+Disallow: /customization
+
+Sitemap: https://tattoo-app-4gmu.vercel.app/sitemap.xml

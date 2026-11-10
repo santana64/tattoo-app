@@ -21,6 +21,8 @@ import { Colors } from '@/constants/theme';
 import { ToastProvider } from '@/components/ui/TToast';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { authRedirect } from '@/lib/auth-routing';
+import { Seo } from '@/components/Seo';
+import { pageMeta } from '@/lib/site';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -63,6 +65,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.bgPrimary }}>
       <SafeAreaProvider>
+        <Seo {...pageMeta(segments)} />
         <StatusBar style="light" backgroundColor={Colors.bgPrimary} />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />

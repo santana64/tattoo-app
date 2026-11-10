@@ -1,50 +1,88 @@
-# Welcome to your Expo app 👋
+# Inkr
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Inkr met en relation des clients et des artistes tatoueurs : portfolios par style et par ville, demande de projet, messagerie, prise de rendez-vous et avis.
 
-## Get started
+Une seule base de code [Expo](https://expo.dev) (React Native + `react-native-web`) pour iOS, Android et le web, avec [Supabase](https://supabase.com) pour l'authentification, la base de données, le stockage et les fonctions edge, et Stripe pour l'abonnement Premium des artistes.
 
-1. Install dependencies
+## Démarrer
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Prérequis : Node 20+, un projet Supabase.
 
 ```bash
-npm run reset-project
+npm install
+cp .env.example .env   # puis renseigner l'URL et la clé anon Supabase
+npm run web            # ou : npm run ios / npm run android
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Commandes
 
-## Learn more
+| Commande | Rôle |
+|---|---|
+| `npm run web` | Serveur de développement web |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript, sans émission |
+| `npm test` | Tests unitaires + tests SQL des règles de sécurité |
+| `npm run build:web` | Export statique dans `dist/`, liens profonds, sitemap, contrôle de la CSP |
+| `npm run preview:web` | Sert `dist/` en appliquant `vercel.json` (réécritures, en-têtes) |
 
-To learn more about developing your project with Expo, look at the following resources:
+## Structure
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+| Dossier | Contenu |
+|---|---|
+| `app/` | Écrans (routage par fichiers, `expo-router`) |
+| `components/` | Composants d'interface, dont `ui/` (kit de base) et `motion/` |
+| `store/` | États Zustand : auth, fil, demandes, messages, notifications |
+| `lib/` | Client Supabase, stockage, rendez-vous, métadonnées du site |
+| `constants/` | Thème, types métier et catalogue des styles |
+| `supabase/migrations/` | Schéma et règles de sécurité, à appliquer dans l'ordre |
+| `supabase/functions/` | Fonctions edge : paiement, webhook Stripe, push, suppression de compte |
+| `tests/` | Tests `node:test` ; `rls-security.test.cjs` exécute les migrations dans un Postgres embarqué |
+| `scripts/` | Post-traitement de l'export web, prévisualisation, génération des images |
 
-## Join the community
+`DESIGN.md` décrit le système visuel (« Galerie noire »).
 
-Join our community of developers creating universal apps.
+## Base de données
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Les migrations de `supabase/migrations/` sont idempotentes et s'appliquent dans l'ordre numérique, dans l'éditeur SQL Supabase ou avec `supabase db push`.
+
+Deux principes à respecter pour toute nouvelle table :
+
+- la RLS décide **quelles lignes** un appelant peut toucher, les privilèges de colonnes décident **quelles colonnes** (voir `005_p0_security.sql`) ;
+- les transitions d'état sensibles passent par des fonctions `security definer` qui vérifient l'appelant (voir `003_appointment_booking.sql`), jamais par un `UPDATE` direct.
+
+Une migration qui retire des droits doit être déployée **après** le client qui n'en dépend plus.
+
+## Fonctions edge
+
+```bash
+supabase functions deploy create-checkout-session
+supabase functions deploy delete-account
+supabase functions deploy send-push
+supabase functions deploy stripe-webhook --no-verify-jwt
+```
+
+Secrets attendus (`supabase secrets set NOM=valeur`) :
+
+| Secret | Usage |
+|---|---|
+| `ALLOWED_ORIGINS` | Origines web autorisées (CORS et retours de paiement), séparées par des virgules |
+| `STRIPE_SECRET_KEY` | Paiement, résiliation à la suppression du compte |
+| `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY` | Tarifs Premium |
+| `STRIPE_WEBHOOK_SECRET` | Signature du webhook |
+
+## Déploiement web
+
+Vercel construit avec `npm run build:web` et sert `dist/` (voir `vercel.json`). Variables d'environnement du projet Vercel :
+
+- `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+- `EXPO_PUBLIC_SITE_URL` : URL publique du site, utilisée pour les URL canoniques, le sitemap et `robots.txt`
+
+Le build échoue volontairement si le script en ligne émis par Expo ne correspond plus au hash autorisé par la Content-Security-Policy : le message indique le hash à reporter dans `vercel.json`.
+
+## Tests
+
+```bash
+npm test
+```
+
+`tests/rls-security.test.cjs` rejoue toutes les migrations dans PGlite et vérifie, avec les rôles `anon` et `authenticated`, ce que chaque règle doit interdire et ce qui doit continuer à fonctionner. Toute modification d'une règle de sécurité doit y ajouter un cas.

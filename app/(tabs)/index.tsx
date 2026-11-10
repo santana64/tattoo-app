@@ -3,13 +3,14 @@ import {
   StyleSheet, View, RefreshControl, ScrollView, useWindowDimensions, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import Animated, {
   useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, useReducedMotion,
 } from 'react-native-reanimated';
 import { Colors, Spacing, Radius, Layout, Shadow } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { useAutoRetry } from '@/hooks/use-auto-retry';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
 import { TSkeleton } from '@/components/ui/TSkeleton';
@@ -227,6 +228,8 @@ export default function FeedScreen() {
   });
 
   useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
+  // A failed first load retries on its own (and as soon as the connection is back).
+  useAutoRetry(!!error && posts.length === 0, isLoading, () => { void fetchFeed(user?.id); });
 
   const handleRefresh    = useCallback(() => refresh(user?.id), [user?.id, refresh]);
   const handleEndReached = useCallback(() => fetchMore(user?.id), [user?.id, fetchMore]);

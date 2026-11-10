@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchArtist } from '@/lib/catalog';
-import type { Artist } from '@/constants/mock-data';
+import type { Artist } from '@/constants/tattoo';
 
 export function useArtist(id: string) {
   const [artist, setArtist] = useState<Artist | null>(null);

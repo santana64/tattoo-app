@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, StyleSheet, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { RevealImage, Springs, EASE_OUT, MotionDuration } from '@/components/motion';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming } from 'react-native-reanimated';
@@ -9,8 +9,8 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
-import type { Artist } from '@/constants/mock-data';
-import { STYLES } from '@/constants/mock-data';
+import type { Artist } from '@/constants/tattoo';
+import { STYLES } from '@/constants/tattoo';
 
 interface ArtistCardProps {
   artist: Artist;

@@ -3,7 +3,7 @@ import {
   View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase';
 import { pickImage, uploadPostMedia } from '@/lib/storage';
 import { Toast } from '@/components/ui/TToast';
 import { useFeedStore } from '@/store/feed-store';
-import { STYLES } from '@/constants/mock-data';
+import { STYLES } from '@/constants/tattoo';
 
 const MAX_STYLES = 3;
 

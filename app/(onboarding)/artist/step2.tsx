@@ -7,7 +7,7 @@ import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
-import { STYLES } from '@/constants/mock-data';
+import { STYLES } from '@/constants/tattoo';
 
 const TOTAL = 5;
 const STEP = 2;

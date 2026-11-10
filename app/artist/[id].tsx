@@ -3,7 +3,7 @@ import {
   StyleSheet, View, Pressable, useWindowDimensions, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -23,6 +23,8 @@ import { Toast } from '@/components/ui/TToast';
 import { useAuthStore } from '@/store/auth-store';
 import { fetchArtistPortfolio } from '@/lib/catalog';
 import { useArtist } from '@/hooks/use-artist';
+import { Seo } from '@/components/Seo';
+import { toDescription } from '@/lib/site';
 import type { Tables } from '@/lib/supabase';
 
 const GAP = 3;
@@ -202,9 +204,17 @@ export default function ArtistProfileScreen() {
   const canRequest = artist.bookingStatus === 'open';
   const stylesLabel = artist.styles.map(styleName);
   const coverUri = artist.coverUrl || photos[0]?.media_url;
+  const seoStyles = stylesLabel.slice(0, 3).join(', ');
+  const seoSummary = `${artist.blaze}, artiste tatoueur à ${artist.city}${seoStyles ? ` (${seoStyles})` : ''}.`;
 
   return (
     <View style={styles.container}>
+      <Seo
+        title={`${artist.blaze} — Tatoueur à ${artist.city} | Inkr`}
+        description={toDescription(`${seoSummary} ${artist.bio || 'Découvrez son portfolio et envoyez-lui votre projet sur Inkr.'}`)}
+        image={coverUri || artist.avatarUrl || null}
+        type="profile"
+      />
       {/* ─── Floating header ─── */}
       <View style={[styles.floatingHeader, { paddingTop: insets.top + 6 }]}>
         <Animated.View style={[StyleSheet.absoluteFill, headerGlassStyle]} pointerEvents="none">

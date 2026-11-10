@@ -8,12 +8,12 @@ import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence,
   Easing, FadeIn, FadeInDown, useReducedMotion,
 } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing, Layout, Duration } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { Logo } from '@/components/ui/Logo';
-import { STYLES } from '@/constants/mock-data';
+import { STYLES } from '@/constants/tattoo';
 
 // Remote placeholder until the product hosts rights-cleared artist photography.
 const HERO_IMAGE = 'https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=1600&q=80';
