@@ -18,8 +18,13 @@ const PRICES: Record<string, string> = {
   yearly: Deno.env.get('STRIPE_PRICE_YEARLY') ?? '',
 };
 
-const DEFAULT_SUCCESS_URL = 'inkr://subscription/success';
-const DEFAULT_CANCEL_URL = 'inkr://subscription/cancel';
+// Stripe only accepts https return URLs. Without one from an allowed web
+// origin, the session returns through the payment-return function, which
+// forwards to the app's inkr:// deep link.
+const bridgeUrl = (target: string) =>
+  `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/payment-return?target=${encodeURIComponent(target)}`;
+const isWebReturnUrl = (url: unknown): url is string =>
+  isAllowedReturnUrl(url) && /^https?:\/\//i.test(url);
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(req) });
@@ -50,8 +55,12 @@ serve(async (req) => {
 
     // Return URLs come from the client: only the app itself is accepted, so a
     // crafted request cannot turn Stripe's redirect into an open redirect.
-    const successUrl = isAllowedReturnUrl(body.successUrl) ? body.successUrl : DEFAULT_SUCCESS_URL;
-    const cancelUrl = isAllowedReturnUrl(body.cancelUrl) ? body.cancelUrl : DEFAULT_CANCEL_URL;
+    const successUrl = isWebReturnUrl(body.successUrl)
+      ? body.successUrl
+      : bridgeUrl('settings/subscription?checkout=success');
+    const cancelUrl = isWebReturnUrl(body.cancelUrl)
+      ? body.cancelUrl
+      : bridgeUrl('settings/subscription?checkout=cancelled');
 
     const { data: artist } = await supabase
       .from('artists')
@@ -90,7 +99,7 @@ serve(async (req) => {
       mode: 'subscription',
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: { artist_id: artist.id },
+      metadata: { artist_id: artist.id, period },
     });
 
     return json(req, { url: session.url, sessionId: session.id });
