@@ -1,9 +1,12 @@
 // Supabase Edge Function: send-push
 // Sends Expo push notifications to one user's devices.
 //
-// Server-to-server only: the caller must present the service role key
-// (database webhooks, other edge functions). A signed-in user or the public
-// anon key is refused, otherwise anyone could push arbitrary text to anyone.
+// Server-to-server only. The caller must present one of:
+//   * the service role key, as a Bearer token (database trigger, migration 007);
+//   * INTERNAL_FUNCTION_SECRET in the X-INKR-INTERNAL-SECRET header (the other
+//     edge functions: stripe-webhook, deposit and flash checkouts, reminders).
+// A signed-in user or the public anon key is refused, otherwise anyone could
+// push arbitrary text to anyone.
 //
 // Deploy: supabase functions deploy send-push
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,6 +14,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { bearerToken, safeEqual } from '../_shared/http.ts';
 
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const INTERNAL_SECRET = Deno.env.get('INTERNAL_FUNCTION_SECRET') ?? '';
+const INTERNAL_HEADER = 'X-INKR-INTERNAL-SECRET';
 const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', SERVICE_ROLE_KEY);
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -42,7 +47,10 @@ serve(async (req) => {
   if (req.method !== 'POST') return respond({ error: 'method_not_allowed' }, 405);
 
   const token = bearerToken(req);
-  if (!SERVICE_ROLE_KEY || !token || !safeEqual(token, SERVICE_ROLE_KEY)) {
+  const internal = req.headers.get(INTERNAL_HEADER);
+  const byServiceRole = !!SERVICE_ROLE_KEY && !!token && safeEqual(token, SERVICE_ROLE_KEY);
+  const byInternalSecret = !!INTERNAL_SECRET && !!internal && safeEqual(internal, INTERNAL_SECRET);
+  if (!byServiceRole && !byInternalSecret) {
     return respond({ error: 'forbidden' }, 403);
   }
 
