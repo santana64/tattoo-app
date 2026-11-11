@@ -10,6 +10,11 @@ export interface FeedPost {
   artistIsPremium: boolean;
   artistBookingStatus: 'open' | 'paused' | 'closed';
   mediaUrl: string;
+  mediaType: 'photo' | 'video';
+  /** Poster of an uploaded video, when one exists. */
+  thumbnailUrl: string | null;
+  /** Set when the video is hosted by TikTok or Instagram. */
+  embedProvider: 'tiktok' | 'instagram' | null;
   caption: string | null;
   styles: string[];
   likesCount: number;
@@ -54,8 +59,10 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       let query = supabase
         .from('posts')
+        // "*" on purpose: the reel columns (migration 010) are read when they exist
+        // without making the feed depend on that migration being applied.
         .select(`
-          id, media_url, caption, styles, likes_count, published_at, artist_id,
+          *,
           artists!posts_artist_id_fkey!inner (
             id, blaze, city, avatar_url, tier, profile_id, booking_status
           )
@@ -101,7 +108,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       const { data, error } = await supabase
         .from('posts')
         .select(`
-          id, media_url, caption, styles, likes_count, published_at, artist_id,
+          *,
           artists!posts_artist_id_fkey!inner (id, blaze, city, avatar_url, tier, profile_id, booking_status)
         `)
         .eq('is_published', true)
@@ -193,6 +200,9 @@ function mapPost(likedSet: Set<string>, savedSet: Set<string> = new Set()) {
     artistIsPremium: raw.artists?.tier === 'premium',
     artistBookingStatus: raw.artists?.booking_status ?? 'closed',
     mediaUrl: raw.media_url,
+    mediaType: raw.media_type === 'video' ? 'video' : 'photo',
+    thumbnailUrl: raw.thumbnail_url ?? null,
+    embedProvider: raw.embed_provider === 'tiktok' || raw.embed_provider === 'instagram' ? raw.embed_provider : null,
     caption: raw.caption,
     styles: raw.styles ?? [],
     likesCount: raw.likes_count ?? 0,

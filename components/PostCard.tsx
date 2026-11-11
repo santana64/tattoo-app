@@ -11,6 +11,7 @@ import { PressableScale, RevealImage, Springs, EASE_OUT } from '@/components/mot
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 import { ArtPlaceholder, BOOKING_STATUS, styleName } from './ArtistCard';
+import { parseReelUrl, REEL_PROVIDER_LABEL, type ReelProvider } from '@/lib/reels';
 
 export interface PostCardData {
   id: string;
@@ -24,6 +25,10 @@ export interface PostCardData {
   mediaUrl: string;
   /** When unknown, the URL extension is used to detect videos. */
   mediaType?: 'photo' | 'video';
+  /** Poster of an uploaded video. */
+  thumbnailUrl?: string | null;
+  /** Set when the video is hosted by TikTok or Instagram. */
+  embedProvider?: ReelProvider | null;
   caption: string | null;
   styles: string[];
   likesCount: number;
@@ -51,7 +56,19 @@ const VIDEO_EXT = /\.(mp4|mov|m4v|webm|m3u8)(\?|#|$)/i;
 
 /** True when a media URL cannot be rendered by <Image>. */
 export function isVideoMedia(url: string | null | undefined, mediaType?: 'photo' | 'video') {
-  return mediaType === 'video' || (!!url && VIDEO_EXT.test(url));
+  return mediaType === 'video' || (!!url && (VIDEO_EXT.test(url) || parseReelUrl(url) !== null));
+}
+
+/** Play mark over a video poster. */
+export function PlayBadge({ compact = false }: { compact?: boolean }) {
+  const ring = compact ? 36 : 52;
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.playBadge]} pointerEvents="none">
+      <View style={[styles.videoRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
+        <Ionicons name="play" size={compact ? 14 : 19} color={Colors.textPrimary} style={{ marginLeft: 2 }} />
+      </View>
+    </View>
+  );
 }
 
 /**
@@ -130,7 +147,7 @@ export function PostCard({
   const isVideo = isVideoMedia(post.mediaUrl, post.mediaType);
   const stylesLabel = post.styles.slice(0, 2).map(styleName).join(' · ');
   const meta = [post.artistCity, stylesLabel].filter(Boolean).join(' · ');
-  const mediaLabel = `Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
+  const mediaLabel = `${isVideoMedia(post.mediaUrl, post.mediaType) ? 'Vidéo' : 'Réalisation'} de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
   const status = post.artistBookingStatus ? BOOKING_STATUS[post.artistBookingStatus] : null;
   const mediaSize = imageHeight ? { height: imageHeight } : { aspectRatio: ASPECT[variant] };
 
@@ -145,7 +162,17 @@ export function PostCard({
           style={[styles.media, isHalf ? styles.mediaHalf : styles.mediaLarge, mediaSize]}
         >
           {isVideo ? (
-            <VideoPlaceholder compact={isHalf} />
+            post.thumbnailUrl ? (
+              <>
+                <RevealImage uri={post.thumbnailUrl} style={StyleSheet.absoluteFill} fallback={<VideoPlaceholder compact={isHalf} />} />
+                <PlayBadge compact={isHalf} />
+              </>
+            ) : (
+              <VideoPlaceholder
+                compact={isHalf}
+                note={post.embedProvider ? `Vidéo ${REEL_PROVIDER_LABEL[post.embedProvider]}` : undefined}
+              />
+            )
           ) : (
             <RevealImage
               uri={post.mediaUrl}
@@ -243,6 +270,7 @@ const styles = StyleSheet.create({
   mediaHalf: { borderRadius: Radius.lg },
 
   video: { backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
+  playBadge: { alignItems: 'center', justifyContent: 'center' },
   videoRing: {
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,

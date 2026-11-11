@@ -138,6 +138,8 @@ export interface Database {
           artist_id: string;
           media_url: string;
           media_type: 'photo' | 'video';
+          embed_provider: 'tiktok' | 'instagram' | null;
+          thumbnail_url: string | null;
           caption: string | null;
           styles: string[] | null;
           likes_count: number | null;
@@ -151,6 +153,8 @@ export interface Database {
           artist_id: string;
           media_url: string;
           media_type?: 'photo' | 'video';
+          embed_provider?: 'tiktok' | 'instagram' | null;
+          thumbnail_url?: string | null;
           caption?: string | null;
           styles?: string[] | null;
           likes_count?: number | null;

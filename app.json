@@ -81,7 +81,8 @@
           "photosPermission": "INKR accède à ta galerie pour importer des photos de tatouages.",
           "cameraPermission": "INKR utilise la caméra pour prendre des photos."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

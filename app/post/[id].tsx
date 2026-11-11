@@ -317,7 +317,14 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
             style={[styles.art, { height: artH }, wide ? [styles.artColWide, styles.artWide] : null, artMotion]}
           >
             {isVideo ? (
-              <VideoPlaceholder note="La lecture n’est pas encore disponible sur cette page." />
+              <PressableScale
+                onPress={() => router.push(`/reels/${id}`)}
+                accessibilityRole="button"
+                accessibilityLabel="Lire la vidéo"
+                style={StyleSheet.absoluteFill}
+              >
+                <VideoPlaceholder note="Appuyez pour lire la vidéo." />
+              </PressableScale>
             ) : (
               <RevealImage
                 uri={post.mediaUrl}

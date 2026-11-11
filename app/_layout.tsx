@@ -73,6 +73,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
           <Stack.Screen name="artist/[id]" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="reels/[id]" options={{ animation: 'fade' }} />
           <Stack.Screen name="request/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="request/[id]" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="conversation/[id]" options={{ animation: 'slide_from_right' }} />

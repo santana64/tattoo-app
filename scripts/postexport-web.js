@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
-const DYNAMIC_ROUTES = ['artist', 'post', 'request', 'conversation', 'appointment'];
+const DYNAMIC_ROUTES = ['artist', 'post', 'reels', 'request', 'conversation', 'appointment'];
 const STATIC_PAGES = ['', '/explore', '/welcome', '/legal/terms', '/legal/privacy-policy'];
 const SITEMAP_TIMEOUT_MS = 8000;
 const MAX_ARTISTS = 5000;

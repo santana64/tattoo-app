@@ -30,11 +30,11 @@ type SavedArtist = { id: string; blaze: string; avatarUrl: string | null; bookin
 // Virtualized grid cell: press feedback and photo reveal only, no entrance animation.
 function WorkTile({ post, width }: { post: FeedPost; width: number }) {
   const router = useRouter();
-  const isVideo = isVideoMedia(post.mediaUrl);
+  const isVideo = isVideoMedia(post.mediaUrl, post.mediaType);
   return (
     <View style={{ width }}>
       <PressableScale
-        onPress={() => router.push(`/post/${post.id}`)}
+        onPress={() => router.push(isVideo ? `/reels/${post.id}` : `/post/${post.id}`)}
         accessibilityRole="link"
         accessibilityLabel={`Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`}
       >

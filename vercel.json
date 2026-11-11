@@ -8,6 +8,7 @@
   "rewrites": [
     { "source": "/artist/:id", "destination": "/_dyn/artist" },
     { "source": "/post/:id", "destination": "/_dyn/post" },
+    { "source": "/reels/:id", "destination": "/_dyn/reels" },
     { "source": "/request/:id", "destination": "/_dyn/request" },
     { "source": "/conversation/:id", "destination": "/_dyn/conversation" },
     { "source": "/appointment/:id", "destination": "/_dyn/appointment" }
@@ -30,7 +31,7 @@
         { "key": "Permissions-Policy", "value": "camera=(self), microphone=(), geolocation=(), payment=()" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://www.tiktok.com https://www.instagram.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         }
       ]
     }

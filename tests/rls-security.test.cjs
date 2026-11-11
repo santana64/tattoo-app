@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -487,6 +487,62 @@ test('artists are searched, filtered, sorted and paged in the database', async (
   assert.equal((await search({ limit: -5, offset: -5 })).length, 1);
 
   for (const uid of created) await db.query(`delete from auth.users where id = $1`, [uid]);
+});
+
+// ── reels ────────────────────────────────────────────────────
+
+test('reels: uploaded videos and genuine TikTok / Instagram links only', async () => {
+  const CHECK = /violates check constraint/;
+  const insert = (uid, values) => as(uid, () => db.query(
+    `insert into public.posts (artist_id, media_url, media_type, embed_provider, thumbnail_url)
+     values ($1, $2, $3, $4, $5) returning id`,
+    [ids.artist, values.url, values.type ?? 'video', values.provider ?? null, values.thumbnail ?? null],
+  ));
+
+  // What the app sends for each kind of reel.
+  await insert(ids.artistUser, { url: 'https://cdn.example/a/1.mp4', thumbnail: 'https://cdn.example/a/1.jpg' });
+  await insert(ids.artistUser, { url: 'https://www.tiktok.com/@atelier.noir/video/7301234567890123456', provider: 'tiktok' });
+  await insert(ids.artistUser, { url: 'https://www.instagram.com/reel/Cx1-AbC_d9Z/', provider: 'instagram' });
+
+  // A linked reel must be a real video page of the named platform.
+  for (const bad of [
+    { url: 'https://evil.example/player', provider: 'tiktok' },
+    { url: 'https://www.tiktok.com.evil.example/@a/video/7301234567890123456', provider: 'tiktok' },
+    { url: 'https://www.tiktok.com/@a/video/7301234567890123456?x=1', provider: 'tiktok' },
+    { url: 'https://www.tiktok.com/@a/video/7301234567890123456', provider: 'instagram' },
+    { url: 'https://www.instagram.com/reel/Cx1-AbC_d9Z/', provider: 'tiktok' },
+    { url: 'https://www.instagram.com/reel/Cx1-AbC_d9Z/embed', provider: 'instagram' },
+    { url: 'https://www.youtube.com/watch?v=abc', provider: 'youtube' },
+    { url: 'https://www.instagram.com/reel/Cx1-AbC_d9Z/', provider: 'instagram', type: 'photo' },
+    { url: 'https://cdn.example/a/2.mp4', thumbnail: 'javascript:alert(1)' },
+    { url: 'https://cdn.example/a/2.mp4', thumbnail: 'http://cdn.example/a/2.jpg' },
+  ]) {
+    await assert.rejects(insert(ids.artistUser, bad), CHECK, JSON.stringify(bad));
+  }
+
+  // Still only the artist who owns the page.
+  await assert.rejects(
+    insert(ids.client, { url: 'https://www.instagram.com/reel/Cx1-AbC_d9Z/', provider: 'instagram' }),
+    DENIED,
+  );
+
+  // Visitors see them; the counters still cannot be forged.
+  await as(null, async () => {
+    const videos = await rows(`select embed_provider from public.posts where media_type = 'video' order by embed_provider nulls first`);
+    assert.deepEqual(videos.map((v) => v.embed_provider), [null, 'instagram', 'tiktok']);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(`update public.posts set likes_count = 500 where media_type = 'video'`), DENIED);
+    const edited = await db.query(`update public.posts set thumbnail_url = 'https://cdn.example/a/new.jpg' where embed_provider is null and media_type = 'video'`);
+    assert.equal(edited.affectedRows, 1);
+  });
+
+  const bucket = await one(`select allowed_mime_types from storage.buckets where id = 'posts-media'`);
+  assert.ok(bucket.allowed_mime_types.includes('video/quicktime'));
+  assert.ok(bucket.allowed_mime_types.includes('video/mp4'));
+
+  await db.exec(`delete from public.posts where media_type = 'video';`);
+  assert.equal((await one(`select stat_posts from public.artists where id = $1`, [ids.artist])).stat_posts, 1);
 });
 
 // ── moderation ───────────────────────────────────────────────

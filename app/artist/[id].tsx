@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
-  StyleSheet, View, Pressable, useWindowDimensions, Platform,
+  StyleSheet, View, Pressable, ScrollView, useWindowDimensions, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,6 +24,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { fetchArtistPortfolio } from '@/lib/catalog';
 import { useArtist } from '@/hooks/use-artist';
 import { Seo } from '@/components/Seo';
+import { PlayBadge, VideoPlaceholder } from '@/components/PostCard';
 import { toDescription } from '@/lib/site';
 import type { Tables } from '@/lib/supabase';
 
@@ -132,6 +133,7 @@ export default function ArtistProfileScreen() {
   const artist = useMemo(() => (loadedArtist ? { ...loadedArtist, faq } : null), [loadedArtist, faq]);
   const isSaved = artist ? savedArtistIds.has(artist.id) : false;
   const photos = useMemo(() => artistPosts.filter((p) => p.media_type === 'photo'), [artistPosts]);
+  const videos = useMemo(() => artistPosts.filter((p) => p.media_type === 'video'), [artistPosts]);
 
   // Layout
   const contentW = Math.min(width, Layout.maxContent);
@@ -306,6 +308,36 @@ export default function ArtistProfileScreen() {
           )}
         </View>
 
+        {/* ─── Videos ─── */}
+        {portfolioState === 'ready' && videos.length > 0 && (
+          <View style={[styles.body, styles.videos]}>
+            <View style={styles.portfolioHead}>
+              <TText variant="displayS">Vidéos</TText>
+              <TText variant="caption" color="tertiary" tabular>{videos.length} vidéo{videos.length > 1 ? 's' : ''}</TText>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.videoRail}>
+              {videos.map((post, i) => (
+                <PressableScale
+                  key={post.id}
+                  onPress={() => router.push({ pathname: '/reels/[id]', params: { id: post.id, artist: artist.id } })}
+                  accessibilityRole="link"
+                  accessibilityLabel={post.caption ?? `Vidéo ${i + 1}`}
+                  style={styles.videoTile}
+                >
+                  {post.thumbnail_url ? (
+                    <>
+                      <RevealImage uri={post.thumbnail_url} style={StyleSheet.absoluteFill} />
+                      <PlayBadge compact />
+                    </>
+                  ) : (
+                    <VideoPlaceholder compact />
+                  )}
+                </PressableScale>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* ─── Portfolio ─── */}
         <View style={[styles.body, styles.portfolio]}>
           <View style={styles.portfolioHead}>
@@ -455,6 +487,12 @@ const styles = StyleSheet.create({
 
   bio: { marginTop: Spacing.md, maxWidth: Layout.maxReading },
 
+  videos: { marginTop: Spacing.xl },
+  videoRail: { gap: GAP, paddingRight: Layout.gutter },
+  videoTile: {
+    width: 132, height: 234, borderRadius: Radius.sm, overflow: 'hidden',
+    backgroundColor: Colors.bgElevated,
+  },
   portfolio: { marginTop: Spacing['2xl'] },
   portfolioHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: Spacing.sm },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },

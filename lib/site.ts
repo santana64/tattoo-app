@@ -31,6 +31,7 @@ const PAGES: Record<string, PageMeta> = {
   ),
   'artist/[id]': page('Profil d’artiste tatoueur', DEFAULT_DESCRIPTION, true),
   'post/[id]': page('Réalisation', DEFAULT_DESCRIPTION, true),
+  'reels/[id]': page('Vidéos'),
   'legal/terms': page('Conditions générales d’utilisation', 'Les conditions générales d’utilisation d’Inkr.', true),
   'legal/privacy-policy': page('Politique de confidentialité', 'Comment Inkr collecte, utilise et protège vos données.', true),
   'sign-in': page('Connexion', 'Connectez-vous ou créez votre compte Inkr.'),

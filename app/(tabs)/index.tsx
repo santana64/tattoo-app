@@ -68,7 +68,8 @@ const toCard = (p: FeedPost): PostCardData => ({
   id: p.id, artistId: p.artistId, artistName: p.artistName, artistCity: p.artistCity,
   artistAvatarUrl: p.artistAvatarUrl, artistIsPremium: p.artistIsPremium,
   artistBookingStatus: p.artistBookingStatus,
-  mediaUrl: p.mediaUrl, caption: p.caption, styles: p.styles,
+  mediaUrl: p.mediaUrl, mediaType: p.mediaType, thumbnailUrl: p.thumbnailUrl, embedProvider: p.embedProvider,
+  caption: p.caption, styles: p.styles,
   likesCount: p.likesCount, isLiked: p.isLiked,
 });
 
@@ -257,7 +258,8 @@ export default function FeedScreen() {
   const cardProps = useCallback((p: FeedPost) => ({
     post: toCard(p),
     onLike: () => handleLike(p.id),
-    onPress: () => router.push(`/post/${p.id}`),
+    // Videos open the full-screen viewer; photos keep their own page.
+    onPress: () => router.push(p.mediaType === 'video' ? `/reels/${p.id}` : `/post/${p.id}`),
     onArtistPress: () => router.push(`/artist/${p.artistId}`),
   }), [handleLike, router]);
 

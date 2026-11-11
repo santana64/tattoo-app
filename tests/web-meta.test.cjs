@@ -73,11 +73,13 @@ test('the CSP in vercel.json allows the inline script Expo emits', () => {
   assert.ok(csp.includes(hash));
   assert.ok(!/script-src[^;]*'unsafe-inline'/.test(csp));
   assert.match(csp, /frame-ancestors 'none'/);
+  // Only the two providers a reel may be embedded from.
+  assert.match(csp, /frame-src https:\/\/www\.tiktok\.com https:\/\/www\.instagram\.com;/);
 });
 
 test('every dynamic route has a rewrite to a bracket-free shell', () => {
   const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'vercel.json'), 'utf8'));
-  for (const route of ['artist', 'post', 'request', 'conversation', 'appointment']) {
+  for (const route of ['artist', 'post', 'reels', 'request', 'conversation', 'appointment']) {
     assert.ok(fs.existsSync(path.join(__dirname, '..', 'app', route, '[id].tsx')), route);
     const rewrite = vercel.rewrites.find((r) => r.source === `/${route}/:id`);
     assert.equal(rewrite?.destination, `/_dyn/${route}`);
