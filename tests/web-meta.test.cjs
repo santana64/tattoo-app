@@ -79,7 +79,7 @@ test('the CSP in vercel.json allows the inline script Expo emits', () => {
 
 test('every dynamic route has a rewrite to a bracket-free shell', () => {
   const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'vercel.json'), 'utf8'));
-  for (const route of ['artist', 'post', 'reels', 'request', 'conversation', 'appointment']) {
+  for (const route of ['artist', 'post', 'reels', 'flash', 'request', 'conversation', 'appointment']) {
     assert.ok(fs.existsSync(path.join(__dirname, '..', 'app', route, '[id].tsx')), route);
     const rewrite = vercel.rewrites.find((r) => r.source === `/${route}/:id`);
     assert.equal(rewrite?.destination, `/_dyn/${route}`);

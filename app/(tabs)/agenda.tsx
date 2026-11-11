@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ScrollView, StyleSheet, View, Pressable, Alert, Platform, useWindowDimensions,
+  ScrollView, StyleSheet, View, Pressable, Platform, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -287,16 +287,10 @@ export default function AgendaScreen() {
 
   const monthLabel = capitalize(`${MONTHS_FR[weekDates[3].getMonth()]} ${weekDates[3].getFullYear()}`);
 
+  // Sessions are booked from a request: artists publish their hours, clients find an artist.
   const openNewAppointment = () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Nouveau rendez-vous',
-      'Fonctionnalité disponible depuis la réception d’une demande acceptée.',
-      [
-        { text: 'Voir les demandes', onPress: () => router.push('/(tabs)/inbox') },
-        { text: 'Fermer', style: 'cancel' },
-      ]
-    );
+    router.push(isArtist ? '/availability' : '/(tabs)/explore');
   };
 
   // ── Day panel content
@@ -320,10 +314,10 @@ export default function AgendaScreen() {
         icon="calendar-outline"
         title="Aucun rendez-vous"
         description={isArtist
-          ? 'Les séances apparaissent ici dès qu’une demande acceptée est planifiée.'
+          ? 'Publiez vos horaires : vos clients choisiront parmi vos créneaux libres, et les séances confirmées apparaîtront ici.'
           : 'Vos séances planifiées avec un artiste apparaîtront ici.'}
-        ctaLabel={isArtist ? 'Voir les demandes' : 'Trouver un artiste'}
-        onCta={() => router.push(isArtist ? '/(tabs)/inbox' : '/(tabs)/explore')}
+        ctaLabel={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
+        onCta={openNewAppointment}
         style={styles.inlineEmpty}
       />
     );
@@ -377,7 +371,11 @@ export default function AgendaScreen() {
                 {weekRangeLabel(weekDates)}
               </TText>
             </View>
-            <RoundButton icon="add" label="Nouveau rendez-vous" onPress={openNewAppointment} />
+            <RoundButton
+              icon={isArtist ? 'time-outline' : 'add'}
+              label={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
+              onPress={openNewAppointment}
+            />
           </View>
 
           <View style={styles.monthNav}>

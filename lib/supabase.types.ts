@@ -132,6 +132,143 @@ export interface Database {
           { foreignKeyName: 'artist_faq_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
         ];
       };
+      artist_weekly_schedule: {
+        Row: {
+          id: string;
+          artist_id: string;
+          day_of_week: number;
+          opens_at: string;
+          closes_at: string;
+          is_active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: { id?: string; artist_id: string; day_of_week: number; opens_at?: string; closes_at?: string; is_active?: boolean };
+        Update: Partial<Database['public']['Tables']['artist_weekly_schedule']['Row']>;
+        Relationships: [
+          { foreignKeyName: 'artist_weekly_schedule_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
+      artist_follows: {
+        Row: { follower_id: string; artist_id: string; created_at: string };
+        Insert: { follower_id: string; artist_id: string; created_at?: string };
+        Update: Partial<Database['public']['Tables']['artist_follows']['Row']>;
+        Relationships: [
+          { foreignKeyName: 'artist_follows_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+          { foreignKeyName: 'artist_follows_follower_id_fkey'; columns: ['follower_id']; isOneToOne: false; referencedRelation: 'profiles'; referencedColumns: ['id'] },
+        ];
+      };
+      artist_waitlist: {
+        Row: {
+          id: string;
+          artist_id: string;
+          user_id: string;
+          status: 'active' | 'notified' | 'cancelled';
+          created_at: string;
+          notified_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: 'artist_waitlist_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
+      flash_designs: {
+        Row: {
+          id: string;
+          artist_id: string;
+          title: string;
+          style: string;
+          body_zone: string | null;
+          price: number;
+          deposit_percent: number;
+          total_copies: number;
+          sold_copies: number;
+          image_url: string;
+          is_color: boolean;
+          estimated_duration: number | null;
+          tags: string[];
+          is_published: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          artist_id: string;
+          title: string;
+          style: string;
+          body_zone?: string | null;
+          price: number;
+          total_copies?: number;
+          image_url: string;
+          is_color?: boolean;
+          estimated_duration?: number | null;
+          tags?: string[];
+          is_published?: boolean;
+        };
+        Update: Partial<Database['public']['Tables']['flash_designs']['Row']>;
+        Relationships: [
+          { foreignKeyName: 'flash_designs_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
+      guest_spots: {
+        Row: {
+          id: string;
+          artist_id: string;
+          artist_city: string | null;
+          artist_country: string | null;
+          host_city: string;
+          host_studio: string;
+          studio_address: string | null;
+          date_from: string;
+          date_to: string;
+          styles: string[];
+          slots_total: number;
+          slots_booked: number;
+          price_from: number;
+          instagram_handle: string | null;
+          cover_image_url: string;
+          description: string;
+          is_published: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          artist_id: string;
+          artist_city?: string | null;
+          host_city: string;
+          host_studio: string;
+          studio_address?: string | null;
+          date_from: string;
+          date_to: string;
+          styles?: string[];
+          slots_total?: number;
+          price_from: number;
+          cover_image_url: string;
+          description: string;
+          is_published?: boolean;
+        };
+        Update: Partial<Database['public']['Tables']['guest_spots']['Row']>;
+        Relationships: [
+          { foreignKeyName: 'guest_spots_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
+      artist_series: {
+        Row: {
+          id: string;
+          artist_id: string;
+          title: string;
+          description: string | null;
+          position: number;
+          created_at: string;
+        };
+        Insert: { id?: string; artist_id: string; title: string; description?: string | null; position?: number };
+        Update: Partial<Database['public']['Tables']['artist_series']['Row']>;
+        Relationships: [
+          { foreignKeyName: 'artist_series_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
       posts: {
         Row: {
           id: string;
@@ -140,6 +277,11 @@ export interface Database {
           media_type: 'photo' | 'video';
           embed_provider: 'tiktok' | 'instagram' | null;
           thumbnail_url: string | null;
+          title: string | null;
+          body_zone: string | null;
+          session_hours: number | null;
+          is_healed: boolean;
+          series_id: string | null;
           caption: string | null;
           styles: string[] | null;
           likes_count: number | null;
@@ -155,6 +297,11 @@ export interface Database {
           media_type?: 'photo' | 'video';
           embed_provider?: 'tiktok' | 'instagram' | null;
           thumbnail_url?: string | null;
+          title?: string | null;
+          body_zone?: string | null;
+          session_hours?: number | null;
+          is_healed?: boolean;
+          series_id?: string | null;
           caption?: string | null;
           styles?: string[] | null;
           likes_count?: number | null;
@@ -235,6 +382,9 @@ export interface Database {
           description: string;
           flexibility_level: 'precise' | 'open' | 'full_trust';
           is_first_tattoo: boolean | null;
+          preferred_slots: string[];
+          is_flash: boolean;
+          flash_design_id: string | null;
           status: 'submitted' | 'accepted' | 'declined' | 'clarification_needed' | 'confirmed' | 'completed' | 'archived';
           decline_reason: string | null;
           artist_notes: string | null;
@@ -260,6 +410,8 @@ export interface Database {
           description: string;
           flexibility_level: 'precise' | 'open' | 'full_trust';
           is_first_tattoo?: boolean | null;
+          preferred_slots?: string[];
+          flash_design_id?: string | null;
           status?: 'submitted' | 'accepted' | 'declined' | 'clarification_needed' | 'confirmed' | 'completed' | 'archived';
           decline_reason?: string | null;
           artist_notes?: string | null;
@@ -541,6 +693,29 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      set_weekly_schedule: {
+        Args: { p_days: { day: number; opens: string; closes: string }[] };
+        Returns: Database['public']['Tables']['artist_weekly_schedule']['Row'][];
+      };
+      artist_free_slots: {
+        Args: { p_artist_id: string; p_days?: number; p_duration_min?: number };
+        Returns: { starts_at: string; ends_at: string }[];
+      };
+      artist_public_stats: {
+        Args: { p_artist_ids: string[] };
+        Returns: {
+          artist_id: string;
+          rating_avg: number | null;
+          rating_count: number;
+          followers: number;
+          flash_count: number;
+          next_slot: string | null;
+        }[];
+      };
+      set_waitlist: {
+        Args: { p_artist_id: string; p_join: boolean };
+        Returns: boolean;
+      };
       propose_appointment: {
         Args: { p_request_id: string; p_starts_at: string; p_ends_at: string; p_notes?: string | null };
         Returns: Database['public']['Tables']['appointments']['Row'];

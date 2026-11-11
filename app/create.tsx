@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions,
+  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
@@ -14,7 +15,8 @@ import { TInput } from '@/components/ui/TInput';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { THeader } from '@/components/ui/THeader';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { TChip } from '@/components/ui/TChip';
+import { EASE_OUT, MotionDuration, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
 import { useAuthStore, type AppUser } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 import { pickImage, uploadPostMedia } from '@/lib/storage';
@@ -23,8 +25,51 @@ import { MAX_VIDEO_SECONDS, parseReelUrl, REEL_PROVIDER_LABEL, videoFileError } 
 import { Toast } from '@/components/ui/TToast';
 import { useFeedStore } from '@/store/feed-store';
 import { STYLES } from '@/constants/tattoo';
+import { createSeries, fetchArtistSeries, type ArtistSeries } from '@/lib/studio';
 
 const MAX_STYLES = 3;
+const MAX_TITLE = 80;
+const MAX_ZONE = 60;
+const MAX_SERIES_TITLE = 60;
+
+/** "2,5" or "2.5" → 2.5 (one decimal, as stored); empty → null; anything else → NaN. */
+function parseSessionHours(text: string): number | null {
+  const clean = text.trim().replace(',', '.');
+  if (!clean) return null;
+  if (!/^\d{1,2}(\.\d+)?$/.test(clean)) return NaN;
+  const hours = Math.round(Number(clean) * 10) / 10;
+  return hours >= 0.5 && hours <= 99 ? hours : NaN;
+}
+
+// ─── Toggle: 180ms state transition, visual only (the row owns the press) ─────
+function Toggle({ value }: { value: boolean }) {
+  const p = useSharedValue(value ? 1 : 0);
+  useEffect(() => {
+    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
+  }, [value, p]);
+  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
+  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
+  return (
+    <View style={toggleStyles.track} importantForAccessibility="no-hide-descendants">
+      <Animated.View style={[StyleSheet.absoluteFill, toggleStyles.on, onStyle]} />
+      <Animated.View style={[toggleStyles.knob, knobStyle]} />
+    </View>
+  );
+}
+
+const toggleStyles = StyleSheet.create({
+  track: {
+    width: 46, height: 28, borderRadius: 14,
+    backgroundColor: Colors.bgSubtle,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    overflow: 'hidden',
+  },
+  on: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
+  knob: {
+    position: 'absolute', top: 2.5, left: 2.5,
+    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
+  },
+});
 
 type MediaKind = 'photo' | 'video' | 'link';
 const MEDIA_KINDS: { value: MediaKind; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -76,6 +121,46 @@ function CreateForm({ user, router, insets }: {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isPublishing, setIsPublishing] = useState(false);
 
+  // ── Cartel (wall label), all optional ──
+  const [title, setTitle] = useState('');
+  const [bodyZone, setBodyZone] = useState('');
+  const [sessionText, setSessionText] = useState('');
+  const [isHealed, setIsHealed] = useState(false);
+  const [seriesList, setSeriesList] = useState<ArtistSeries[]>([]);
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [newSeriesOpen, setNewSeriesOpen] = useState(false);
+  const [newSeriesTitle, setNewSeriesTitle] = useState('');
+  const [newSeriesError, setNewSeriesError] = useState<string | null>(null);
+  const [creatingSeries, setCreatingSeries] = useState(false);
+  const isPhoto = kind === 'photo';
+  const sessionHours = parseSessionHours(sessionText);
+  const sessionError = isPhoto && Number.isNaN(sessionHours)
+    ? 'Indiquez une durée entre 0,5 et 99 heures, par exemple 3,5.'
+    : undefined;
+
+  useEffect(() => {
+    let active = true;
+    if (!user.artistId) return;
+    fetchArtistSeries(user.artistId)
+      .then((list) => { if (active) setSeriesList(list); })
+      // Series are optional: without them the selector only offers to create one.
+      .catch(() => {});
+    return () => { active = false; };
+  }, [user.artistId]);
+
+  const handleCreateSeries = async () => {
+    if (!user.artistId || creatingSeries) return;
+    setCreatingSeries(true);
+    setNewSeriesError(null);
+    const { series, error } = await createSeries(user.artistId, newSeriesTitle);
+    setCreatingSeries(false);
+    if (error || !series) { setNewSeriesError(error ?? 'Création impossible. Réessayez.'); return; }
+    setSeriesList((prev) => [...prev, series]);
+    setSeriesId(series.id);
+    setNewSeriesTitle('');
+    setNewSeriesOpen(false);
+  };
+
   const handlePickMedia = async () => {
     if (kind === 'video') {
       const picked = await pickVideo();
@@ -104,14 +189,26 @@ function CreateForm({ user, router, insets }: {
 
   const handlePublish = async () => {
     if (!canPublish || !user?.artistId) return;
+    if (sessionError) { Toast.error(sessionError); return; }
     setIsPublishing(true);
     setUploadProgress(0);
     try {
+      // Only what a label can say about the medium: videos carry a title and a series.
+      // Empty fields are left out, so a post without a cartel never depends on them.
+      const label: { title?: string; body_zone?: string; session_hours?: number; is_healed?: boolean; series_id?: string } = {};
+      if (title.trim()) label.title = title.trim();
+      if (seriesId) label.series_id = seriesId;
+      if (isPhoto) {
+        if (bodyZone.trim()) label.body_zone = bodyZone.trim();
+        if (sessionHours !== null) label.session_hours = sessionHours;
+        if (isHealed) label.is_healed = true;
+      }
       const common = {
         artist_id: user.artistId,
         caption: caption.trim() || null,
         styles: selectedStyles,
         is_published: true,
+        ...label,
       };
       let row;
       if (kind === 'photo' && mediaUri) {
@@ -136,6 +233,10 @@ function CreateForm({ user, router, insets }: {
       console.warn('[create] publish failed:', detail, e);
       Toast.error(/row-level security|unauthorized|403/i.test(detail)
         ? 'Publication refusée par les règles de sécurité. Reconnectez-vous puis réessayez.'
+        : /series_not_owned/.test(detail)
+          ? 'Cette série n’est plus disponible. Choisissez-en une autre.'
+        : /posts_label_check/.test(detail)
+          ? 'Le cartel contient une valeur trop longue. Raccourcissez le titre ou l’emplacement.'
         : /^(Vidéo|Format)/.test(detail)
           ? detail
           : /mime|size|payload/i.test(detail)
@@ -292,6 +393,115 @@ function CreateForm({ user, router, insets }: {
         })}
       </View>
 
+      {/* ── Cartel: the wall label of the piece ── */}
+      <View style={styles.cartel}>
+        <View style={styles.tagsHeader}>
+          <TText variant="label" color="tertiary" uppercase>Cartel</TText>
+          <TText variant="caption" color="tertiary">Optionnel</TText>
+        </View>
+        <TText variant="caption" color="tertiary" style={styles.cartelLead}>
+          {isPhoto
+            ? 'Comme l’étiquette au mur d’une galerie : un titre, l’emplacement, la durée de la séance.'
+            : 'Un titre et, si vous le souhaitez, la série à laquelle appartient la vidéo.'}
+        </TText>
+
+        <TInput
+          label="Titre"
+          optional
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Sans titre"
+          maxLength={MAX_TITLE}
+          helper={title.length > MAX_TITLE - 15 ? `${title.length} / ${MAX_TITLE}` : undefined}
+        />
+
+        {isPhoto && (
+          <>
+            <TInput
+              label="Emplacement"
+              optional
+              value={bodyZone}
+              onChangeText={setBodyZone}
+              placeholder="Avant-bras, omoplate, mollet…"
+              maxLength={MAX_ZONE}
+            />
+            <TInput
+              label="Durée de séance"
+              optional
+              value={sessionText}
+              onChangeText={setSessionText}
+              placeholder="3,5"
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              maxLength={5}
+              error={sessionError}
+              rightElement={<TText variant="bodySmall" color="tertiary">heures</TText>}
+            />
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setIsHealed((v) => !v);
+              }}
+              accessibilityRole="switch"
+              accessibilityLabel="Photo cicatrisée"
+              accessibilityHint="Indique que la pièce a été photographiée une fois cicatrisée."
+              accessibilityState={{ checked: isHealed }}
+              style={styles.toggleRow}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <TText variant="body" weight="medium">Photo cicatrisée</TText>
+                <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>
+                  La pièce a été photographiée une fois guérie.
+                </TText>
+              </View>
+              <Toggle value={isHealed} />
+            </Pressable>
+          </>
+        )}
+
+        <TText variant="caption" weight="medium" color="secondary" style={styles.seriesLabel}>Série</TText>
+        <View style={styles.seriesRow}>
+          {seriesList.map((s) => (
+            <TChip
+              key={s.id}
+              label={s.title}
+              selected={seriesId === s.id}
+              onPress={() => setSeriesId((current) => (current === s.id ? null : s.id))}
+            />
+          ))}
+          <TChip
+            label="+ Nouvelle série"
+            selected={newSeriesOpen}
+            onPress={() => { setNewSeriesOpen((v) => !v); setNewSeriesError(null); }}
+          />
+        </View>
+        {newSeriesOpen && (
+          <Animated.View entering={fadeIn()} style={styles.newSeries}>
+            <TInput
+              label="Titre de la série"
+              value={newSeriesTitle}
+              onChangeText={(text) => { setNewSeriesTitle(text); setNewSeriesError(null); }}
+              placeholder="Botanique, Flash d’été…"
+              maxLength={MAX_SERIES_TITLE}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={() => { void handleCreateSeries(); }}
+              error={newSeriesError ?? undefined}
+              containerStyle={{ marginBottom: Spacing.xs }}
+            />
+            <TButton
+              title="Créer la série"
+              variant="secondary"
+              size="sm"
+              fullWidth={false}
+              onPress={() => { void handleCreateSeries(); }}
+              loading={creatingSeries}
+              disabled={!newSeriesTitle.trim() || creatingSeries}
+            />
+          </Animated.View>
+        )}
+      </View>
+
       {isPublishing && kind !== 'link' && (
         <Animated.View entering={fadeIn()} style={styles.progressWrap}>
           <TProgressBar progress={uploadProgress} color={Colors.accentWarm} />
@@ -396,6 +606,21 @@ const styles = StyleSheet.create({
   },
   chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
   chipDisabled: { opacity: 0.38 },
+
+  // Cartel
+  cartel: {
+    marginBottom: Spacing.lg, paddingTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+  },
+  cartelLead: { marginTop: -4, marginBottom: Spacing.md },
+  toggleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    minHeight: 56, marginBottom: Spacing.md,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  },
+  seriesLabel: { marginBottom: 8 },
+  seriesRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  newSeries: { marginTop: Spacing['2xs'] },
 
   progressWrap: { marginBottom: Spacing.md },
 });

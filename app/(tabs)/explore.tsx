@@ -26,6 +26,9 @@ import { useAutoRetry } from '@/hooks/use-auto-retry';
 import type { Artist } from '@/constants/tattoo';
 import { supabase } from '@/lib/supabase';
 import { mapArtist } from '@/lib/catalog';
+import { fetchArtistStats, type ArtistStats } from '@/lib/studio';
+import { FlashRail } from '@/components/gallery/FlashRail';
+import { GuestSpotRail } from '@/components/gallery/GuestSpotRail';
 
 interface ExploreTrendingPost {
   id: string;
@@ -153,6 +156,8 @@ export default function ExploreScreen() {
   // ── Data
   const [artists, setArtists] = useState<Artist[]>([]);
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
+  // Public numbers per artist (rating, next slot, flashes): a bonus, never awaited.
+  const [stats, setStats] = useState<Record<string, ArtistStats>>({});
   const [trendingPosts, setTrendingPosts] = useState<ExploreTrendingPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -207,6 +212,14 @@ export default function ExploreScreen() {
     return grouped;
   }, []);
 
+  /** Merges the public numbers of a page of artists; cards render without them meanwhile. */
+  const loadStats = useCallback((artistIds: string[]) => {
+    if (!artistIds.length) return;
+    fetchArtistStats(artistIds)
+      .then((page) => setStats((current) => ({ ...current, ...page })))
+      .catch(() => { /* Optional decoration: the cards stay complete without it. */ });
+  }, []);
+
   /** One page of artists matching the current filters, searched and sorted by the database. */
   const fetchPage = useCallback(async (offset: number) => {
     const { data, error } = await supabase.rpc('search_artists', {
@@ -236,6 +249,7 @@ export default function ExploreScreen() {
       setArtists(page.artists);
       setTotal(page.total);
       setOpenTotal(page.openTotal);
+      loadStats(page.artists.map((a) => a.id));
       const grouped = await fetchPreviews(page.artists.map((a) => a.id));
       if (seq === searchSeq.current) setPreviews(grouped);
     } catch (e: any) {
@@ -247,7 +261,7 @@ export default function ExploreScreen() {
         setIsRefreshing(false);
       }
     }
-  }, [fetchPage, fetchPreviews]);
+  }, [fetchPage, fetchPreviews, loadStats]);
 
   // A new search (first load, or any filter change) restarts from the first page.
   useEffect(() => {
@@ -269,6 +283,7 @@ export default function ExploreScreen() {
       });
       // An empty page means the list shrank meanwhile: stop asking for more.
       setTotal(page.artists.length ? page.total : artists.length);
+      loadStats(page.artists.map((a) => a.id));
       const grouped = await fetchPreviews(page.artists.map((a) => a.id));
       if (seq === searchSeq.current) setPreviews((current) => ({ ...current, ...grouped }));
     } catch {
@@ -276,7 +291,7 @@ export default function ExploreScreen() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [artists.length, fetchError, fetchPage, fetchPreviews, hasMore, isLoading, isLoadingMore]);
+  }, [artists.length, fetchError, fetchPage, fetchPreviews, hasMore, isLoading, isLoadingMore, loadStats]);
 
   // Trending work is independent from the artist filters: loaded once, and on refresh.
   const fetchTrending = useCallback(async () => {
@@ -347,10 +362,11 @@ export default function ExploreScreen() {
           onSave={toggleSaveArtist}
           variant={viewMode === 'grid' ? 'tile' : 'default'}
           previewImages={previews[item.id]}
+          stats={stats[item.id]}
         />
       </View>
     ),
-    [savedArtistIds, toggleSaveArtist, viewMode, previews, columns],
+    [savedArtistIds, toggleSaveArtist, viewMode, previews, stats, columns],
   );
 
   // ── Scroll-driven masthead (UI thread only)
@@ -383,9 +399,14 @@ export default function ExploreScreen() {
                 isSaved={savedArtistIds.has(spotlightArtist.id)}
                 onSave={toggleSaveArtist}
                 previewImages={previews[spotlightArtist.id]}
+                stats={stats[spotlightArtist.id]}
               />
             </Animated.View>
           )}
+
+          {/* Both rails render nothing until there is something to book. */}
+          <View style={styles.discoveryRail}><FlashRail title="Flashs à réserver" /></View>
+          <View style={styles.discoveryRail}><GuestSpotRail /></View>
 
           {trendingPosts.length > 0 && (
             <View style={styles.trendingSection}>
@@ -650,6 +671,7 @@ const styles = StyleSheet.create({
   sectionLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.xs, marginTop: Spacing.xs },
 
   trendingSection: { marginBottom: Spacing.xl },
+  discoveryRail: { marginTop: Spacing.md },
   trendingRow: { gap: 10 },
   trendingTile: { width: 116 },
   trendingImage: { width: 116, height: 146, borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.bgSurface },

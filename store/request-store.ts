@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase, type Tables } from '@/lib/supabase';
 import { isUuid } from '@/lib/catalog';
+import { normalizePreferredSlots } from '@/lib/studio';
 
 export type RequestStatus =
   | 'submitted' | 'accepted' | 'declined'
@@ -34,6 +35,10 @@ export interface TattooRequest {
   artistCity?: string;
   references?: string[];
   unreadCount?: number;
+  /** Up to three start instants (ISO) the client would like, soonest first. */
+  preferredSlots: string[];
+  flashDesignId: string | null;
+  isFlash: boolean;
 }
 
 interface RequestState {
@@ -63,6 +68,10 @@ export interface SubmitPayload {
   flexibilityLevel: 'precise' | 'open' | 'full_trust';
   isFirstTattoo?: boolean;
   referenceUris?: string[];
+  /** Start instants picked from the artist's free slots; normalised to three future ones. */
+  preferredSlots?: string[];
+  /** A published flash of the same artist; the database refuses it once sold out. */
+  flashDesignId?: string | null;
 }
 
 type RequestRow = Tables<'tattoo_requests'> & {
@@ -97,6 +106,9 @@ function mapRequest(raw: RequestRow): TattooRequest {
     artistAvatarUrl: raw.artists?.avatar_url ?? null,
     artistCity: raw.artists?.city ?? '',
     references: (raw.request_references ?? []).map((r) => r.url),
+    preferredSlots: raw.preferred_slots ?? [],
+    flashDesignId: raw.flash_design_id ?? null,
+    isFlash: raw.is_flash ?? false,
   };
 }
 
@@ -177,11 +189,16 @@ export const useRequestStore = create<RequestState>((set, get) => ({
           description: rest.description,
           flexibility_level: rest.flexibilityLevel,
           is_first_tattoo: rest.isFirstTattoo ?? false,
+          preferred_slots: normalizePreferredSlots(rest.preferredSlots ?? []),
+          flash_design_id: rest.flashDesignId ?? null,
           status: 'submitted',
         })
         .select()
         .single();
-      if (error) return { id: null, error: error.message };
+      if (error) {
+        if (error.message.includes('flash_unavailable')) return { id: null, error: 'Ce flash n’est plus disponible.' };
+        return { id: null, error: error.message };
+      }
 
       await get().fetchRequests(userId, 'user');
       return { id: data.id, error: null };

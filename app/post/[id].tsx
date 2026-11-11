@@ -26,6 +26,7 @@ import { Seo } from '@/components/Seo';
 import { toDescription } from '@/lib/site';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
+import { ArtworkLabel } from '@/components/gallery/ArtworkLabel';
 
 const WIDE = 900;
 const SIDE_W = 400;
@@ -161,7 +162,18 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const [busy, setBusy] = useState(false);
   const [membershipReady, setMembershipReady] = useState(false);
   const [sheet, setSheet] = useState<'options' | 'report' | null>(null);
+  const [series, setSeries] = useState<{ id: string; title: string } | null>(null);
   const post = { id, mediaUrl: row.media_url, caption: row.caption, styles: row.styles ?? [], likes };
+
+  // The series is a secondary link: a failed lookup simply hides it.
+  useEffect(() => {
+    let active = true;
+    setSeries(null);
+    if (!row.series_id) return;
+    supabase.from('artist_series').select('id,title').eq('id', row.series_id).maybeSingle()
+      .then(({ data }) => { if (active && data) setSeries(data); }, () => {});
+    return () => { active = false; };
+  }, [row.series_id]);
   const status = artist ? BOOKING_STATUS[artist.bookingStatus] : null;
   useEffect(() => {
     let active = true;
@@ -271,6 +283,8 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const canRequest = artist?.bookingStatus === 'open';
   const openRequest = () => artist && router.push({ pathname: '/request/new', params: { artistId: artist.id } });
   const openArtist = () => artist && router.push(`/artist/${artist.id}`);
+  const openSeries = () => series && router.push({ pathname: '/artist/[id]', params: { id: row.artist_id, series: series.id } });
+  const pieceTitle = row.title?.trim() || null;
 
   const cta = artist ? (
     canRequest ? (
@@ -284,7 +298,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   return (
     <View style={styles.container}>
       <Seo
-        title={`Tatouage ${stylesLabel || 'réalisé'} par ${artist?.blaze ?? 'un artiste'} | Inkr`}
+        title={`${pieceTitle ? `${pieceTitle} — ` : ''}Tatouage ${stylesLabel || 'réalisé'} par ${artist?.blaze ?? 'un artiste'} | Inkr`}
         description={toDescription(`${post.caption ? `${post.caption} — ` : ''}Réalisation de ${seoArtist}. Découvrez son portfolio sur Inkr.`)}
         image={post.mediaUrl}
         type="article"
@@ -330,7 +344,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                 uri={post.mediaUrl}
                 contentFit="contain"
                 style={[StyleSheet.absoluteFill, styles.mat]}
-                accessibilityLabel={post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
+                accessibilityLabel={pieceTitle ?? post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
                 fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={96} />}
               />
             )}
@@ -339,14 +353,26 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
           {/* ── Wall label ── */}
           <View style={[styles.side, wide && styles.sideWide]}>
             <Animated.View entering={enterUp(0, 120)}>
-              {!!stylesLabel && (
-                <TText variant="label" color="accentWarm" uppercase numberOfLines={1}>{stylesLabel}</TText>
+              <ArtworkLabel
+                post={row}
+                artistName={artist?.blaze ?? 'Artiste Inkr'}
+                onPressArtist={artist ? openArtist : undefined}
+              />
+              {series && (
+                <PressableScale
+                  onPress={openSeries}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Voir la série ${series.title}`}
+                  hitSlop={6}
+                  style={styles.seriesLink}
+                >
+                  <Ionicons name="albums-outline" size={14} color={Colors.accentGlow} />
+                  <TText variant="caption" weight="medium" color="accentGlow" numberOfLines={1} style={styles.seriesText}>
+                    Série · {series.title}
+                  </TText>
+                  <Ionicons name="arrow-forward" size={13} color={Colors.accentGlow} />
+                </PressableScale>
               )}
-              <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-                {artist ? (
-                  <>Pièce signée <TText variant="displayM" italic color="accentGlow">{artist.blaze}</TText></>
-                ) : 'Réalisation'}
-              </TText>
             </Animated.View>
 
             {/* Actions */}
@@ -381,9 +407,10 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
               </ActionButton>
             </Animated.View>
 
-            {/* Caption */}
+            {/* The artist's note */}
             {!!post.caption && (
-              <Animated.View entering={enterUp(2, 120)}>
+              <Animated.View entering={enterUp(2, 120)} style={styles.note}>
+                <TText variant="label" color="tertiary" uppercase>Note de l’artiste</TText>
                 <TText variant="body" color="secondary" style={styles.caption}>{post.caption}</TText>
               </Animated.View>
             )}
@@ -496,7 +523,8 @@ const styles = StyleSheet.create({
   side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
   sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
 
-  title: { marginTop: 8 },
+  seriesLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, marginTop: Spacing.xs },
+  seriesText: { flexShrink: 1 },
 
   actions: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'],
@@ -506,7 +534,8 @@ const styles = StyleSheet.create({
   },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 44, height: 44, paddingHorizontal: 6 },
 
-  caption: { marginTop: Spacing.lg, maxWidth: Layout.maxReading },
+  note: { marginTop: Spacing.lg },
+  caption: { marginTop: Spacing['2xs'], maxWidth: Layout.maxReading },
 
   artistSection: {
     marginTop: Spacing.xl, paddingTop: Spacing.lg,

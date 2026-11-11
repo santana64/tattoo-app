@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useGlobalSearchParams, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -20,7 +20,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { Colors } from '@/constants/theme';
 import { ToastProvider } from '@/components/ui/TToast';
 import { registerForPushNotifications } from '@/lib/notifications';
-import { authRedirect } from '@/lib/auth-routing';
+import { authRedirect, safeNextPath } from '@/lib/auth-routing';
 import { Seo } from '@/components/Seo';
 import { pageMeta } from '@/lib/site';
 
@@ -30,6 +30,7 @@ export default function RootLayout() {
   const { initialize, isLoading, isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
+  const { next } = useGlobalSearchParams<{ next?: string }>();
   const [fontsLoaded, fontError] = useFonts({
     InstrumentSerif_400Regular,
     InstrumentSerif_400Regular_Italic,
@@ -50,8 +51,11 @@ export default function RootLayout() {
     SplashScreen.hideAsync();
 
     const redirect = authRedirect(segments, isAuthenticated, user);
-    if (redirect) router.replace(redirect);
-  }, [isLoading, fontsReady, isAuthenticated, user, segments, router]);
+    if (!redirect) return;
+    // Signing in from "Suivre", "Réserver"… returns to that page instead of the home feed.
+    const back = redirect === '/(tabs)' && segments[0] === '(auth)' ? safeNextPath(next) : null;
+    router.replace((back ?? redirect) as Href);
+  }, [isLoading, fontsReady, isAuthenticated, user, segments, router, next]);
 
   // Register push notifications when user is logged in
   useEffect(() => {

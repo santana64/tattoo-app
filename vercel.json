@@ -9,6 +9,7 @@
     { "source": "/artist/:id", "destination": "/_dyn/artist" },
     { "source": "/post/:id", "destination": "/_dyn/post" },
     { "source": "/reels/:id", "destination": "/_dyn/reels" },
+    { "source": "/flash/:id", "destination": "/_dyn/flash" },
     { "source": "/request/:id", "destination": "/_dyn/request" },
     { "source": "/conversation/:id", "destination": "/_dyn/conversation" },
     { "source": "/appointment/:id", "destination": "/_dyn/appointment" }

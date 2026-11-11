@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Platform, Modal } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Platform, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated from 'react-native-reanimated';
@@ -25,6 +25,8 @@ interface AppointmentPanelProps {
   /** Called after any transition so the parent can refresh the request status. */
   onChanged?: () => void;
   compact?: boolean;
+  /** Start instants (ISO) the client picked in the request; past ones are ignored. */
+  preferredSlots?: string[];
 }
 
 const STATUS = {
@@ -36,6 +38,25 @@ const STATUS = {
 
 const dayLabel = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
 const monthLabel = new Intl.DateTimeFormat('fr-FR', { month: 'short' });
+const startDateLabel = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+const startTimeLabel = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const DEFAULT_DURATION_MIN = 180;
+
+/** "samedi 18 octobre · 14:00" — a wished start, before any duration is agreed. */
+export function formatPreferredSlot(iso: string): string {
+  const d = new Date(iso);
+  return `${startDateLabel.format(d)} · ${startTimeLabel.format(d)}`;
+}
+
+/** The client's wished starts still ahead, soonest first. */
+export function upcomingPreferredSlots(slots: string[] | null | undefined, now = Date.now()): string[] {
+  return (slots ?? [])
+    .filter((s) => {
+      const t = new Date(s).getTime();
+      return !Number.isNaN(t) && t > now;
+    })
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+}
 
 function notify(ok: boolean) {
   if (Platform.OS !== 'web') {
@@ -43,13 +64,76 @@ function notify(ok: boolean) {
   }
 }
 
+// ─── Client's wished slots ────────────────────────────────────────────────────
+/** Artist: one tap proposes that start with the chosen duration. Client: read-only reminder. */
+function PreferredSlots({ slots, duration, interactive, pending, disabled, onPick }: {
+  slots: string[]; duration: number; interactive: boolean; pending: string | null; disabled: boolean;
+  onPick?: (start: Date, end: Date) => void;
+}) {
+  if (slots.length === 0) return null;
+  return (
+    <View style={styles.preferred}>
+      <TText variant="label" color="tertiary" uppercase>
+        {interactive ? 'Créneaux souhaités par le client' : 'Vos créneaux souhaités'}
+      </TText>
+      {interactive && (
+        <TText variant="caption" color="tertiary">
+          Un geste pour le proposer · séance de {formatDuration(duration)}
+        </TText>
+      )}
+      <View style={styles.preferredList}>
+        {slots.map((iso) => {
+          const start = new Date(iso);
+          const end = new Date(start.getTime() + duration * 60_000);
+          if (!interactive) {
+            return (
+              <View key={iso} style={styles.preferredRow}>
+                <Ionicons name="time-outline" size={15} color={Colors.textTertiary} />
+                <TText variant="bodySmall" tabular style={{ flex: 1 }}>{formatPreferredSlot(iso)}</TText>
+              </View>
+            );
+          }
+          const label = formatSlot(start, end);
+          // Postgres returns "+00:00" offsets; compare on the normalised instant.
+          const loading = pending === start.toISOString();
+          return (
+            <Pressable
+              key={iso}
+              onPress={() => onPick?.(start, end)}
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={`Proposer ce créneau : ${label}`}
+              accessibilityState={{ disabled, busy: loading }}
+              style={(state) => {
+                const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                return [styles.preferredChip, (pressed || hovered) && styles.preferredChipActive, disabled && !loading && { opacity: 0.5 }];
+              }}
+            >
+              <TText variant="bodySmall" weight="medium" tabular style={{ flex: 1 }}>{label}</TText>
+              {loading
+                ? <ActivityIndicator size="small" color={Colors.accentWarm} />
+                : <Ionicons name="paper-plane-outline" size={15} color={Colors.accentWarm} />}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 // ─── Slot picker (artist) ─────────────────────────────────────────────────────
-function SlotPicker({ onSubmit, busy }: { onSubmit: (start: Date, end: Date, notes: string) => void; busy: boolean }) {
+function SlotPicker({ onSubmit, busy, duration, setDuration, preferred, pendingPreferred }: {
+  onSubmit: (start: Date, end: Date, notes: string, preferredIso?: string) => void;
+  busy: boolean;
+  duration: number;
+  setDuration: (min: number) => void;
+  preferred: string[];
+  pendingPreferred: string | null;
+}) {
   const days = useMemo(() => upcomingDays(28), []);
   const times = useMemo(() => dayTimes(9, 20, 30), []);
   const [day, setDay] = useState<Date | null>(null);
   const [time, setTime] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number>(180);
   const [notes, setNotes] = useState('');
 
   const slot = day && time ? buildSlot(day, time, duration) : null;
@@ -60,6 +144,15 @@ function SlotPicker({ onSubmit, busy }: { onSubmit: (start: Date, end: Date, not
       <TText variant="displayS" style={styles.sheetTitle}>
         Proposer un <TText variant="displayS" italic color="accentGlow">créneau</TText>
       </TText>
+
+      <PreferredSlots
+        slots={preferred}
+        duration={duration}
+        interactive
+        pending={pendingPreferred}
+        disabled={busy || !!pendingPreferred}
+        onPick={(start, end) => onSubmit(start, end, notes, start.toISOString())}
+      />
 
       <TText variant="label" color="tertiary" uppercase style={styles.pickLabel}>Jour</TText>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
@@ -143,20 +236,22 @@ function SlotPicker({ onSubmit, busy }: { onSubmit: (start: Date, end: Date, not
       <TButton
         title="Envoyer la proposition"
         onPress={() => slot && onSubmit(slot.start, slot.end, notes)}
-        disabled={!slot}
-        loading={busy}
+        disabled={!slot || !!pendingPreferred}
+        loading={busy && !pendingPreferred}
       />
     </View>
   );
 }
 
 // ─── Panel ────────────────────────────────────────────────────────────────────
-export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart, onChanged, compact }: AppointmentPanelProps) {
+export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart, onChanged, compact, preferredSlots }: AppointmentPanelProps) {
   const router = useRouter();
   const [items, setItems] = useState<Appointment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [duration, setDuration] = useState<number>(DEFAULT_DURATION_MIN);
+  const preferred = useMemo(() => upcomingPreferredSlots(preferredSlots), [preferredSlots]);
 
   const load = useCallback(async () => {
     const { data, error } = await fetchRequestAppointments(requestId);
@@ -198,6 +293,11 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
     await load();
     onChanged?.();
   };
+
+  const proposeKey = (iso?: string) => (iso ? `propose:${iso}` : 'propose');
+  const pendingPreferred = busy?.startsWith('propose:') ? busy.slice('propose:'.length) : null;
+  const propose = (start: Date, end: Date, notes = '', preferredIso?: string) =>
+    run(proposeKey(preferredIso), () => proposeAppointment(requestId, start, end, notes), 'Proposition envoyée');
 
   const bookable = requestStatus === 'accepted' || requestStatus === 'confirmed';
   if (!bookable && requestStatus !== 'completed') return null;
@@ -243,6 +343,16 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
               ? 'Proposez un créneau : le client pourra l’accepter en un geste.'
               : `${counterpart} vous proposera un créneau ici.`}
           </TText>
+          {bookable && (
+            <PreferredSlots
+              slots={preferred}
+              duration={duration}
+              interactive={isArtist}
+              pending={pendingPreferred}
+              disabled={!!busy}
+              onPick={(start, end) => { void propose(start, end, '', start.toISOString()); }}
+            />
+          )}
         </>
       )}
 
@@ -311,8 +421,12 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
         <BottomSheet visible={picking} onClose={() => setPicking(false)} accessibilityLabel="Proposer un créneau">
           <ScrollView style={{ maxHeight: 620 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <SlotPicker
-              busy={busy === 'propose'}
-              onSubmit={(start, end, notes) => run('propose', () => proposeAppointment(requestId, start, end, notes), 'Proposition envoyée')}
+              busy={!!busy?.startsWith('propose')}
+              duration={duration}
+              setDuration={setDuration}
+              preferred={preferred}
+              pendingPreferred={pendingPreferred}
+              onSubmit={(start, end, notes, preferredIso) => { void propose(start, end, notes, preferredIso); }}
             />
           </ScrollView>
         </BottomSheet>
@@ -336,6 +450,17 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: Spacing.sm },
 
   sheetTitle: { marginBottom: Spacing.sm },
+  preferred: { marginTop: Spacing.sm, gap: 6 },
+  preferredList: { gap: 6, marginTop: 2 },
+  preferredRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
+  preferredChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    minHeight: 46, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  },
+  preferredChipActive: { backgroundColor: Colors.accentMuted },
   pickLabel: { marginTop: Spacing.md, marginBottom: Spacing['2xs'] },
   dayRow: { gap: 8, paddingRight: Spacing.sm },
   dayCell: {

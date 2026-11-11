@@ -3,7 +3,7 @@ import {
   FlatList, StyleSheet, View, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated from 'react-native-reanimated';
 import { format } from 'date-fns/format';
@@ -27,20 +27,34 @@ type NotifType =
   | 'declined'
   | 'appointment'
   | 'like'
+  | 'new_post'
+  | 'new_follower'
+  | 'book_reopened'
   | 'system';
 
 const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
-  new_request: { icon: 'document-text-outline', color: Colors.accentWarm, label: 'Demande' },
-  message:     { icon: 'chatbubble-outline', color: Colors.textPrimary, label: 'Message' },
-  accepted:    { icon: 'checkmark', color: Colors.success, label: 'Acceptée' },
-  declined:    { icon: 'close', color: Colors.error, label: 'Refusée' },
-  appointment: { icon: 'calendar-outline', color: Colors.accentWarm, label: 'Rendez-vous' },
-  like:        { icon: 'heart-outline', color: Colors.accentGlow, label: 'J’aime' },
-  system:      { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
+  new_request:   { icon: 'document-text-outline', color: Colors.accentWarm, label: 'Demande' },
+  message:       { icon: 'chatbubble-outline', color: Colors.textPrimary, label: 'Message' },
+  accepted:      { icon: 'checkmark', color: Colors.success, label: 'Acceptée' },
+  declined:      { icon: 'close', color: Colors.error, label: 'Refusée' },
+  appointment:   { icon: 'calendar-outline', color: Colors.accentWarm, label: 'Rendez-vous' },
+  like:          { icon: 'heart-outline', color: Colors.accentGlow, label: 'J’aime' },
+  new_post:      { icon: 'image-outline', color: Colors.accentGlow, label: 'Nouvelle pièce' },
+  new_follower:  { icon: 'person-add-outline', color: Colors.accentWarm, label: 'Nouvel abonné' },
+  book_reopened: { icon: 'calendar-outline', color: Colors.success, label: 'Réouverture' },
+  system:        { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
 };
+
+/**
+ * Written by the database (migration 011) as a name in `title` and a sentence that
+ * starts with a verb in `body`: "Léa Ink" + "a publié une nouvelle pièce."
+ */
+const SENTENCE_TYPES: ReadonlySet<NotifType> = new Set(['new_post', 'new_follower', 'book_reopened']);
 
 function resolveNotifType(n: AppNotification): NotifType {
   const t = n.type ?? '';
+  // Exact social types first: none of them may fall into the substring matches below.
+  if (t === 'new_post' || t === 'new_follower' || t === 'book_reopened') return t;
   if (t.includes('request')) return 'new_request';
   if (t.includes('message')) return 'message';
   if (t.includes('accept')) return 'accepted';
@@ -57,10 +71,29 @@ function formatGroupDate(date: Date): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-/** Mirrors the routing in handleNotifPress, only to decide whether to show a chevron. */
-function isNavigable(n: AppNotification) {
-  const data = n.data as { request_id?: unknown; appointment_id?: unknown } | null;
-  return !!(data?.request_id || data?.appointment_id);
+const idOf = (value: unknown) => (typeof value === 'string' && value ? value : null);
+
+/** Where a notification leads, or null. Shared by the press handler and the chevron. */
+function notifTarget(n: AppNotification): Href | null {
+  const data = n.data as { request_id?: unknown; appointment_id?: unknown; post_id?: unknown; artist_id?: unknown; media_type?: unknown } | null;
+  const type = resolveNotifType(n);
+  if (type === 'new_post') {
+    const postId = idOf(data?.post_id);
+    // Videos open in the full-screen player, like everywhere else in the app.
+    if (postId) return data?.media_type === 'video' ? `/reels/${postId}` : `/post/${postId}`;
+    const artistId = idOf(data?.artist_id);
+    return artistId ? `/artist/${artistId}` : null;
+  }
+  if (type === 'new_follower' || type === 'book_reopened') {
+    const artistId = idOf(data?.artist_id);
+    return artistId ? `/artist/${artistId}` : null;
+  }
+  const requestId = idOf(data?.request_id);
+  if (n.type === 'new_message' && requestId) return `/conversation/${requestId}`;
+  if (requestId) return `/request/${requestId}`;
+  const appointmentId = idOf(data?.appointment_id);
+  if (appointmentId) return `/appointment/${appointmentId}`;
+  return null;
 }
 
 // ─── Notification item ────────────────────────────────────────────────────────
@@ -72,16 +105,21 @@ function NotifItem({
   item: AppNotification;
   onPress: () => void;
 }) {
-  const conf = NOTIF_CONFIG[resolveNotifType(item)];
+  const type = resolveNotifType(item);
+  const conf = NOTIF_CONFIG[type];
   const unread = !item.isRead;
-  const navigable = isNavigable(item);
+  const navigable = notifTarget(item) !== null;
+  // "Léa Ink a publié une nouvelle pièce." reads as one sentence, the name set in medium.
+  const sentence = SENTENCE_TYPES.has(type) && !!item.body;
 
   return (
     <PressableScale
       onPress={onPress}
       pressedScale={0.985}
       accessibilityRole="button"
-      accessibilityLabel={`${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
+      accessibilityLabel={sentence
+        ? `${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title} ${item.body}`
+        : `${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
       style={styles.item}
     >
       <View style={[styles.icon, unread && styles.iconUnread]}>
@@ -90,20 +128,27 @@ function NotifItem({
 
       <View style={styles.content}>
         <View style={styles.titleRow}>
-          <TText
-            variant="bodySmall"
-            weight={unread ? 'semibold' : 'medium'}
-            color={unread ? 'primary' : 'secondary'}
-            style={{ flex: 1 }}
-            numberOfLines={2}
-          >
-            {item.title}
-          </TText>
+          {sentence ? (
+            <TText variant="bodySmall" color={unread ? 'primary' : 'secondary'} style={{ flex: 1 }} numberOfLines={3}>
+              <TText variant="bodySmall" weight={unread ? 'semibold' : 'medium'} color="primary">{item.title}</TText>
+              {` ${item.body}`}
+            </TText>
+          ) : (
+            <TText
+              variant="bodySmall"
+              weight={unread ? 'semibold' : 'medium'}
+              color={unread ? 'primary' : 'secondary'}
+              style={{ flex: 1 }}
+              numberOfLines={2}
+            >
+              {item.title}
+            </TText>
+          )}
           <TText variant="caption" color="tertiary" tabular>
             {format(new Date(item.createdAt), 'HH:mm', { locale: fr })}
           </TText>
         </View>
-        {!!item.body && (
+        {!!item.body && !sentence && (
           <TText variant="caption" color="tertiary" numberOfLines={2} style={styles.body}>
             {item.body}
           </TText>
@@ -167,15 +212,8 @@ export default function NotificationsScreen() {
 
   const handleNotifPress = (notif: AppNotification) => {
     markRead(notif.id);
-    const data = notif.data as any;
-    const t = notif.type ?? '';
-    if (t === 'new_message' && data?.request_id) {
-      router.push(`/conversation/${data.request_id}`);
-    } else if (data?.request_id) {
-      router.push(`/request/${data.request_id}`);
-    } else if (data?.appointment_id) {
-      router.push(`/appointment/${data.appointment_id}`);
-    }
+    const target = notifTarget(notif);
+    if (target) router.push(target);
   };
 
   const handleMarkAll = () => {

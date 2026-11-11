@@ -9,8 +9,10 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
+import { ArtistSignals, describeArtistSignals, hasArtistSignals } from './artist/ArtistSignals';
 import type { Artist } from '@/constants/tattoo';
 import { STYLES } from '@/constants/tattoo';
+import type { ArtistStats } from '@/lib/studio';
 
 interface ArtistCardProps {
   artist: Artist;
@@ -20,6 +22,8 @@ interface ArtistCardProps {
   variant?: 'default' | 'featured' | 'compact' | 'tile';
   /** Latest published work, newest first. Falls back to the cover image. */
   previewImages?: string[];
+  /** Public numbers (rating, next slot, flashes). Optional: loaded after the card. */
+  stats?: ArtistStats | null;
 }
 
 export const BOOKING_STATUS = {
@@ -99,7 +103,7 @@ function useLift() {
   };
 }
 
-export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages }: ArtistCardProps) {
+export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages, stats }: ArtistCardProps) {
   const router = useRouter();
   const lift = useLift();
   const { width: windowWidth } = useWindowDimensions();
@@ -108,7 +112,9 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
 
   const images = (previewImages?.length ? previewImages : [artist.coverUrl]).filter(Boolean);
   const stylesLabel = artist.styles.slice(0, 2).map(styleName).join(' · ');
-  const a11y = `${artist.blaze}, ${artist.city}${stylesLabel ? `, ${stylesLabel}` : ''}`;
+  // The card is one pressable: its label must also carry the signals it shows (none on compact).
+  const signalsA11y = variant === 'compact' ? '' : describeArtistSignals(stats, true);
+  const a11y = `${artist.blaze}, ${artist.city}${stylesLabel ? `, ${stylesLabel}` : ''}${signalsA11y ? `. ${signalsA11y}` : ''}`;
 
   // ── Featured: a single lit artwork, full bleed ─────────────────
   if (variant === 'featured') {
@@ -136,6 +142,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
             <TText variant="bodySmall" color="secondary" style={{ marginTop: 2 }} numberOfLines={1}>
               {artist.city}{stylesLabel ? ` — ${stylesLabel}` : ''}
             </TText>
+            {hasArtistSignals(stats, true) && <View style={styles.signals}><ArtistSignals stats={stats} compact /></View>}
             <View style={styles.featuredMeta}>
               <StatusLine status={artist.bookingStatus} />
               {artist.minBudget > 0 && (
@@ -184,6 +191,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
             {artist.minBudget > 0 && (
               <TText variant="caption" tabular style={{ color: Colors.accentWarm, marginTop: 2 }}>{formatPrice(artist.minBudget)}</TText>
             )}
+            {hasArtistSignals(stats, true) && <View style={styles.signalsTile}><ArtistSignals stats={stats} compact /></View>}
           </View>
         </Pressable>
       </Animated.View>
@@ -237,6 +245,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
             </TText>
           )}
         </View>
+        {hasArtistSignals(stats, true) && <View style={styles.signals}><ArtistSignals stats={stats} compact /></View>}
       </Pressable>
     </Animated.View>
   );
@@ -310,4 +319,8 @@ const styles = StyleSheet.create({
     marginTop: 12, paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
+
+  // Public signals sit on their own wrapping line, so no width can squeeze the row above.
+  signals: { marginTop: 8 },
+  signalsTile: { marginTop: 4 },
 });

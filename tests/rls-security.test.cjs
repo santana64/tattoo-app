@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -706,6 +706,192 @@ test('notifications are forwarded to send-push once configured, and never blocke
 });
 
 // ── account deletion (runs last: it removes the fixtures) ────
+
+// ── studio: availability, follows, waitlist, flashes, series (migration 011) ──
+
+test('free slots follow opening hours and skip booked or blocked time', async () => {
+  const week = JSON.stringify([0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, opens: '09:00', closes: '18:00' })));
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(`select public.set_weekly_schedule($1::jsonb)`, [week]), /not_artist/);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(
+      db.query(`select public.set_weekly_schedule('[{"day": 1, "opens": "10:00", "closes": "10:30"}]'::jsonb)`),
+      /invalid_schedule/,
+    );
+    await assert.rejects(
+      db.query(`select public.set_weekly_schedule('[{"day": 9, "opens": "10:00", "closes": "18:00"}]'::jsonb)`),
+      /invalid_schedule/,
+    );
+    const saved = await rows(`select * from public.set_weekly_schedule($1::jsonb)`, [week]);
+    await db.query(`update public.artists set booking_status = 'open' where id = $1`, [ids.artist]);
+    assert.equal(saved.length, 7);
+  });
+
+  const slotsSql = `
+    select starts_at, ends_at,
+           extract(hour from starts_at at time zone 'Europe/Paris')::int as paris_hour,
+           starts_at >= now() + interval '24 hours' as far_enough
+    from public.artist_free_slots($1, 7, 120)`;
+  const free = await as(null, () => rows(slotsSql, [ids.artist]));
+  assert.ok(free.length > 20, 'a full week of opening hours yields slots');
+  assert.ok(free.every((s) => s.far_enough), 'nothing inside the 24 hour notice');
+  assert.ok(free.every((s) => s.paris_hour >= 9 && s.paris_hour <= 16), 'sessions fit inside 09:00-18:00, Paris time');
+
+  // Blocking a period removes the slots that touch it.
+  const first = free[0];
+  await as(ids.artistUser, () => db.query(
+    `insert into public.artist_availability (artist_id, starts_at, ends_at, is_blocked, label) values ($1, $2, $3, true, 'Convention')`,
+    [ids.artist, first.starts_at, first.ends_at],
+  ));
+  const afterBlock = await as(null, () => rows(slotsSql, [ids.artist]));
+  assert.ok(!afterBlock.some((s) => +s.starts_at === +first.starts_at), 'blocked slot is gone');
+  assert.ok(afterBlock.length > 0);
+
+  // So does a session on offer to a client.
+  const later = afterBlock[afterBlock.length - 1];
+  await as(ids.artistUser, () => db.query(`select public.propose_appointment($1, $2, $3)`, [ids.request, later.starts_at, later.ends_at]));
+  const afterOffer = await as(null, () => rows(slotsSql, [ids.artist]));
+  assert.ok(!afterOffer.some((s) => +s.starts_at === +later.starts_at), 'offered slot is gone');
+
+  const stats = await as(null, () => one(`select * from public.artist_public_stats(array[$1]::uuid[])`, [ids.artist]));
+  assert.ok(stats.next_slot, 'cards can show the next free slot');
+
+  // A closed book offers nothing.
+  await as(ids.artistUser, () => db.query(`update public.artists set booking_status = 'paused' where id = $1`, [ids.artist]));
+  assert.equal((await as(null, () => rows(slotsSql, [ids.artist]))).length, 0);
+  assert.equal((await as(null, () => one(`select next_slot from public.artist_public_stats(array[$1]::uuid[])`, [ids.artist]))).next_slot, null);
+});
+
+test('the waitlist is joined through the function and told once when the book reopens', async () => {
+  await as(ids.client, async () => {
+    await assert.rejects(
+      db.query(`insert into public.artist_waitlist (artist_id, user_id) values ($1, $2)`, [ids.artist, ids.client]),
+      DENIED,
+    );
+    await db.query(`select public.set_waitlist($1, true)`, [ids.artist]);
+    await db.query(`select public.set_waitlist($1, true)`, [ids.artist]);
+    assert.equal((await rows(`select status from public.artist_waitlist where artist_id = $1`, [ids.artist])).length, 1);
+  });
+  await as(null, async () => {
+    await assert.rejects(db.query(`select public.set_waitlist($1, true)`, [ids.artist]), DENIED);
+  });
+  await as(ids.outsider, async () => {
+    assert.equal((await rows(`select 1 from public.artist_waitlist`)).length, 0, 'another user waitlist entry is private');
+  });
+
+  const told = () => one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'book_reopened'`, [ids.client]);
+  await as(ids.artistUser, () => db.query(`update public.artists set booking_status = 'open' where id = $1`, [ids.artist]));
+  assert.equal((await told()).n, 1);
+  await as(ids.artistUser, async () => {
+    await db.query(`update public.artists set booking_status = 'paused' where id = $1`, [ids.artist]);
+    await db.query(`update public.artists set booking_status = 'open' where id = $1`, [ids.artist]);
+  });
+  assert.equal((await told()).n, 1, 'no second notification without joining again');
+});
+
+test('follows are private, self-attributed, counted, and notify both sides', async () => {
+  const follow = `insert into public.artist_follows (follower_id, artist_id) values ($1, $2)`;
+  await as(null, async () => {
+    await assert.rejects(db.query(follow, [ids.client, ids.artist]), DENIED);
+  });
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(follow, [ids.client, ids.artist]), DENIED);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(follow, [ids.artistUser, ids.artist]), DENIED);
+  });
+  await as(ids.client, () => db.query(follow, [ids.client, ids.artist]));
+  await as(ids.outsider, async () => {
+    assert.equal((await rows(`select 1 from public.artist_follows`)).length, 0, 'who follows whom is private');
+  });
+  const followers = async () =>
+    (await as(null, () => one(`select followers from public.artist_public_stats(array[$1]::uuid[])`, [ids.artist]))).followers;
+  assert.equal(await followers(), 1);
+  assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'new_follower'`, [ids.artistUser])).n, 1);
+
+  // Publishing tells followers once; a draft does not, until it goes live.
+  const posted = () => one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'new_post'`, [ids.client]);
+  let draft;
+  await as(ids.artistUser, async () => {
+    await db.query(`insert into public.posts (artist_id, media_url, is_published) values ($1, 'https://example.test/b.jpg', true)`, [ids.artist]);
+    draft = (await one(`insert into public.posts (artist_id, media_url, is_published) values ($1, 'https://example.test/c.jpg', false) returning id`, [ids.artist])).id;
+  });
+  assert.equal((await posted()).n, 1);
+  await as(ids.artistUser, async () => {
+    await db.query(`update public.posts set is_published = true where id = $1`, [draft]);
+    await db.query(`update public.posts set caption = 'Edit' where id = $1`, [draft]);
+  });
+  assert.equal((await posted()).n, 2);
+
+  await as(ids.client, () => db.query(`delete from public.artist_follows where artist_id = $1`, [ids.artist]));
+  assert.equal(await followers(), 0);
+});
+
+test('flashes are sold by their artist only and a flash request must be genuine', async () => {
+  const flashSql = `insert into public.flash_designs (artist_id, title, style, price, image_url, is_published)
+                    values ($1, $2, 'traditionnel', 180, 'https://example.test/flash.jpg', $3) returning id`;
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(flashSql, [ids.artist, 'Rose', true]), DENIED);
+  });
+  let flash; let hidden;
+  await as(ids.artistUser, async () => {
+    flash = (await one(flashSql, [ids.artist, 'Rose', true])).id;
+    hidden = (await one(flashSql, [ids.artist, 'Dague', false])).id;
+  });
+  await as(null, async () => {
+    const visible = await rows(`select id from public.flash_designs where artist_id = $1`, [ids.artist]);
+    assert.deepEqual(visible.map((f) => f.id), [flash], 'drafts stay private');
+  });
+  assert.equal((await as(null, () => one(`select flash_count from public.artist_public_stats(array[$1]::uuid[])`, [ids.artist]))).flash_count, 1);
+
+  const requestSql = `insert into public.tattoo_requests
+      (client_id, artist_id, project_type, body_zone, size_category, color_preference, description, flexibility_level, flash_design_id, preferred_slots)
+    values ($1, $2, 'new', 'bras', 's', 'black_grey', 'Le flash Rose', 'precise', $3, $4::timestamptz[])
+    returning is_flash`;
+  const soon = (n) => new Date(Date.now() + n * 86_400_000).toISOString();
+  await as(ids.client, async () => {
+    assert.equal((await one(requestSql, [ids.client, ids.artist, flash, [soon(3), soon(4)]])).is_flash, true);
+    assert.equal((await one(requestSql, [ids.client, ids.artist, null, []])).is_flash, false);
+    await assert.rejects(db.query(requestSql, [ids.client, ids.artist, hidden, []]), /flash_unavailable/);
+    await assert.rejects(
+      db.query(requestSql, [ids.client, ids.artist, null, [soon(1), soon(2), soon(3), soon(4)]]),
+      /tattoo_requests_preferred_slots_max/,
+    );
+  });
+  await as(ids.artistUser, () => db.query(`update public.flash_designs set sold_copies = 1 where id = $1`, [flash]));
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(requestSql, [ids.client, ids.artist, flash, []]), /flash_unavailable/);
+  });
+});
+
+test('a piece carries a label and joins only a series of its own artist', async () => {
+  const otherUser = await createUser('second-artist');
+  let otherSeries;
+  await as(otherUser, async () => {
+    await db.query(`update public.profiles set role = 'artist' where id = $1`, [otherUser]);
+    const other = (await one(`insert into public.artists (profile_id, blaze, city) values ($1, 'Voisin', 'Nantes') returning id`, [otherUser])).id;
+    otherSeries = (await one(`insert into public.artist_series (artist_id, title) values ($1, 'Botanique') returning id`, [other])).id;
+    await assert.rejects(
+      db.query(`insert into public.artist_series (artist_id, title) values ($1, 'Intrus')`, [ids.artist]),
+      DENIED,
+    );
+  });
+  await as(ids.artistUser, async () => {
+    const series = (await one(`insert into public.artist_series (artist_id, title) values ($1, 'Cicatrises') returning id`, [ids.artist])).id;
+    await db.query(
+      `update public.posts set title = 'Dragon', body_zone = 'Avant-bras', session_hours = 4.5, is_healed = true, series_id = $2 where id = $1`,
+      [ids.post, series],
+    );
+    await assert.rejects(db.query(`update public.posts set series_id = $2 where id = $1`, [ids.post, otherSeries]), /series_not_owned/);
+    await assert.rejects(db.query(`update public.posts set session_hours = 0 where id = $1`, [ids.post]), /posts_label_check/);
+  });
+  const label = await as(null, () => one(`select title, body_zone, session_hours, is_healed from public.posts where id = $1`, [ids.post]));
+  assert.equal(label.title, 'Dragon');
+  assert.equal(Number(label.session_hours), 4.5);
+  assert.equal(label.is_healed, true);
+  await db.query(`delete from auth.users where id = $1`, [otherUser]);
+});
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
   // Owner-level fixtures: a finished session, its review, and a report.

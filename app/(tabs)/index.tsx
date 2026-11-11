@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import {
-  StyleSheet, View, RefreshControl, ScrollView, useWindowDimensions, ActivityIndicator,
+  StyleSheet, View, RefreshControl, ScrollView, useWindowDimensions, ActivityIndicator, Pressable, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, {
   useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, useReducedMotion,
 } from 'react-native-reanimated';
@@ -18,8 +18,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PostCard, type PostCardData } from '@/components/PostCard';
 import { BOOKING_STATUS } from '@/components/ArtistCard';
 import { Logo } from '@/components/ui/Logo';
-import { GlassSurface, PressableScale, enterUp, fadeIn } from '@/components/motion';
-import { useFeedStore, FeedPost } from '@/store/feed-store';
+import { GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { useFeedStore, FeedPost, type FeedScope, followingKeyOf } from '@/store/feed-store';
+import { useFollowStore } from '@/store/follow-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationStore } from '@/store/notification-store';
 import { Toast } from '@/components/ui/TToast';
@@ -27,6 +28,13 @@ import { Toast } from '@/components/ui/TToast';
 const HEADER_H = 56;
 const GAP = Spacing.md;
 const ROW_GAP = Spacing['2xl'];
+/** Below this, a "selection" is just a couple of posts: the rail stays hidden. */
+const SELECTION_MIN = 3;
+
+const SCOPES: { value: FeedScope; label: string }[] = [
+  { value: 'all', label: 'Pour vous' },
+  { value: 'following', label: 'Abonnements' },
+];
 
 // ── Editorial rhythm ──────────────────────────────────────────────────────────
 // Phones: one large piece, a pair, a wide piece, repeat.
@@ -162,6 +170,96 @@ function FirstRun({ isArtist, signedIn, onExplore, onPublish, onSignIn }: {
   );
 }
 
+/** "Pour vous" / "Abonnements": two words on a hairline, the active one underlined in gold. */
+function ScopeTabs({ scope, onChange }: { scope: FeedScope; onChange: (scope: FeedScope) => void }) {
+  return (
+    <View style={styles.tabs} accessibilityRole="tablist">
+      {SCOPES.map((s) => {
+        const active = s.value === scope;
+        return (
+          <Pressable
+            key={s.value}
+            onPress={() => onChange(s.value)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
+            style={(state) => {
+              const { hovered } = state as { pressed: boolean; hovered?: boolean };
+              return [styles.tab, hovered && !active && styles.tabHover];
+            }}
+          >
+            <TText variant="bodySmall" weight={active ? 'semibold' : 'medium'} color={active ? 'primary' : 'tertiary'}>
+              {s.label}
+            </TText>
+            <View style={[styles.tabLine, active && styles.tabLineActive]} />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** One print of the weekly selection: tall, unframed, the artist's name as its wall label. */
+function SelectionTile({ post, index, width, onPress }: {
+  post: FeedPost; index: number; width: number; onPress: () => void;
+}) {
+  return (
+    <Animated.View entering={index <= 8 ? enterUp(index, 120) : undefined}>
+      <PressableScale
+        onPress={onPress}
+        accessibilityRole="link"
+        accessibilityLabel={`Pièce de ${post.artistName}`}
+        style={{ width }}
+      >
+        <RevealImage uri={post.mediaUrl} style={[styles.print, { width, height: Math.round(width * 1.4) }]} />
+        <TText variant="caption" weight="medium" color="secondary" numberOfLines={1} style={styles.printName}>
+          {post.artistName}
+        </TText>
+      </PressableScale>
+    </Animated.View>
+  );
+}
+
+/** "Abonnements" with nothing to show: say why, and offer the one useful next step. */
+function FollowingEmpty({ signedIn, followsNobody, onExplore, onSignIn }: {
+  signedIn: boolean; followsNobody: boolean; onExplore: () => void; onSignIn: () => void;
+}) {
+  if (!signedIn) {
+    return (
+      <EmptyState
+        icon="people-outline"
+        title="Connectez-vous pour suivre des artistes"
+        description="Les nouvelles pièces des artistes que vous suivez composeront ce fil."
+        ctaLabel="Se connecter"
+        onCta={onSignIn}
+        style={styles.empty}
+      />
+    );
+  }
+  if (followsNobody) {
+    return (
+      <EmptyState
+        icon="person-add-outline"
+        title="Suivez des artistes pour composer votre fil"
+        description="Leurs nouvelles pièces apparaîtront ici, des plus récentes aux plus anciennes."
+        ctaLabel="Explorer les artistes"
+        onCta={onExplore}
+        style={styles.empty}
+      />
+    );
+  }
+  return (
+    <EmptyState
+      icon="images-outline"
+      title="Rien de publié pour l’instant"
+      description="Les artistes que vous suivez n’ont encore rien publié. Leurs pièces apparaîtront ici dès leur publication."
+      ctaLabel="Explorer les artistes"
+      onCta={onExplore}
+      style={styles.empty}
+    />
+  );
+}
+
 function FeedSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
   const tileH = Math.round(cellW * 1.25);
   return (
@@ -211,7 +309,13 @@ export default function FeedScreen() {
   const reduced = useReducedMotion();
   const { width } = useWindowDimensions();
   const { user } = useAuthStore();
-  const { posts, error, isLoading, isRefreshing, hasMore, fetchFeed, fetchMore, refresh, toggleLike } = useFeedStore();
+  const {
+    posts, error, isLoading, isRefreshing, hasMore, scope, followingKey, selection,
+    fetchFeed, fetchMore, refresh, fetchSelection, toggleLike,
+  } = useFeedStore();
+  const followedIds = useFollowStore((s) => s.followedIds);
+  const followsLoaded = useFollowStore((s) => s.isLoaded);
+  const fetchFollowed = useFollowStore((s) => s.fetchFollowed);
   const { unreadCount } = useNotificationStore();
 
   // ── Scroll-driven chrome: the masthead recedes, the header frosts over the work.
@@ -229,8 +333,24 @@ export default function FeedScreen() {
   });
 
   useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
+  useEffect(() => { void fetchFollowed(user?.id); }, [user?.id, fetchFollowed]);
+  useEffect(() => { void fetchSelection(); }, [fetchSelection]);
   // A failed first load retries on its own (and as soon as the connection is back).
   useAutoRetry(!!error && posts.length === 0, isLoading, () => { void fetchFeed(user?.id); });
+
+  // Follows changed elsewhere (an artist page, Explore): rebuild "Abonnements" on return,
+  // never under the reader's eyes.
+  const followKey = useMemo(() => followingKeyOf(followedIds), [followedIds]);
+  useFocusEffect(useCallback(() => {
+    if (scope !== 'following' || !user?.id || !followsLoaded || isLoading || error) return;
+    if (followingKey !== null && followingKey !== followKey) void fetchFeed(user.id);
+  }, [scope, user?.id, followsLoaded, isLoading, error, followingKey, followKey, fetchFeed]));
+
+  const selectScope = useCallback((next: FeedScope) => {
+    if (next === scope) return;
+    scrollY.set(0);
+    void fetchFeed(user?.id, next);
+  }, [scope, scrollY, fetchFeed, user?.id]);
 
   const handleRefresh    = useCallback(() => refresh(user?.id), [user?.id, refresh]);
   const handleEndReached = useCallback(() => fetchMore(user?.id), [user?.id, fetchMore]);
@@ -316,28 +436,63 @@ export default function FeedScreen() {
   }, [cardProps, router, cols, cellW, innerW, tileH]);
 
   const goExplore = useCallback(() => router.push('/(tabs)/explore'), [router]);
+  const goSignIn = useCallback(() => router.push('/(auth)/sign-in'), [router]);
   const hasPosts = posts.length > 0;
+  const following = scope === 'following';
+  const showSelection = !following && selection.length >= SELECTION_MIN;
+  const printW = cols === 1 ? 136 : 168;
 
   const ListHeader = (
     <View>
       <View style={{ height: HEADER_H + insets.top }} />
+      <ScopeTabs scope={scope} onChange={selectScope} />
 
       {hasPosts && (
         <Animated.View style={mastheadStyle}>
-          <View style={styles.masthead}>
-            <Animated.View entering={enterUp(0)}>
-              <TText variant="label" color="accentWarm" uppercase>Le fil</TText>
-            </Animated.View>
-            <Animated.View entering={enterUp(1)}>
-              <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-                Les dernières <TText variant="displayM" italic color="accentGlow">réalisations</TText>
-              </TText>
-            </Animated.View>
-            <Animated.View entering={enterUp(2)}>
-              <TText variant="bodySmall" color="tertiary">Les pièces publiées récemment par les artistes INKR.</TText>
-            </Animated.View>
-          </View>
+          {following ? (
+            <View key="following" style={styles.masthead}>
+              <Animated.View entering={enterUp(0)}>
+                <TText variant="label" color="accentWarm" uppercase>Abonnements</TText>
+              </Animated.View>
+              <Animated.View entering={enterUp(1)}>
+                <TText variant="displayM" accessibilityRole="header" style={styles.title}>
+                  Les artistes que <TText variant="displayM" italic color="accentGlow">vous suivez</TText>
+                </TText>
+              </Animated.View>
+              <Animated.View entering={enterUp(2)}>
+                <TText variant="bodySmall" color="tertiary">Leurs dernières pièces, des plus récentes aux plus anciennes.</TText>
+              </Animated.View>
+            </View>
+          ) : (
+            <View key="all" style={styles.masthead}>
+              <Animated.View entering={enterUp(0)}>
+                <TText variant="label" color="accentWarm" uppercase>Le fil</TText>
+              </Animated.View>
+              <Animated.View entering={enterUp(1)}>
+                <TText variant="displayM" accessibilityRole="header" style={styles.title}>
+                  Les dernières <TText variant="displayM" italic color="accentGlow">réalisations</TText>
+                </TText>
+              </Animated.View>
+              <Animated.View entering={enterUp(2)}>
+                <TText variant="bodySmall" color="tertiary">Les pièces publiées récemment par les artistes INKR.</TText>
+              </Animated.View>
+            </View>
+          )}
         </Animated.View>
+      )}
+
+      {showSelection && (
+        <View style={styles.railSection}>
+          <View style={styles.sectionHead}>
+            <TText variant="label" color="tertiary" uppercase accessibilityRole="header">Sélection de la semaine</TText>
+            <TText variant="caption" color="tertiary">Les plus aimées</TText>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.printRail}>
+            {selection.map((p, i) => (
+              <SelectionTile key={p.id} post={p} index={i} width={printW} onPress={() => router.push(`/post/${p.id}`)} />
+            ))}
+          </ScrollView>
+        </View>
       )}
 
       {railArtists.length > 0 && (
@@ -394,8 +549,11 @@ export default function FeedScreen() {
       </View>
 
       {showSkeleton ? (
-        <View style={[styles.frame, { paddingTop: insets.top + HEADER_H }]} accessibilityLabel="Chargement du fil">
-          <FeedSkeleton cols={cols} cellW={cellW} />
+        <View style={[styles.frame, { paddingTop: insets.top + HEADER_H }]}>
+          <ScopeTabs scope={scope} onChange={selectScope} />
+          <View accessibilityLabel="Chargement du fil">
+            <FeedSkeleton cols={cols} cellW={cellW} />
+          </View>
         </View>
       ) : (
         <Animated.FlatList
@@ -429,13 +587,20 @@ export default function FeedScreen() {
                 onCta={() => void handleRefresh()}
                 style={styles.empty}
               />
+            ) : following ? (
+              <FollowingEmpty
+                signedIn={!!user}
+                followsNobody={followsLoaded && followedIds.size === 0}
+                onExplore={goExplore}
+                onSignIn={goSignIn}
+              />
             ) : (
               <FirstRun
                 isArtist={user?.role === 'artist'}
                 signedIn={!!user}
                 onExplore={goExplore}
                 onPublish={() => router.push('/create')}
-                onSignIn={() => router.push('/(auth)/sign-in')}
+                onSignIn={goSignIn}
               />
             )
           }
@@ -513,6 +678,21 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: Colors.textInverse, fontSize: 9, lineHeight: 11, letterSpacing: 0 },
 
+  // Scope tabs
+  tabs: {
+    flexDirection: 'row', gap: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+    marginBottom: Spacing.xs,
+  },
+  tab: {
+    minHeight: 44, justifyContent: 'flex-end',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  },
+  tabHover: { opacity: 0.85 },
+  // Sits on the container hairline, so the active word reads as underlined in gold.
+  tabLine: { height: 2, marginTop: 10, marginBottom: -StyleSheet.hairlineWidth, backgroundColor: 'transparent' },
+  tabLineActive: { backgroundColor: Colors.accentWarm },
+
   // Masthead
   masthead: { paddingTop: Spacing.sm, paddingBottom: Spacing.lg },
   title: { marginTop: 6, marginBottom: 6 },
@@ -537,6 +717,11 @@ const styles = StyleSheet.create({
   chipName: { marginTop: 8, maxWidth: 76, textAlign: 'center' },
   chipStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   dot: { width: 6, height: 6, borderRadius: 3 },
+
+  // Weekly selection
+  printRail: { gap: Spacing.sm, paddingHorizontal: Layout.gutter },
+  print: { borderRadius: Radius.md },
+  printName: { marginTop: Spacing['2xs'] },
 
   notice: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

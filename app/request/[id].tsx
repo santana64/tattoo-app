@@ -23,7 +23,7 @@ import {
 } from '@/components/RequestCard';
 import { BottomSheet, GlassSurface, RevealImage, enterUp } from '@/components/motion';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
-import { AppointmentPanel } from '@/components/AppointmentPanel';
+import { AppointmentPanel, formatPreferredSlot, upcomingPreferredSlots } from '@/components/AppointmentPanel';
 import { useAuthStore } from '@/store/auth-store';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/tattoo';
@@ -215,6 +215,8 @@ export default function RequestDetailScreen() {
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
   const references = request.references ?? [];
   const submitted = formatLong(request.submittedAt);
+  const awaitingAnswer = request.status === 'submitted' || request.status === 'clarification_needed';
+  const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
 
   return (
     <View style={styles.container}>
@@ -253,10 +255,28 @@ export default function RequestDetailScreen() {
                 viewAs={viewAs}
                 counterpart={counterpart}
                 onChanged={() => setAttempt((n) => n + 1)}
+                preferredSlots={request.preferredSlots}
               />
             </View>
           )}
         </Section>
+
+        {/* Before acceptance the booking panel is hidden: keep the wished slots in view. */}
+        {awaitingAnswer && wishedSlots.length > 0 && (
+          <Section title={isArtist ? 'Créneaux souhaités' : 'Vos créneaux souhaités'} index={2}>
+            {wishedSlots.map((iso) => (
+              <View key={iso} style={styles.slotRow}>
+                <Ionicons name="time-outline" size={15} color={Colors.textTertiary} />
+                <TText variant="bodySmall" tabular style={{ flex: 1 }}>{formatPreferredSlot(iso)}</TText>
+              </View>
+            ))}
+            <TText variant="caption" color="tertiary" style={{ marginTop: Spacing['2xs'] }}>
+              {isArtist
+                ? 'Une fois la demande acceptée, proposez l’un de ces créneaux en un geste.'
+                : `${counterpart} confirmera l’un d’eux ou vous en proposera un autre.`}
+            </TText>
+          </Section>
+        )}
 
         {!!request.artistNotes && (
           <Section title="Note de l’artiste" index={2}>
@@ -414,6 +434,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
   },
   factLabel: { width: 112 },
+  slotRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
 
   refGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   refTile: { width: 104, height: 130, borderRadius: Radius.sm },

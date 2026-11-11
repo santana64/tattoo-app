@@ -27,6 +27,14 @@ import { Seo } from '@/components/Seo';
 import { PlayBadge, VideoPlaceholder } from '@/components/PostCard';
 import { toDescription } from '@/lib/site';
 import type { Tables } from '@/lib/supabase';
+import { fetchArtistSeries, fetchArtistStats, type ArtistSeries, type ArtistStats } from '@/lib/studio';
+import { ArtistSignals, hasArtistSignals } from '@/components/artist/ArtistSignals';
+import { ReviewsSection } from '@/components/artist/ReviewsSection';
+import { FollowButton } from '@/components/social/FollowButton';
+import { WaitlistButton } from '@/components/social/WaitlistButton';
+import { AvailabilitySection } from '@/components/booking/AvailabilitySection';
+import { FlashRail } from '@/components/gallery/FlashRail';
+import { GuestSpotRail } from '@/components/gallery/GuestSpotRail';
 
 const GAP = 3;
 
@@ -109,7 +117,7 @@ function ProfileSkeleton({ top }: { top: number }) {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ArtistProfileScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, series: seriesParam } = useLocalSearchParams<{ id: string; series?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -130,10 +138,35 @@ export default function ArtistProfileScreen() {
     return () => { active = false; };
   }, [loadedArtist]);
 
+  // Public numbers and series load on their own: the page never waits for them.
+  const [stats, setStats] = useState<ArtistStats | null>(null);
+  const [seriesList, setSeriesList] = useState<ArtistSeries[]>([]);
+  const [activeSeries, setActiveSeries] = useState<string | null>(null);
+  const loadedArtistId = loadedArtist?.id;
+  useEffect(() => {
+    let active = true;
+    setStats(null); setSeriesList([]);
+    if (!loadedArtistId) return;
+    fetchArtistStats([loadedArtistId]).then((s) => { if (active) setStats(s[loadedArtistId] ?? null); }).catch(() => {});
+    fetchArtistSeries(loadedArtistId).then((s) => { if (active) setSeriesList(s); }).catch(() => {});
+    return () => { active = false; };
+  }, [loadedArtistId]);
+  useEffect(() => { setActiveSeries(typeof seriesParam === 'string' && seriesParam ? seriesParam : null); }, [seriesParam, loadedArtistId]);
+
   const artist = useMemo(() => (loadedArtist ? { ...loadedArtist, faq } : null), [loadedArtist, faq]);
   const isSaved = artist ? savedArtistIds.has(artist.id) : false;
   const photos = useMemo(() => artistPosts.filter((p) => p.media_type === 'photo'), [artistPosts]);
   const videos = useMemo(() => artistPosts.filter((p) => p.media_type === 'video'), [artistPosts]);
+  // Only series that hold at least one photo are offered as filters.
+  const usedSeries = useMemo(
+    () => seriesList.filter((s) => photos.some((p) => p.series_id === s.id)),
+    [seriesList, photos],
+  );
+  const currentSeries = usedSeries.find((s) => s.id === activeSeries) ?? null;
+  const shownPhotos = useMemo(
+    () => (currentSeries ? photos.filter((p) => p.series_id === currentSeries.id) : photos),
+    [photos, currentSeries],
+  );
 
   // Layout
   const contentW = Math.min(width, Layout.maxContent);
@@ -293,6 +326,23 @@ export default function ArtistProfileScreen() {
             <Fact label="Œuvres" value={portfolioState === 'ready' ? String(photos.length) : '—'} />
           </View>
 
+          {/* ─── Signals & follow ─── */}
+          <View style={styles.socialRow}>
+            <View style={styles.socialSignals}>
+              {hasArtistSignals(stats) ? (
+                <ArtistSignals stats={stats} />
+              ) : (
+                <TText variant="caption" color="tertiary">Suivez cet artiste pour voir ses nouvelles pièces dans votre fil.</TText>
+              )}
+            </View>
+            <FollowButton
+              artistId={artist.id}
+              artistName={artist.blaze}
+              size="sm"
+              onChange={(following) => setStats((s) => (s ? { ...s, followers: Math.max(s.followers + (following ? 1 : -1), 0) } : s))}
+            />
+          </View>
+
           {/* ─── Styles ─── */}
           {(stylesLabel.length > 0 || artist.specialties.length > 0) && (
             <View style={styles.tags}>
@@ -306,6 +356,19 @@ export default function ArtistProfileScreen() {
           {!!artist.bio && (
             <TText variant="body" color="secondary" style={styles.bio}>{artist.bio}</TText>
           )}
+        </View>
+
+        {/* ─── Availability, flashes, guest spots ─── */}
+        {canRequest && (
+          <View style={[styles.body, styles.block]}>
+            <AvailabilitySection artistId={artist.id} onPick={handleRequest} />
+          </View>
+        )}
+        <View style={[styles.body, styles.block]}>
+          <FlashRail artistId={artist.id} />
+        </View>
+        <View style={[styles.body, styles.block]}>
+          <GuestSpotRail artistId={artist.id} />
         </View>
 
         {/* ─── Videos ─── */}
@@ -347,6 +410,31 @@ export default function ArtistProfileScreen() {
             )}
           </View>
 
+          {portfolioState === 'ready' && usedSeries.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seriesRail} accessibilityRole="tablist">
+              {[{ id: null as string | null, title: 'Tout' }, ...usedSeries].map((s) => {
+                const selected = (currentSeries?.id ?? null) === s.id;
+                return (
+                  <Pressable
+                    key={s.id ?? 'all'}
+                    onPress={() => setActiveSeries(s.id)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    hitSlop={6}
+                    style={[styles.seriesTab, selected && styles.seriesTabActive]}
+                  >
+                    <TText variant="bodySmall" weight={selected ? 'semibold' : 'regular'} color={selected ? 'primary' : 'secondary'}>
+                      {s.title}
+                    </TText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+          {currentSeries?.description ? (
+            <TText variant="bodySmall" color="secondary" style={styles.seriesNote}>{currentSeries.description}</TText>
+          ) : null}
+
           {portfolioState === 'loading' && (
             <View style={styles.grid}>
               {Array.from({ length: cols * 2 }).map((_, i) => (
@@ -362,16 +450,16 @@ export default function ArtistProfileScreen() {
           )}
           {portfolioState === 'ready' && photos.length > 0 && (
             <View style={styles.grid}>
-              {photos.map((post, i) => {
+              {shownPhotos.map((post, i) => {
                 // Every 5th piece spans two columns, like a featured print on the wall.
-                const feature = cols > 1 && i % 5 === 0 && i + 1 < photos.length;
+                const feature = cols > 1 && i % 5 === 0 && i + 1 < shownPhotos.length;
                 const w = feature ? cell * 2 + GAP : cell;
                 return (
                   <Animated.View key={post.id} entering={i < 8 ? enterUp(i, 100) : undefined}>
                     <PressableScale
                       onPress={() => router.push(`/post/${post.id}`)}
                       accessibilityRole="link"
-                      accessibilityLabel={post.caption ?? `Réalisation ${i + 1}`}
+                      accessibilityLabel={post.title ?? post.caption ?? `Réalisation ${i + 1}`}
                       style={[styles.cell, { width: w, height: cell * 1.25 }]}
                     >
                       <RevealImage uri={post.media_url} style={StyleSheet.absoluteFill} />
@@ -384,6 +472,11 @@ export default function ArtistProfileScreen() {
         </View>
 
         <View style={styles.body}>
+          {stats && stats.ratingCount > 0 && (
+            <View style={styles.section}>
+              <ReviewsSection artistId={artist.id} ratingAvg={stats.ratingAvg} ratingCount={stats.ratingCount} />
+            </View>
+          )}
           {!!artist.process && (
             <Section kicker="Méthode" title="Comment je travaille">
               <TText variant="body" color="secondary" style={styles.prose}>{artist.process}</TText>
@@ -423,11 +516,13 @@ export default function ArtistProfileScreen() {
             <TText variant="caption" color="tertiary" numberOfLines={1}>
               {canRequest
                 ? 'Devis établi par l’artiste'
-                : artist.bookingStatus === 'paused' ? 'Enregistrez le profil pour y revenir' : 'Ne prend pas de nouveaux projets'}
+                : artist.bookingStatus === 'paused' ? 'Soyez prévenu dès la réouverture' : 'Ne prend pas de nouveaux projets'}
             </TText>
           </View>
           {canRequest ? (
             <TButton title="Demander un projet" onPress={handleRequest} fullWidth={false} />
+          ) : user?.artistId !== artist.id ? (
+            <WaitlistButton artistId={artist.id} />
           ) : (
             <TButton
               title={isSaved ? 'Enregistré' : 'Enregistrer'}
@@ -487,6 +582,13 @@ const styles = StyleSheet.create({
 
   bio: { marginTop: Spacing.md, maxWidth: Layout.maxReading },
 
+  socialRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
+  socialSignals: { flex: 1, minWidth: 0 },
+  block: { marginTop: Spacing.xl },
+  seriesRail: { gap: Spacing.md, paddingRight: Layout.gutter, marginBottom: Spacing.sm },
+  seriesTab: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'transparent' },
+  seriesTabActive: { borderBottomColor: Colors.accentWarm },
+  seriesNote: { marginBottom: Spacing.sm, maxWidth: Layout.maxReading },
   videos: { marginTop: Spacing.xl },
   videoRail: { gap: GAP, paddingRight: Layout.gutter },
   videoTile: {

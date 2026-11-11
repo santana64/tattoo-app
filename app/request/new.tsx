@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, BackHandler,
 } from 'react-native';
@@ -22,7 +22,9 @@ import type { SubmitPayload } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
 import { STYLES } from '@/constants/tattoo';
 import { useArtist } from '@/hooks/use-artist';
-import { enterUp, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
+import { enterUp, EASE_OUT, EASE_IN_OUT, RevealImage } from '@/components/motion';
+import { SlotPicker, formatChosenSlot } from '@/components/booking/SlotPicker';
+import { fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 
 const FORM_MAX = 720;
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -70,6 +72,18 @@ type FieldKey = 'projectType' | 'bodyZone' | 'budgetMin' | 'budgetMax' | 'styles
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const isAmount = (v: string) => !!v.trim() && Number.isFinite(Number(v)) && Number(v) >= 0;
+
+const FLASH_UNAVAILABLE = 'Ce flash n’est plus disponible.';
+const DEFAULT_SESSION_MIN = 120;
+
+/** One of our zone chips when the flash placement matches it, else the flash's own wording. */
+function matchZone(zone: string | null | undefined): string | null {
+  const clean = zone?.trim();
+  if (!clean) return null;
+  return BODY_ZONES.find((z) => z.toLowerCase() === clean.toLowerCase()) ?? clean;
+}
+
+type FlashState = 'none' | 'loading' | 'ready' | 'unavailable';
 
 // ─── Building blocks ──────────────────────────────────────────────────────────
 function FieldLabel({ children, error }: { children: string; error?: string }) {
@@ -206,6 +220,42 @@ function RequestSent({ artistName, summary, top, bottom, onOpen, onExplore }: {
   );
 }
 
+function FlashBanner({ state, flash }: { state: FlashState; flash: FlashDesign | null }) {
+  if (state === 'none') return null;
+  if (state === 'loading') {
+    return (
+      <View style={styles.flashBanner}>
+        <TSkeleton width={52} height={64} radius={Radius.sm} />
+        <View style={{ flex: 1, gap: 6 }}>
+          <TSkeleton width="30%" height={10} />
+          <TSkeleton width="60%" height={16} />
+        </View>
+      </View>
+    );
+  }
+  if (state === 'unavailable' || !flash) {
+    return (
+      <View style={styles.flashBanner} accessibilityRole="alert">
+        <Ionicons name="flash-off-outline" size={18} color={Colors.textTertiary} />
+        <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>
+          {FLASH_UNAVAILABLE} Vous pouvez tout de même décrire votre projet.
+        </TText>
+      </View>
+    );
+  }
+  const price = `${flash.price.toLocaleString('fr-FR')} €`;
+  return (
+    <View style={styles.flashBanner} accessible accessibilityLabel={`Flash « ${flash.title} », ${price}`}>
+      <RevealImage uri={flash.image_url} style={styles.flashThumb} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <TText variant="label" color="accentWarm" uppercase>Flash</TText>
+        <TText variant="body" serif numberOfLines={1} style={{ fontSize: 19, lineHeight: 23 }}>{flash.title}</TText>
+      </View>
+      <TText variant="bodySmall" weight="semibold" tabular>{price}</TText>
+    </View>
+  );
+}
+
 function RecapSection({ title, onEdit, children }: { title: string; onEdit: () => void; children: React.ReactNode }) {
   return (
     <View style={styles.recapSection}>
@@ -249,7 +299,7 @@ function FormSkeleton({ top }: { top: number }) {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function NewRequestScreen() {
-  const { artistId } = useLocalSearchParams<{ artistId: string }>();
+  const { artistId, flashId } = useLocalSearchParams<{ artistId: string; flashId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
@@ -274,6 +324,40 @@ export default function NewRequestScreen() {
   const [colorPref, setColorPref] = useState('');
   const [isFlexible, setIsFlexible] = useState(false);
   const [description, setDescription] = useState('');
+  const [preferredSlots, setPreferredSlots] = useState<string[]>([]);
+  const [flash, setFlash] = useState<FlashDesign | null>(null);
+  const [flashState, setFlashState] = useState<FlashState>(flashId ? 'loading' : 'none');
+
+  // A flash opens the form prefilled; every field stays editable and nothing typed is overwritten.
+  useEffect(() => {
+    if (!flashId) { setFlash(null); setFlashState('none'); return; }
+    let active = true;
+    setFlashState('loading');
+    fetchFlash(flashId)
+      .then((f) => {
+        if (!active) return;
+        if (!f || f.artist_id !== artistId || !f.is_published || flashCopiesLeft(f) === 0) {
+          setFlash(null); setFlashState('unavailable'); return;
+        }
+        setFlash(f); setFlashState('ready');
+        const zone = matchZone(f.body_zone);
+        setProjectType((v) => v || 'new');
+        if (zone) setBodyZone((v) => v || zone);
+        setBudgetMin((v) => v || String(f.price));
+        setBudgetMax((v) => v || String(f.price));
+        if (STYLES.some((st) => st.slug === f.style)) setStylePrefs((v) => (v.length ? v : [f.style]));
+        setColorPref((v) => v || (f.is_color ? 'full_color' : 'black_grey'));
+        setDescription((v) => (v.trim() ? v : `Flash « ${f.title} ». `));
+      })
+      .catch(() => { if (active) { setFlash(null); setFlashState('unavailable'); } });
+    return () => { active = false; };
+  }, [flashId, artistId]);
+
+  const attachedFlash = flashState === 'ready' ? flash : null;
+  const zones = useMemo(() => {
+    const zone = matchZone(attachedFlash?.body_zone);
+    return zone && !BODY_ZONES.includes(zone) ? [zone, ...BODY_ZONES] : BODY_ZONES;
+  }, [attachedFlash]);
 
   // Same rules as before the redesign, expressed per field so messages sit next to inputs.
   const validate = (s: number): FieldErrors => {
@@ -366,12 +450,18 @@ export default function NewRequestScreen() {
       stylePreference: stylePrefs.join(', ') || undefined,
       description: description.trim(),
       flexibilityLevel: isFlexible ? 'open' : 'precise',
+      preferredSlots,
+      flashDesignId: attachedFlash?.id ?? null,
     };
 
     const { id: requestId, error: sendError } = await submitRequest(payload, user.id);
     submittingRef.current = false; setSubmitting(false);
     if (Platform.OS !== 'web') {
       Haptics.notificationAsync(sendError ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+    }
+    if (sendError === FLASH_UNAVAILABLE) {
+      // Sold out meanwhile: drop the flash so a retry sends the project on its own.
+      setFlash(null); setFlashState('unavailable');
     }
     if (sendError || !requestId) { setSubmitError(sendError ?? 'Envoi impossible. Votre formulaire est conservé.'); return; }
     // Same destination as before; the success state sits in between and leads there.
@@ -479,6 +569,7 @@ export default function NewRequestScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
+        <FlashBanner state={flashState} flash={flash} />
         <Animated.View key={step} entering={enterUp(0)}>
           <TText variant="displayS" style={styles.stepTitle}>
             {meta.lead}<TText variant="displayS" italic color="accentGlow">{meta.accent}</TText>
@@ -507,7 +598,7 @@ export default function NewRequestScreen() {
               <View>
                 <FieldLabel error={errors.bodyZone}>Zone du corps</FieldLabel>
                 <View style={styles.wrap} accessibilityRole="radiogroup">
-                  {BODY_ZONES.map((zone) => (
+                  {zones.map((zone) => (
                     <Chip key={zone} label={zone} selected={bodyZone === zone} onPress={() => setBodyZone(zone)} />
                   ))}
                 </View>
@@ -624,6 +715,20 @@ export default function NewRequestScreen() {
                 </View>
               </Pressable>
 
+              {/* Preferred slots: optional, never blocks sending. */}
+              <View>
+                <TText variant="title2" serif accessibilityRole="header" style={{ fontSize: 22, lineHeight: 26 }}>Vos créneaux préférés</TText>
+                <TText variant="caption" color="tertiary" style={{ marginTop: 4, marginBottom: Spacing.sm }}>
+                  Jusqu’à trois. L’artiste confirmera l’un d’eux ou vous en proposera un autre.
+                </TText>
+                <SlotPicker
+                  artistId={artist.id}
+                  durationMin={attachedFlash?.estimated_duration ?? DEFAULT_SESSION_MIN}
+                  value={preferredSlots}
+                  onChange={setPreferredSlots}
+                />
+              </View>
+
               {/* Attachments are not wired yet (uploads are disabled server-side): say so plainly. */}
               <View style={styles.notice} accessible accessibilityLabel="Images de référence : pas encore disponibles. Décrivez vos références dans le texte.">
                 <Ionicons name="images-outline" size={18} color={Colors.textTertiary} />
@@ -641,6 +746,7 @@ export default function NewRequestScreen() {
           {step === 3 && (
             <View>
               <RecapSection title="Le projet" onEdit={() => { setSubmitError(null); goToStep(0); }}>
+                {!!attachedFlash && <RecapRow label="Flash" value={`« ${attachedFlash.title} » · ${attachedFlash.price.toLocaleString('fr-FR')} €`} />}
                 <RecapRow label="Type" value={PROJECT_TYPES.find((p) => p.key === projectType)?.label ?? '—'} />
                 <RecapRow label="Zone" value={bodyZone || '—'} />
               </RecapSection>
@@ -656,6 +762,15 @@ export default function NewRequestScreen() {
                 <RecapRow label="Couleur" value={colorLabel || '—'} />
                 <RecapRow label="Approche" value={isFlexible ? 'Ouvert aux suggestions' : 'Projet précis'} />
                 <TText variant="body" color="secondary" style={styles.recapProse}>{description.trim()}</TText>
+              </RecapSection>
+              <RecapSection title="Vos créneaux" onEdit={() => { setSubmitError(null); goToStep(2); }}>
+                {preferredSlots.length > 0 ? (
+                  preferredSlots.map((iso, i) => (
+                    <RecapRow key={iso} label={i === 0 ? 'Préférés' : ''} value={formatChosenSlot(iso)} />
+                  ))
+                ) : (
+                  <TText variant="bodySmall" color="tertiary">Aucun créneau choisi : vous conviendrez d’une date avec l’artiste.</TText>
+                )}
               </RecapSection>
               <TText variant="caption" color="tertiary" style={{ marginTop: Spacing.lg }}>
                 {artist.blaze} étudiera votre demande et établira un devis. Sa réponse apparaîtra dans vos demandes.
@@ -814,6 +929,14 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
+
+  flashBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
+    padding: Spacing.xs, marginBottom: Spacing.lg,
+    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
+    backgroundColor: Colors.glassAmber,
+  },
+  flashThumb: { width: 52, height: 64, borderRadius: Radius.sm },
 
   recapSection: {
     paddingVertical: Spacing.md,
