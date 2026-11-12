@@ -26,5 +26,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      # No Supabase secrets here: the sitemap falls back to the static pages.
+      # Expo static rendering imports the Supabase client during build. These
+      # reserved, non-routable values exercise the bundle without live data.
       - run: npm run build:web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
