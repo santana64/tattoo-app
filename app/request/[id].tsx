@@ -28,6 +28,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/tattoo';
+import { signedRequestReferences } from '@/lib/storage';
 
 const ASIDE_W = 380;
 const BAR_MAX = 760;
@@ -138,6 +139,8 @@ export default function RequestDetailScreen() {
   const savingRef = useRef(false);
   const [showDecline, setShowDecline] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
+  const [signedReferences, setSignedReferences] = useState<string[]>([]);
+  const [referencesError, setReferencesError] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -148,6 +151,17 @@ export default function RequestDetailScreen() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [id, user, attempt, fetchRequest]);
+
+  useEffect(() => {
+    let active = true;
+    setSignedReferences([]);
+    setReferencesError(false);
+    if (!request?.id) return;
+    signedRequestReferences(request.id)
+      .then((urls) => { if (active) setSignedReferences(urls); })
+      .catch(() => { if (active) setReferencesError(true); });
+    return () => { active = false; };
+  }, [request?.id, attempt]);
 
   const changeStatus = async (status: RequestStatus) => {
     if (!request || savingRef.current) return;
@@ -215,7 +229,7 @@ export default function RequestDetailScreen() {
       : `${counterpart || 'L’artiste'} vous répondra dans la conversation. Prêt à aller plus loin ? Transformez votre question en projet.`
     : nextStepCopy(request, viewAs, counterpart);
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
-  const references = request.references ?? [];
+  const references = [...(request.references ?? []), ...signedReferences];
   const submitted = formatLong(request.submittedAt);
   const awaitingAnswer = !inquiry && (request.status === 'submitted' || request.status === 'clarification_needed');
   const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
@@ -337,6 +351,12 @@ export default function RequestDetailScreen() {
               <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
             ))}
           </View>
+        </Section>
+      )}
+      {referencesError && (
+        <Section title="Références">
+          <TText variant="bodySmall" color="secondary">Impossible de charger les images pour le moment.</TText>
+          <TButton title="Réessayer" variant="secondary" onPress={() => setAttempt((value) => value + 1)} />
         </Section>
       )}
 

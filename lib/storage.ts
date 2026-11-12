@@ -99,8 +99,35 @@ export async function uploadReference(
   requestId: string,
   index: number,
   onProgress?: (p: number) => void
-): Promise<UploadResult> {
-  return uploadFile(uri, 'request-references', `${requestId}/ref_${index}.jpg`, onProgress);
+): Promise<{ path: string }> {
+  onProgress?.(0.1);
+  const compressed = await compressImage(uri);
+  const blob = await uriToBlob(compressed);
+  if (blob.size > 10 * 1024 * 1024) throw new Error('Cette image dépasse la limite de 10 Mo.');
+  const path = `${requestId}/ref_${index}.jpg`;
+  const { error } = await supabase.storage.from('request-references').upload(path, blob, {
+    contentType: 'image/jpeg',
+    upsert: true,
+  });
+  if (error) throw error;
+  onProgress?.(1);
+  // This bucket is private. A public URL would be unusable and misleading.
+  return { path };
+}
+
+export async function signedRequestReferences(requestId: string): Promise<string[]> {
+  const bucket = supabase.storage.from('request-references');
+  const { data: files, error } = await bucket.list(requestId, { limit: 10, sortBy: { column: 'name', order: 'asc' } });
+  if (error) throw error;
+  const paths = (files ?? [])
+    .filter((file) => /^ref_\d+\.jpg$/.test(file.name))
+    .map((file) => `${requestId}/${file.name}`);
+  const signed = await Promise.all(paths.map(async (path) => {
+    const { data, error: signError } = await bucket.createSignedUrl(path, 3600);
+    if (signError) throw signError;
+    return data.signedUrl;
+  }));
+  return signed;
 }
 
 // ─── Pick image from library ──────────────────────────────────────────────────

@@ -41,8 +41,8 @@ Une seconde exportation locale avec la clé **publiable** du projet actif a perm
 | `/series/[id]` | public | série | P | ? | NV | NOT VERIFIED |
 | `/flash/[id]` | public | flash et disponibilité | P | ? | NV | NOT VERIFIED |
 | `/saved` | compte | artistes et œuvres enregistrés | P | ? | NV | NOT VERIFIED |
-| `/request/new` | client | brief, créneaux, soumission | P | référence visuelle absente | NV | PARTIAL |
-| `/request/[id]` | parties | dossier et statut | P | références privées non raccordées | NV | PARTIAL |
+| `/request/new` | client | brief, créneaux, soumission | P | sélection et reprise d'images implémentées ; accès réel NV | NV | PARTIAL |
+| `/request/[id]` | parties | dossier et statut | P | bucket privé et URL signée raccordés ; accès réel NV | NV | PARTIAL |
 | `/(tabs)/inbox` | compte | demandes | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/messages` | compte | conversations | P | ? | NV | NOT VERIFIED |
 | `/conversation/[id]` | parties | échange | P | ? | NV | NOT VERIFIED |
@@ -72,7 +72,7 @@ Une seconde exportation locale avec la clé **publiable** du projet actif a perm
 
 ## Écarts classés
 
-1. **P1 — Références du brief** : `request_references` et le bucket privé existent, mais le formulaire refuse les fichiers. `uploadReference` produirait en plus une URL publique inutilisable pour un bucket privé. Un flux complet devra relier sélection, stockage, ligne de dossier, URL signée à la lecture, reprise après interruption et nettoyage des fichiers. Aucun accès réel n'a été testé.
+1. **P1 — Références du brief** : sélection de trois images, compression JPEG, plafond 10 Mio, stockage sous l'identifiant de la demande et lecture signée depuis le bucket privé implémentés. Un échec après création conserve l'identifiant dans la session et permet de réessayer sans dupliquer le brief. Le dossier liste les fichiers déjà déposés, y compris après réouverture. Les quatre tests ciblés couvrent les chemins privés, la limite, la signature et les erreurs. Une reprise du téléversement **après fermeture de l'application**, l'expiration des liens pendant une longue session, le nettoyage fin des fichiers et la validation avec deux vrais comptes restent à faire. La table historique `request_references` n'est pas alimentée par ce nouveau flux : le chemin dans le bucket est la source de vérité. Aucun accès réel n'a été testé.
 2. **P1 — Validation des écritures** : le compte et la fin d'onboarding annonçaient un succès avant la réponse serveur. Corrigé dans cette branche ; validation avec un backend de test encore requise.
 3. **P1 — Aperçus recherche** : une limite globale pouvait masquer le portfolio des derniers artistes d'une page. Un RPC à quota par artiste, avec index et test SQL, est préparé. La migration doit précéder le client.
 4. **P2 — Studio** : les chiffres précédaient les demandes à traiter. Ordre et hauteur de titre ajustés ; validation avec un compte artiste chargé encore requise.
