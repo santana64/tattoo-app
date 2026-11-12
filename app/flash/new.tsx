@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, useWindowDimensions,
+  View,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -17,8 +19,10 @@ import { TImagePicker } from '@/components/ui/TImagePicker';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { EASE_OUT, MotionDuration, PressableScale, enterUp, fadeIn } from '@/components/motion';
+import { Kicker, Masthead, PageWrap, Rule, SettingRow, Toggle } from '@/components/v5';
+import { CartelPreview, Panel, StepControl } from '@/components/v5/studio';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { uploadPostMedia } from '@/lib/storage';
 import { createFlash, flashInputError, type FlashInput } from '@/lib/studio';
 import { STYLES } from '@/constants/tattoo';
@@ -44,55 +48,14 @@ function parseDurationMinutes(text: string): number | null {
   return hours >= 0.5 && hours <= 24 ? Math.round(hours * 60) : NaN;
 }
 
-// ─── Toggle: 180ms state transition, visual only (the row owns the press) ─────
-function Toggle({ value }: { value: boolean }) {
-  const p = useSharedValue(value ? 1 : 0);
-  useEffect(() => {
-    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
-  }, [value, p]);
-  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
-  return (
-    <View style={toggleStyles.track} importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[StyleSheet.absoluteFill, toggleStyles.on, onStyle]} />
-      <Animated.View style={[toggleStyles.knob, knobStyle]} />
-    </View>
-  );
-}
+/** 150 → "2 h 30". */
+const hoursLabel = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
+};
 
-const toggleStyles = StyleSheet.create({
-  track: {
-    width: 46, height: 28, borderRadius: 14,
-    backgroundColor: Colors.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    overflow: 'hidden',
-  },
-  on: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
-  knob: {
-    position: 'absolute', top: 2.5, left: 2.5,
-    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
-  },
-});
-
-function StepButton({ icon, label, onPress, disabled }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; disabled: boolean;
-}) {
-  return (
-    <PressableScale
-      onPress={onPress}
-      disabled={disabled}
-      haptic
-      pressedScale={0.92}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      hitSlop={4}
-      style={[styles.stepBtn, disabled && styles.stepBtnDisabled]}
-    >
-      <Ionicons name={icon} size={18} color={Colors.textPrimary} />
-    </PressableScale>
-  );
-}
+const STYLE_NAMES = new Map(STYLES.map((s) => [s.slug, s.name]));
 
 export default function NewFlashScreen() {
   const router = useRouter();
@@ -121,8 +84,7 @@ export default function NewFlashScreen() {
 function FlashForm({ artistId }: { artistId: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const wide = width >= 900;
+  const { isWide } = useContentDimensions();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -176,18 +138,14 @@ function FlashForm({ artistId }: { artistId: string }) {
   };
 
   const picker = (
-    <View>
-      <TImagePicker
-        value={imageUri}
-        onPicked={(uri) => { setImageUri(uri); setFormError(null); }}
-        aspect={[3, 4]}
-        placeholder="Ajouter le dessin du flash"
-        style={styles.picker}
-      />
-      <TText variant="caption" color="tertiary" style={styles.pickerHint}>
-        Le dessin tel qu’il sera tatoué, sur fond neutre, format portrait 3:4.
-      </TText>
-    </View>
+    <TImagePicker
+      value={imageUri}
+      onPicked={(uri) => { setImageUri(uri); setFormError(null); }}
+      aspect={[3, 4]}
+      fillAspect
+      placeholder="Ajouter le dessin du flash"
+      hint="Le dessin tel qu’il sera tatoué, sur fond neutre, format portrait 3:4."
+    />
   );
 
   const form = (
@@ -200,7 +158,7 @@ function FlashForm({ artistId }: { artistId: string }) {
         maxLength={MAX_TITLE}
       />
 
-      <TText variant="caption" weight="medium" color="secondary" style={styles.fieldLabel}>Style</TText>
+      <TText variant="caption" weight="semibold" style={styles.fieldLabel}>Style</TText>
       <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Style">
         {STYLES.map((s) => (
           <TChip
@@ -231,14 +189,15 @@ function FlashForm({ artistId }: { artistId: string }) {
         inputMode="numeric"
         maxLength={6}
         error={priceError}
-        rightElement={<TText variant="bodySmall" color="tertiary">€</TText>}
+        rightElement={<TText variant="bodySmall" color="secondary">€</TText>}
       />
 
+      <Rule tone="ink" />
       {/* Copies */}
       <View style={styles.stepperRow}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <TText variant="body" weight="medium">Nombre d’exemplaires</TText>
-          <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>1 = pièce unique</TText>
+          <TText variant="displayS" style={styles.rowTitle}>Exemplaires</TText>
+          <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>1 = pièce unique</TText>
         </View>
         <View
           style={styles.stepper}
@@ -252,32 +211,27 @@ function FlashForm({ artistId }: { artistId: string }) {
             if (e.nativeEvent.actionName === 'decrement') setCopies((n) => Math.max(MIN_COPIES, n - 1));
           }}
         >
-          <StepButton icon="remove" label="Un exemplaire de moins" disabled={copies <= MIN_COPIES} onPress={() => setCopies((n) => Math.max(MIN_COPIES, n - 1))} />
-          <TText variant="title2" serif tabular style={styles.stepValue}>{copies}</TText>
-          <StepButton icon="add" label="Un exemplaire de plus" disabled={copies >= MAX_COPIES} onPress={() => setCopies((n) => Math.min(MAX_COPIES, n + 1))} />
+          <StepControl icon="remove" label="Un exemplaire de moins" disabled={copies <= MIN_COPIES} onPress={() => setCopies((n) => Math.max(MIN_COPIES, n - 1))} />
+          <TText variant="displayS" tabular style={styles.stepValue}>{copies}</TText>
+          <StepControl icon="add" label="Un exemplaire de plus" disabled={copies >= MAX_COPIES} onPress={() => setCopies((n) => Math.min(MAX_COPIES, n + 1))} />
         </View>
       </View>
 
       {/* Colour */}
-      <Pressable
-        onPress={() => {
-          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setIsColor((v) => !v);
-        }}
-        accessibilityRole="switch"
-        accessibilityLabel="Couleur"
-        accessibilityHint="Indique si le flash est tatoué en couleur."
-        accessibilityState={{ checked: isColor }}
-        style={styles.toggleRow}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <TText variant="body" weight="medium">Couleur</TText>
-          <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>
-            {isColor ? 'Tatoué en couleur.' : 'Tatoué en noir et gris.'}
-          </TText>
-        </View>
-        <Toggle value={isColor} />
-      </Pressable>
+      <SettingRow
+        title="Couleur"
+        description={isColor ? 'Tatoué en couleur.' : 'Tatoué en noir et gris.'}
+        right={(
+          <Toggle
+            value={isColor}
+            label="Couleur"
+            onChange={(next) => {
+              if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsColor(next);
+            }}
+          />
+        )}
+      />
 
       <TInput
         label="Durée estimée"
@@ -289,16 +243,36 @@ function FlashForm({ artistId }: { artistId: string }) {
         inputMode="decimal"
         maxLength={5}
         error={durationError}
-        rightElement={<TText variant="bodySmall" color="tertiary">heures</TText>}
+        rightElement={<TText variant="bodySmall" color="secondary">heures</TText>}
+        containerStyle={{ marginTop: Spacing.md }}
       />
+    </View>
+  );
 
+  const preview = (
+    <CartelPreview
+      kicker="Aperçu / Flash"
+      title={title}
+      rows={[
+        { label: 'Style', value: style ? STYLE_NAMES.get(style) ?? style : null },
+        { label: 'Prix', value: price !== null && !Number.isNaN(price) ? `${price.toLocaleString('fr-FR')} €` : null },
+        { label: 'Exemplaires', value: copies === 1 ? 'Pièce unique' : `${copies} exemplaires` },
+        { label: 'Encre', value: isColor ? 'Couleur' : 'Noir et gris' },
+        { label: 'Durée estimée', value: duration !== null && !Number.isNaN(duration) ? hoursLabel(duration) : null },
+        { label: 'Emplacement conseillé', value: bodyZone },
+      ]}
+    />
+  );
+
+  const submit = (
+    <View>
       {publishing && (
-        <Animated.View entering={fadeIn()} style={styles.progressWrap}>
-          <TProgressBar progress={progress} color={Colors.accentWarm} />
-          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
+        <View style={styles.progressWrap}>
+          <TProgressBar progress={progress} color={Colors.flame} />
+          <TText variant="caption" color="secondary" tabular style={{ marginTop: 6 }}>
             Envoi en cours… {Math.round(progress * 100)} %
           </TText>
-        </Animated.View>
+        </View>
       )}
 
       {!!formError && (
@@ -320,14 +294,41 @@ function FlashForm({ artistId }: { artistId: string }) {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <THeader title="Nouveau flash" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={wide ? styles.columnsWide : undefined}>
-          <Animated.View entering={enterUp(0)} style={wide ? styles.colMedia : undefined}>{picker}</Animated.View>
-          <Animated.View entering={enterUp(1)} style={wide ? styles.colForm : styles.formStacked}>{form}</Animated.View>
-        </View>
+        <PageWrap>
+          <Masthead
+            kicker="Flash / Nouveau"
+            title="Dessiné pour"
+            emphasis="être porté."
+            breakEmphasis
+            description="Un flash indique son style, son prix, le nombre d’exemplaires et la façon dont il est tatoué."
+          />
+          {isWide ? (
+            <View style={styles.columns}>
+              <Panel style={styles.colForm}>
+                {form}
+                <Rule tone="ink" style={{ marginVertical: Spacing.md }} />
+                {submit}
+              </Panel>
+              <View style={styles.colPreview}>
+                <Kicker tone="muted" style={{ marginBottom: Spacing.sm }}>Aperçu / Avant envoi</Kicker>
+                {picker}
+                <View style={{ marginTop: Spacing.lg }}>{preview}</View>
+              </View>
+            </View>
+          ) : (
+            <>
+              {picker}
+              <View style={styles.formStacked}>{form}</View>
+              <Rule tone="ink" style={{ marginTop: Spacing.md }} />
+              <View style={{ paddingVertical: Spacing.lg }}>{preview}</View>
+              {submit}
+            </>
+          )}
+        </PageWrap>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -335,42 +336,21 @@ function FlashForm({ artistId }: { artistId: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
-  columnsWide: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
-  colMedia: { flex: 1, maxWidth: 440 },
-  colForm: { flex: 1, maxWidth: Layout.maxReading },
+  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
+  colForm: { flex: 1.25, minWidth: 0 },
+  colPreview: { flex: 1, minWidth: 0, maxWidth: 440 },
   formStacked: { marginTop: Spacing.lg },
 
-  picker: { borderRadius: Radius.xl },
-  pickerHint: { marginTop: Spacing['2xs'] },
-
-  fieldLabel: { marginBottom: 8 },
+  fieldLabel: { marginBottom: 8, fontSize: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap' },
 
   stepperRow: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingVertical: Spacing.xs, marginBottom: Spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
+  rowTitle: { fontSize: 24, lineHeight: 28, letterSpacing: -0.4 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
-  stepBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  stepBtnDisabled: { opacity: 0.38 },
-  stepValue: { minWidth: 32, textAlign: 'center', fontSize: 22 },
-
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    minHeight: 60, marginBottom: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
+  stepValue: { minWidth: 36, textAlign: 'center', fontSize: 28, lineHeight: 30 },
 
   progressWrap: { marginBottom: Spacing.md },
   formError: { marginBottom: Spacing.sm },

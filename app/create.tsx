@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, useWindowDimensions,
+  View,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -16,8 +19,11 @@ import { TProgressBar } from '@/components/ui/TProgressBar';
 import { THeader } from '@/components/ui/THeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TChip } from '@/components/ui/TChip';
-import { EASE_OUT, MotionDuration, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { RevealImage } from '@/components/motion';
+import { Kicker, Masthead, PageWrap, Rule, SettingRow, Toggle } from '@/components/v5';
+import { CartelPreview, OptionChip, Panel, Segmented } from '@/components/v5/studio';
 import { useAuthStore, type AppUser } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
 import { pickImage, uploadPostMedia } from '@/lib/storage';
 import { pickVideo, uploadPostVideo, type PickedVideo } from '@/lib/video-upload';
@@ -41,35 +47,7 @@ function parseSessionHours(text: string): number | null {
   return hours >= 0.5 && hours <= 99 ? hours : NaN;
 }
 
-// ─── Toggle: 180ms state transition, visual only (the row owns the press) ─────
-function Toggle({ value }: { value: boolean }) {
-  const p = useSharedValue(value ? 1 : 0);
-  useEffect(() => {
-    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
-  }, [value, p]);
-  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
-  return (
-    <View style={toggleStyles.track} importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[StyleSheet.absoluteFill, toggleStyles.on, onStyle]} />
-      <Animated.View style={[toggleStyles.knob, knobStyle]} />
-    </View>
-  );
-}
-
-const toggleStyles = StyleSheet.create({
-  track: {
-    width: 46, height: 28, borderRadius: 14,
-    backgroundColor: Colors.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    overflow: 'hidden',
-  },
-  on: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
-  knob: {
-    position: 'absolute', top: 2.5, left: 2.5,
-    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
-  },
-});
+const STYLE_NAMES = new Map(STYLES.map((s) => [s.slug, s.name]));
 
 type MediaKind = 'photo' | 'video' | 'link';
 const MEDIA_KINDS: { value: MediaKind; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -105,8 +83,7 @@ export default function CreateScreen() {
 function CreateForm({ user, router, insets }: {
   user: AppUser; router: ReturnType<typeof useRouter>; insets: EdgeInsets;
 }) {
-  const { width } = useWindowDimensions();
-  const wide = width >= 900;
+  const { isWide } = useContentDimensions();
   const [kind, setKind] = useState<MediaKind>('photo');
   const [mediaUri, setMediaUri] = useState<string | null>(null);
   const [video, setVideo] = useState<PickedVideo | null>(null);
@@ -248,42 +225,86 @@ function CreateForm({ user, router, insets }: {
   };
 
   const kindSwitch = (
-    <View style={styles.kinds} accessibilityRole="tablist">
-      {MEDIA_KINDS.map((option) => {
-        const selected = option.value === kind;
-        return (
-          <PressableScale
-            key={option.value}
-            onPress={() => setKind(option.value)}
-            disabled={isPublishing}
-            accessibilityRole="tab"
-            accessibilityState={{ selected }}
-            accessibilityLabel={option.label}
-            style={[styles.kind, selected && styles.kindSelected]}
-          >
-            <Ionicons name={option.icon} size={15} color={selected ? Colors.textPrimary : Colors.textTertiary} />
-            <TText variant="bodySmall" weight={selected ? 'semibold' : 'medium'} color={selected ? 'primary' : 'tertiary'}>
-              {option.label}
-            </TText>
-          </PressableScale>
-        );
-      })}
-    </View>
+    <Segmented
+      role="tab"
+      accessibilityLabel="Type de média"
+      value={kind}
+      onChange={setKind}
+      disabled={isPublishing}
+      options={MEDIA_KINDS.map((o) => ({ value: o.value, label: o.label, icon: o.icon }))}
+      style={styles.kinds}
+    />
   );
 
   const videoSeconds = video?.durationMs ? Math.round(video.durationMs / 1000) : null;
   const mediaArea = kind === 'link' ? (
-    <View style={[styles.mediaPicker, styles.linkPanel]}>
-      <View style={styles.addIconRing}>
-        <Ionicons name={reel ? (reel.provider === 'tiktok' ? 'logo-tiktok' : 'logo-instagram') : 'link-outline'} size={24} color={Colors.accentWarm} />
+    <View style={styles.linkPanel} accessibilityLiveRegion="polite">
+      <View style={styles.iconFrame}>
+        <Ionicons name={reel ? (reel.provider === 'tiktok' ? 'logo-tiktok' : 'logo-instagram') : 'link-outline'} size={22} color={Colors.ink} />
       </View>
-      <TText variant="body" weight="medium" style={{ marginTop: Spacing.sm, textAlign: 'center' }}>
+      <TText variant="bodySmall" weight="semibold" style={styles.center}>
         {reel ? `Vidéo ${REEL_PROVIDER_LABEL[reel.provider]} reconnue` : 'Vidéo TikTok ou reel Instagram'}
       </TText>
-      <TText variant="caption" color="tertiary" style={{ marginTop: 2, textAlign: 'center' }}>
-        {reel ? 'Elle sera lue depuis votre profil et le fil.' : 'Collez son adresse ci-dessous.'}
+      <TText variant="caption" color="secondary" style={styles.center}>
+        {reel ? 'Elle sera lue depuis votre profil et le fil.' : 'Collez son adresse dans le formulaire.'}
       </TText>
-      <View style={styles.linkInput}>
+    </View>
+  ) : (
+    <Pressable
+      onPress={handlePickMedia}
+      disabled={isPublishing}
+      accessibilityRole="button"
+      accessibilityLabel={kind === 'video'
+        ? (video ? 'Changer la vidéo' : 'Sélectionner une vidéo')
+        : (mediaUri ? 'Changer la photo' : 'Sélectionner une photo')}
+      style={(state) => [
+        styles.mediaPicker,
+        (kind === 'photo' ? mediaUri : video) ? styles.mediaPickerFilled : null,
+        Platform.OS === 'web' && ({ cursor: 'pointer' } as object),
+        (state as { hovered?: boolean }).hovered && !(kind === 'photo' && mediaUri) && { backgroundColor: Colors.wash },
+      ]}
+    >
+      {kind === 'photo' && mediaUri ? (
+        <>
+          <RevealImage uri={mediaUri} style={StyleSheet.absoluteFill} accessibilityLabel="Aperçu de la réalisation" />
+          <View style={styles.changePlate}>
+            <Ionicons name="camera-outline" size={14} color={Colors.ink} />
+            <TText variant="label" weight="bold" uppercase style={styles.plateText}>Changer la photo</TText>
+          </View>
+        </>
+      ) : kind === 'video' && video ? (
+        <View style={styles.mediaPlaceholder}>
+          <View style={styles.iconFrame}>
+            <Ionicons name="checkmark" size={22} color={Colors.ink} />
+          </View>
+          <TText variant="bodySmall" weight="semibold">Vidéo sélectionnée</TText>
+          <TText variant="caption" color="secondary" tabular>
+            {videoSeconds ? `${videoSeconds} s · ` : ''}Appuyez pour en choisir une autre
+          </TText>
+        </View>
+      ) : (
+        <View style={styles.mediaPlaceholder}>
+          <View style={styles.iconFrame}>
+            <Ionicons name="add" size={22} color={Colors.ink} />
+          </View>
+          <TText variant="bodySmall" weight="semibold">
+            {kind === 'video' ? 'Sélectionner une vidéo' : 'Sélectionner une photo'}
+          </TText>
+          <TText variant="caption" color="secondary" style={styles.center}>
+            {kind === 'video'
+              ? `Verticale, ${MAX_VIDEO_SECONDS} s et 50 Mo maximum`
+              : 'Format portrait 4:5 recommandé'}
+          </TText>
+        </View>
+      )}
+    </Pressable>
+  );
+
+  const form = (
+    <View>
+      {kindSwitch}
+
+      {kind === 'link' && (
         <TInput
           label="Adresse de la vidéo"
           value={link}
@@ -296,64 +317,8 @@ function CreateForm({ user, router, insets }: {
           error={linkError}
           helper={reel ? 'Lien valide.' : undefined}
         />
-      </View>
-    </View>
-  ) : (
-    <PressableScale
-      onPress={handlePickMedia}
-      disabled={isPublishing}
-      accessibilityRole="button"
-      accessibilityLabel={kind === 'video'
-        ? (video ? 'Changer la vidéo' : 'Sélectionner une vidéo')
-        : (mediaUri ? 'Changer la photo' : 'Sélectionner une photo')}
-      style={[styles.mediaPicker, (kind === 'photo' ? mediaUri : video) ? styles.mediaPickerFilled : null]}
-    >
-      {kind === 'photo' && mediaUri ? (
-        <>
-          <RevealImage uri={mediaUri} style={StyleSheet.absoluteFill} accessibilityLabel="Aperçu de la réalisation" />
-          <LinearGradient colors={['rgba(11,10,9,0)', 'rgba(11,10,9,0.65)']} locations={[0.6, 1]} style={StyleSheet.absoluteFill} pointerEvents="none" />
-          <View style={styles.changeMediaBtn}>
-            <Ionicons name="camera-outline" size={15} color={Colors.textPrimary} />
-            <TText variant="caption" weight="medium">Changer la photo</TText>
-          </View>
-        </>
-      ) : kind === 'video' && video ? (
-        <View style={styles.mediaPlaceholder}>
-          <View style={styles.addIconRing}>
-            <Ionicons name="checkmark" size={26} color={Colors.accentWarm} />
-          </View>
-          <TText variant="body" weight="medium" style={{ marginTop: Spacing.sm }}>Vidéo sélectionnée</TText>
-          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 2 }}>
-            {videoSeconds ? `${videoSeconds} s · ` : ''}Appuyez pour en choisir une autre
-          </TText>
-        </View>
-      ) : (
-        <View style={styles.mediaPlaceholder}>
-          <View style={styles.addIconRing}>
-            <Ionicons name="add" size={26} color={Colors.accentWarm} />
-          </View>
-          <TText variant="body" weight="medium" style={{ marginTop: Spacing.sm }}>
-            {kind === 'video' ? 'Sélectionner une vidéo' : 'Sélectionner une photo'}
-          </TText>
-          <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>
-            {kind === 'video'
-              ? `Verticale, ${MAX_VIDEO_SECONDS} s et 50 Mo maximum`
-              : 'Format portrait 4:5 recommandé'}
-          </TText>
-        </View>
       )}
-    </PressableScale>
-  );
 
-  const picker = (
-    <View>
-      {kindSwitch}
-      {mediaArea}
-    </View>
-  );
-
-  const form = (
-    <View>
       <TInput
         label="Légende"
         optional
@@ -366,8 +331,8 @@ function CreateForm({ user, router, insets }: {
       />
 
       <View style={styles.tagsHeader}>
-        <TText variant="label" color="tertiary" uppercase>Styles</TText>
-        <TText variant="caption" color="tertiary" tabular accessibilityLiveRegion="polite">
+        <Kicker>Styles</Kicker>
+        <TText variant="caption" color="secondary" tabular accessibilityLiveRegion="polite">
           {selectedStyles.length} / {MAX_STYLES}
         </TText>
       </View>
@@ -376,19 +341,14 @@ function CreateForm({ user, router, insets }: {
           const isSelected = selectedStyles.includes(style.slug);
           const isDisabled = !isSelected && selectedStyles.length >= MAX_STYLES;
           return (
-            <PressableScale
+            <OptionChip
               key={style.id}
-              onPress={() => !isDisabled && toggleStyle(style.slug)}
+              role="checkbox"
+              label={style.name}
+              selected={isSelected}
               disabled={isDisabled}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: isSelected, disabled: isDisabled }}
-              accessibilityLabel={style.name}
-              style={[styles.chip, isSelected && styles.chipSelected, isDisabled && styles.chipDisabled]}
-            >
-              <TText variant="caption" weight="medium" style={{ fontSize: 13, color: isSelected ? Colors.textInverse : Colors.textSecondary }}>
-                {style.name}
-              </TText>
-            </PressableScale>
+              onPress={() => toggleStyle(style.slug)}
+            />
           );
         })}
       </View>
@@ -396,10 +356,10 @@ function CreateForm({ user, router, insets }: {
       {/* ── Cartel: the wall label of the piece ── */}
       <View style={styles.cartel}>
         <View style={styles.tagsHeader}>
-          <TText variant="label" color="tertiary" uppercase>Cartel</TText>
-          <TText variant="caption" color="tertiary">Optionnel</TText>
+          <Kicker>Cartel</Kicker>
+          <TText variant="caption" color="secondary">Optionnel</TText>
         </View>
-        <TText variant="caption" color="tertiary" style={styles.cartelLead}>
+        <TText variant="caption" color="secondary" style={styles.cartelLead}>
           {isPhoto
             ? 'Comme l’étiquette au mur d’une galerie : un titre, l’emplacement, la durée de la séance.'
             : 'Un titre et, si vous le souhaitez, la série à laquelle appartient la vidéo.'}
@@ -435,31 +395,28 @@ function CreateForm({ user, router, insets }: {
               inputMode="decimal"
               maxLength={5}
               error={sessionError}
-              rightElement={<TText variant="bodySmall" color="tertiary">heures</TText>}
+              rightElement={<TText variant="bodySmall" color="secondary">heures</TText>}
             />
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setIsHealed((v) => !v);
-              }}
-              accessibilityRole="switch"
-              accessibilityLabel="Photo cicatrisée"
-              accessibilityHint="Indique que la pièce a été photographiée une fois cicatrisée."
-              accessibilityState={{ checked: isHealed }}
-              style={styles.toggleRow}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <TText variant="body" weight="medium">Photo cicatrisée</TText>
-                <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>
-                  La pièce a été photographiée une fois guérie.
-                </TText>
-              </View>
-              <Toggle value={isHealed} />
-            </Pressable>
+            <View style={styles.toggleRow}>
+              <SettingRow
+                title="Photo cicatrisée"
+                description="La pièce a été photographiée une fois guérie."
+                right={(
+                  <Toggle
+                    value={isHealed}
+                    label="Photo cicatrisée"
+                    onChange={(next) => {
+                      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setIsHealed(next);
+                    }}
+                  />
+                )}
+              />
+            </View>
           </>
         )}
 
-        <TText variant="caption" weight="medium" color="secondary" style={styles.seriesLabel}>Série</TText>
+        <TText variant="caption" weight="semibold" style={styles.seriesLabel}>Série</TText>
         <View style={styles.seriesRow}>
           {seriesList.map((s) => (
             <TChip
@@ -476,7 +433,7 @@ function CreateForm({ user, router, insets }: {
           />
         </View>
         {newSeriesOpen && (
-          <Animated.View entering={fadeIn()} style={styles.newSeries}>
+          <View style={styles.newSeries}>
             <TInput
               label="Titre de la série"
               value={newSeriesTitle}
@@ -498,17 +455,38 @@ function CreateForm({ user, router, insets }: {
               loading={creatingSeries}
               disabled={!newSeriesTitle.trim() || creatingSeries}
             />
-          </Animated.View>
+          </View>
         )}
       </View>
+    </View>
+  );
 
+  // What the post will carry, read back before sending.
+  const seriesTitle = seriesList.find((s) => s.id === seriesId)?.title;
+  const preview = (
+    <CartelPreview
+      title={title}
+      rows={[
+        { label: 'Média', value: kind === 'photo' ? (mediaUri ? 'Photo' : null) : kind === 'video' ? (video ? 'Vidéo' : null) : (reel ? `Lien ${REEL_PROVIDER_LABEL[reel.provider]}` : null) },
+        { label: 'Emplacement', value: isPhoto ? bodyZone : null },
+        { label: 'Durée de séance', value: isPhoto && sessionHours !== null && !Number.isNaN(sessionHours) ? `${sessionHours.toLocaleString('fr-FR')} h` : null },
+        { label: 'État', value: isPhoto && isHealed ? 'Cicatrisé' : null },
+        { label: 'Styles', value: selectedStyles.map((slug) => STYLE_NAMES.get(slug) ?? slug).join(', ') },
+        { label: 'Série', value: seriesTitle },
+      ]}
+      note={caption.trim() ? `« ${caption.trim()} »` : 'Sans légende.'}
+    />
+  );
+
+  const submit = (
+    <View style={styles.submit}>
       {isPublishing && kind !== 'link' && (
-        <Animated.View entering={fadeIn()} style={styles.progressWrap}>
-          <TProgressBar progress={uploadProgress} color={Colors.accentWarm} />
-          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
+        <View style={styles.progressWrap}>
+          <TProgressBar progress={uploadProgress} color={Colors.flame} />
+          <TText variant="caption" color="secondary" tabular style={{ marginTop: 6 }}>
             Envoi en cours… {Math.round(uploadProgress * 100)} %
           </TText>
-        </Animated.View>
+        </View>
       )}
 
       <TButton
@@ -518,7 +496,7 @@ function CreateForm({ user, router, insets }: {
         disabled={!canPublish || isPublishing}
       />
       {!canPublish && (
-        <TText variant="caption" color="tertiary" style={{ textAlign: 'center', marginTop: Spacing['2xs'] }}>
+        <TText variant="caption" color="secondary" style={{ textAlign: 'center', marginTop: Spacing['2xs'] }}>
           {kind === 'photo' ? 'Ajoutez une photo pour publier.' : kind === 'video' ? 'Ajoutez une vidéo pour publier.' : 'Collez un lien pour publier.'}
         </TText>
       )}
@@ -532,14 +510,41 @@ function CreateForm({ user, router, insets }: {
     >
       <THeader title="Nouvelle réalisation" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.columns, wide && styles.columnsWide]}>
-          <Animated.View entering={enterUp(0)} style={wide ? styles.colMedia : undefined}>{picker}</Animated.View>
-          <Animated.View entering={enterUp(1)} style={wide ? styles.colForm : styles.formStacked}>{form}</Animated.View>
-        </View>
+        <PageWrap>
+          <Masthead
+            kicker="Publication / Œuvre"
+            title="Une pièce."
+            emphasis="Une histoire."
+            breakEmphasis
+            description="Publiez une réalisation avec son contexte : le média, quelques styles et, si vous le souhaitez, son cartel."
+          />
+          {isWide ? (
+            <View style={styles.columns}>
+              <Panel style={styles.colForm}>
+                {form}
+                <Rule tone="ink" style={{ marginBottom: Spacing.md }} />
+                {submit}
+              </Panel>
+              <View style={styles.colPreview}>
+                <Kicker tone="muted" style={{ marginBottom: Spacing.sm }}>Aperçu / Avant envoi</Kicker>
+                {mediaArea}
+                <View style={{ marginTop: Spacing.lg }}>{preview}</View>
+              </View>
+            </View>
+          ) : (
+            <>
+              {mediaArea}
+              <View style={styles.formStacked}>{form}</View>
+              <Rule tone="ink" />
+              <View style={{ paddingVertical: Spacing.lg }}>{preview}</View>
+              {submit}
+            </>
+          )}
+        </PageWrap>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -547,80 +552,57 @@ function CreateForm({ user, router, insets }: {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
-  columns: {},
-  columnsWide: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
-  colMedia: { flex: 1, maxWidth: 520 },
-  colForm: { flex: 1, maxWidth: Layout.maxReading },
+  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
+  colForm: { flex: 1.25, minWidth: 0 },
+  colPreview: { flex: 1, minWidth: 0, maxWidth: 480 },
   formStacked: { marginTop: Spacing.lg },
+  center: { textAlign: 'center' },
 
-  // Media picker
-  kinds: {
-    flexDirection: 'row', gap: 4, padding: 4, marginBottom: Spacing.sm, borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+  // Media
+  kinds: { alignSelf: 'stretch', marginBottom: Spacing.lg },
+  linkPanel: {
+    alignItems: 'center', justifyContent: 'center', padding: Spacing.md, gap: 8, minHeight: 220,
+    borderWidth: 1, borderColor: Colors.line, backgroundColor: Colors.white,
   },
-  kind: {
-    flex: 1, minHeight: 40, flexDirection: 'row', gap: 6,
-    alignItems: 'center', justifyContent: 'center', borderRadius: Radius.sm,
-  },
-  kindSelected: { backgroundColor: Colors.bgElevated },
-  linkPanel: { alignItems: 'center', justifyContent: 'center', padding: Spacing.md },
-  linkInput: { alignSelf: 'stretch', marginTop: Spacing.md },
   mediaPicker: {
     aspectRatio: 4 / 5,
     maxHeight: 560,
     width: '100%',
-    borderRadius: Radius.xl,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
+    borderColor: Colors.ink,
+    backgroundColor: Colors.white,
     overflow: 'hidden',
   },
-  mediaPickerFilled: { borderStyle: 'solid', borderColor: Colors.borderSubtle },
-  mediaPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
-  addIconRing: {
-    width: 56, height: 56, borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+  mediaPickerFilled: { borderStyle: 'solid', borderColor: Colors.line, backgroundColor: Colors.clay },
+  mediaPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg, gap: 8, backgroundColor: Colors.white },
+  iconFrame: {
+    width: 48, height: 48, marginBottom: 4,
+    borderWidth: 1, borderColor: Colors.ink,
     alignItems: 'center', justifyContent: 'center',
   },
-  changeMediaBtn: {
+  changePlate: {
     position: 'absolute', bottom: 12, right: 12,
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(11,10,9,0.6)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
-    borderRadius: Radius.full,
-    paddingHorizontal: 12, height: 34,
+    backgroundColor: Colors.paper, paddingHorizontal: 10, minHeight: 32,
   },
+  plateText: { color: Colors.ink, letterSpacing: 0.8 },
 
   // Style chips
   tagsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
   stylesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.lg },
-  chip: {
-    height: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault,
-  },
-  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  chipDisabled: { opacity: 0.38 },
 
   // Cartel
   cartel: {
     marginBottom: Spacing.lg, paddingTop: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
   cartelLead: { marginTop: -4, marginBottom: Spacing.md },
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    minHeight: 56, marginBottom: Spacing.md,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  seriesLabel: { marginBottom: 8 },
+  toggleRow: { marginTop: -Spacing.xs, marginBottom: Spacing.md },
+  seriesLabel: { marginBottom: 8, fontSize: 12 },
   seriesRow: { flexDirection: 'row', flexWrap: 'wrap' },
   newSeries: { marginTop: Spacing['2xs'] },
 
+  submit: {},
   progressWrap: { marginBottom: Spacing.md },
 });

@@ -1,21 +1,22 @@
 import React, { useEffect, useMemo } from 'react';
 import {
-  FlatList, StyleSheet, View, RefreshControl,
+  FlatList, StyleSheet, View, RefreshControl, Pressable, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated from 'react-native-reanimated';
 import { format } from 'date-fns/format';
 import { isToday } from 'date-fns/isToday';
 import { isYesterday } from 'date-fns/isYesterday';
 import { fr } from 'date-fns/locale/fr';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
+import { TButton } from '@/components/ui/TButton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PressableScale, enterUp } from '@/components/motion';
+import { Kicker, Masthead, Rule } from '@/components/v5';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useNotificationStore, AppNotification } from '@/store/notification-store';
 import { useAuthStore } from '@/store/auth-store';
 
@@ -38,20 +39,20 @@ type NotifType =
   | 'system';
 
 const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
-  new_request:   { icon: 'document-text-outline', color: Colors.accentWarm, label: 'Demande' },
-  message:       { icon: 'chatbubble-outline', color: Colors.textPrimary, label: 'Message' },
+  new_request:   { icon: 'document-text-outline', color: Colors.flameText, label: 'Demande' },
+  message:       { icon: 'chatbubble-outline', color: Colors.ink, label: 'Message' },
   accepted:      { icon: 'checkmark', color: Colors.success, label: 'Acceptée' },
   declined:      { icon: 'close', color: Colors.error, label: 'Refusée' },
-  appointment:   { icon: 'calendar-outline', color: Colors.accentWarm, label: 'Rendez-vous' },
-  like:          { icon: 'heart-outline', color: Colors.accentGlow, label: 'J’aime' },
-  new_post:      { icon: 'image-outline', color: Colors.accentGlow, label: 'Nouvelle pièce' },
-  new_follower:  { icon: 'person-add-outline', color: Colors.accentWarm, label: 'Nouvel abonné' },
+  appointment:   { icon: 'calendar-outline', color: Colors.flameText, label: 'Rendez-vous' },
+  like:          { icon: 'heart-outline', color: Colors.flameText, label: 'J’aime' },
+  new_post:      { icon: 'image-outline', color: Colors.flameText, label: 'Nouvelle pièce' },
+  new_follower:  { icon: 'person-add-outline', color: Colors.flameText, label: 'Nouvel abonné' },
   book_reopened: { icon: 'calendar-outline', color: Colors.success, label: 'Réouverture' },
-  appointment_reminder:   { icon: 'alarm-outline', color: Colors.accentWarm, label: 'Rappel' },
+  appointment_reminder:   { icon: 'alarm-outline', color: Colors.flameText, label: 'Rappel' },
   appointment_reschedule: { icon: 'swap-horizontal-outline', color: Colors.warning, label: 'Report demandé' },
   appointment_canceled:   { icon: 'calendar-clear-outline', color: Colors.error, label: 'Annulation' },
-  healed_photo:           { icon: 'sparkles-outline', color: Colors.accentGlow, label: 'Photo cicatrisée' },
-  healed_photo_reminder:  { icon: 'camera-outline', color: Colors.accentWarm, label: 'Photo cicatrisée' },
+  healed_photo:           { icon: 'sparkles-outline', color: Colors.flameText, label: 'Photo cicatrisée' },
+  healed_photo_reminder:  { icon: 'camera-outline', color: Colors.flameText, label: 'Photo cicatrisée' },
   system:        { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
 };
 
@@ -145,14 +146,13 @@ function NotifItem({
   const sentence = SENTENCE_TYPES.has(type) && !!item.body;
 
   return (
-    <PressableScale
+    <Pressable
       onPress={onPress}
-      pressedScale={0.985}
       accessibilityRole="button"
       accessibilityLabel={sentence
         ? `${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title} ${item.body}`
         : `${unread ? 'Non lue. ' : ''}${conf.label}. ${item.title}. ${item.body ?? ''}`}
-      style={styles.item}
+      style={(state) => [styles.item, ((state as { hovered?: boolean }).hovered || state.pressed) && styles.itemActive]}
     >
       <View style={[styles.icon, unread && styles.iconUnread]}>
         <Ionicons name={conf.icon} size={17} color={conf.color} />
@@ -189,9 +189,9 @@ function NotifItem({
 
       <View style={styles.trailing}>
         {unread && <View style={styles.unreadDot} />}
-        {navigable && <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />}
+        {navigable && <Ionicons name="arrow-forward" size={14} color={Colors.textTertiary} />}
       </View>
-    </PressableScale>
+    </Pressable>
   );
 }
 
@@ -201,7 +201,7 @@ function ListSkeleton() {
       <TSkeleton width={80} height={11} style={{ marginTop: Spacing.lg, marginBottom: Spacing.sm }} />
       {[0, 1, 2, 3, 4].map((i) => (
         <View key={i} style={styles.skeletonRow}>
-          <TSkeleton width={40} height={40} radius={20} />
+          <TSkeleton width={40} height={40} />
           <View style={{ flex: 1, gap: 8 }}>
             <TSkeleton width="65%" height={13} />
             <TSkeleton width="90%" height={11} />
@@ -216,6 +216,7 @@ function ListSkeleton() {
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { gutter } = useContentDimensions();
   const { user } = useAuthStore();
   const { notifications, isLoading, fetch, markRead, markAllRead, subscribe, unsubscribe } =
     useNotificationStore();
@@ -268,32 +269,32 @@ export default function NotificationsScreen() {
   }
 
   const header = (
-    <View style={styles.masthead}>
-      <Animated.View entering={enterUp(0)}>
-        <TText variant="displayM" accessibilityRole="header">
-          Vos <TText variant="displayM" italic color="accentGlow">notifications</TText>
-        </TText>
-      </Animated.View>
-      <Animated.View entering={enterUp(1)} style={styles.summaryRow}>
-        <TText variant="bodySmall" color="tertiary" tabular accessibilityLiveRegion="polite" style={{ flex: 1 }}>
+    <View>
+      <Masthead
+        kicker="Le signal"
+        title="Les nouvelles"
+        emphasis="qui comptent."
+        description="Vos demandes, messages et rendez-vous, et les nouvelles des artistes que vous suivez."
+        style={styles.masthead}
+      />
+      <View style={styles.summaryRow}>
+        <TText variant="label" weight="bold" uppercase tabular color="tertiary" accessibilityLiveRegion="polite" style={{ flex: 1 }}>
           {unreadCount > 0
             ? `${unreadCount} non lue${unreadCount > 1 ? 's' : ''}`
             : notifications.length > 0 ? 'Tout est lu' : 'Demandes, messages et rendez-vous'}
         </TText>
         {unreadCount > 0 && (
-          <PressableScale
+          <TButton
+            title="Tout marquer comme lu"
+            variant="secondary"
+            size="md"
+            fullWidth={false}
             onPress={handleMarkAll}
-            haptic
-            accessibilityRole="button"
             accessibilityLabel="Tout marquer comme lu"
-            hitSlop={8}
-            style={styles.markAll}
-          >
-            <Ionicons name="checkmark-done-outline" size={16} color={Colors.textSecondary} />
-            <TText variant="caption" weight="medium" color="secondary">Tout marquer comme lu</TText>
-          </PressableScale>
+            icon={<Ionicons name="checkmark-done-outline" size={15} color={Colors.ink} />}
+          />
         )}
-      </Animated.View>
+      </View>
     </View>
   );
 
@@ -306,8 +307,9 @@ export default function NotificationsScreen() {
         renderItem={({ item: [groupDate, items] }) => (
           <View>
             <View style={styles.groupHeader}>
-              <TText variant="label" color="tertiary" uppercase>{groupDate}</TText>
+              <Kicker>{groupDate}</Kicker>
             </View>
+            <Rule tone="ink" />
             {items.map((notif) => (
               <NotifItem
                 key={notif.id}
@@ -318,7 +320,7 @@ export default function NotificationsScreen() {
           </View>
         )}
         style={styles.list}
-        contentContainerStyle={[styles.frame, { paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={[styles.frame, { paddingHorizontal: gutter, paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={header}
         refreshControl={
@@ -350,40 +352,42 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   list: { flex: 1 },
-  frame: { width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center', paddingHorizontal: Layout.gutter },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  masthead: { paddingTop: Spacing.md, paddingBottom: Spacing.sm },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 6, minHeight: 40 },
-  markAll: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 },
+  masthead: { marginBottom: Spacing.sm, borderBottomWidth: 0 },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.sm, minHeight: 46, maxWidth: 820 },
 
-  groupHeader: {
-    paddingTop: Spacing.lg, paddingBottom: Spacing['2xs'],
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
-  },
+  groupHeader: { paddingTop: Spacing.xl, paddingBottom: Spacing.xs, maxWidth: 820 },
 
   item: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 14,
+    maxWidth: 820,
     paddingVertical: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+    paddingHorizontal: Spacing['2xs'],
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color', transitionDuration: '180ms' } as object)
+      : null),
   },
+  itemActive: { backgroundColor: Colors.wash },
   icon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.white,
   },
-  iconUnread: { borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber },
-  content: { flex: 1, paddingTop: 1 },
+  iconUnread: { borderColor: Colors.ink },
+  content: { flex: 1, minWidth: 0, paddingTop: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs },
   body: { marginTop: 3 },
   trailing: { width: 14, alignSelf: 'center', alignItems: 'center', gap: 6 },
-  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accentWarm },
+  unreadDot: { width: 6, height: 6, borderRadius: Radius.full, backgroundColor: Colors.flame },
 
   skeletonRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: Spacing.sm },
 

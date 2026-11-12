@@ -5,7 +5,7 @@ import {
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { Colors, Radius, Shadow } from '@/constants/theme';
+import { Colors, Shadow } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { Toast } from '@/components/ui/TToast';
 import { EASE_OUT, PressableScale } from '@/components/motion';
@@ -18,6 +18,8 @@ interface ReactionBarProps {
   compact?: boolean;
   initialCounts?: ReactionCounts;
   initialMine?: ReactionKey | null;
+  /** Drawn over a video or an ink panel: light hairlines and text. */
+  onInk?: boolean;
 }
 
 const EMPTY: ReactionCounts = Object.freeze({}) as ReactionCounts;
@@ -41,7 +43,7 @@ interface Anchor { x: number; y: number; width: number; height: number }
  * button opening the five-emoji picker. One reaction per person: tapping your
  * current one removes it. Optimistic, rolled back with a toast on failure.
  */
-export function ReactionBar({ postId, compact = false, initialCounts, initialMine }: ReactionBarProps) {
+export function ReactionBar({ postId, compact = false, initialCounts, initialMine, onInk = false }: ReactionBarProps) {
   const router = useRouter();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -137,6 +139,7 @@ export function ReactionBar({ postId, compact = false, initialCounts, initialMin
               reaction={r}
               selected={mine === r.key}
               compact={compact}
+              onInk={onInk}
               onPress={() => { void choose(r.key); }}
             />
           ))}
@@ -158,10 +161,15 @@ export function ReactionBar({ postId, compact = false, initialCounts, initialMin
                 accessibilityLabel={`${r.label}, ${n}`}
                 accessibilityHint={selected ? 'Retire votre réaction.' : 'Réagir avec cet emoji.'}
                 accessibilityState={{ selected, disabled: pending }}
-                style={[styles.chip, styles[`chip_${size}`], selected && styles.chipSelected]}
+                style={[styles.chip, styles[`chip_${size}`], onInk && styles.chipOnInk, selected && (onInk ? styles.chipSelectedOnInk : styles.chipSelected)]}
               >
                 <TText style={{ fontSize: emojiSize, lineHeight: emojiSize + 4 }}>{r.emoji}</TText>
-                <TText variant="caption" tabular color={selected ? 'accentGlow' : 'secondary'} style={compact ? styles.countCompact : undefined}>
+                <TText
+                  variant="caption"
+                  tabular
+                  color={onInk ? (selected ? 'flameOnInk' : 'onInk') : selected ? 'accentWarm' : 'secondary'}
+                  style={compact ? styles.countCompact : undefined}
+                >
                   {formatCount(n)}
                 </TText>
               </PressableScale>
@@ -170,7 +178,7 @@ export function ReactionBar({ postId, compact = false, initialCounts, initialMin
           {hiddenTotal > 0 && (
             <TText
               variant="caption"
-              color="tertiary"
+              color={onInk ? 'onInkMuted' : 'tertiary'}
               tabular
               style={styles.more}
               accessibilityLabel={`et ${hiddenTotal} autre${hiddenTotal > 1 ? 's' : ''} réaction${hiddenTotal > 1 ? 's' : ''}`}
@@ -189,17 +197,17 @@ export function ReactionBar({ postId, compact = false, initialCounts, initialMin
           accessibilityRole="button"
           accessibilityLabel={open ? 'Fermer les réactions' : mine ? `Changer votre réaction (${META[mine].label})` : 'Réagir'}
           accessibilityState={{ expanded: open }}
-          style={[styles.toggle, styles[`toggle_${size}`], open && styles.toggleOpen]}
+          style={[styles.toggle, styles[`toggle_${size}`], onInk && styles.toggleOnInk, open && (onInk ? styles.toggleOpenOnInk : styles.toggleOpen)]}
         >
           {open
-            ? <Ionicons name="close" size={compact ? 15 : 17} color={Colors.textPrimary} />
+            ? <Ionicons name="close" size={compact ? 15 : 17} color={onInk ? Colors.onInk : Colors.ink} />
             : mine && chips.length === 0
               ? <TText style={{ fontSize: emojiSize, lineHeight: emojiSize + 4 }}>{META[mine].emoji}</TText>
               : (
                 <View style={styles.smiley}>
-                  <Ionicons name="happy-outline" size={compact ? 16 : 18} color={Colors.textSecondary} />
-                  <View style={styles.plusDot}>
-                    <Ionicons name="add" size={9} color={Colors.textInverse} />
+                  <Ionicons name="happy-outline" size={compact ? 16 : 18} color={onInk ? Colors.onInk : Colors.textSecondary} />
+                  <View style={[styles.plusDot, onInk && styles.plusDotOnInk]}>
+                    <Ionicons name="add" size={9} color="#FFFFFF" />
                   </View>
                 </View>
               )}
@@ -242,8 +250,8 @@ export function ReactionBar({ postId, compact = false, initialCounts, initialMin
   );
 }
 
-function EmojiButton({ reaction, selected, onPress, compact, large }: {
-  reaction: (typeof REACTIONS)[number]; selected: boolean; onPress: () => void; compact?: boolean; large?: boolean;
+function EmojiButton({ reaction, selected, onPress, compact, large, onInk }: {
+  reaction: (typeof REACTIONS)[number]; selected: boolean; onPress: () => void; compact?: boolean; large?: boolean; onInk?: boolean;
 }) {
   const dim = large ? POPOVER_EMOJI : compact ? 32 : 36;
   const font = large ? 22 : compact ? 17 : 19;
@@ -256,7 +264,7 @@ function EmojiButton({ reaction, selected, onPress, compact, large }: {
       accessibilityLabel={reaction.label}
       accessibilityHint={selected ? 'Votre réaction actuelle. Appuyez pour la retirer.' : undefined}
       accessibilityState={{ selected }}
-      style={[styles.emojiBtn, { width: dim, height: dim, borderRadius: dim / 2 }, selected && styles.emojiSelected]}
+      style={[styles.emojiBtn, { width: dim, height: dim }, selected && (onInk ? styles.emojiSelectedOnInk : styles.emojiSelected)]}
     >
       <TText style={{ fontSize: font, lineHeight: font + 6 }}>{reaction.emoji}</TText>
     </PressableScale>
@@ -268,44 +276,48 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, flexWrap: 'wrap' },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderRadius: Radius.full,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: Colors.glassBg,
+    borderWidth: 1, borderColor: Colors.line,
+    backgroundColor: 'transparent',
   },
   chip_regular: { height: 32, paddingHorizontal: 10 },
   chip_compact: { height: 28, paddingHorizontal: 8 },
-  chipSelected: { borderColor: Colors.borderGlow, backgroundColor: Colors.accentMuted },
+  chipOnInk: { borderColor: Colors.onInkLine },
+  chipSelected: { borderColor: Colors.flame, backgroundColor: Colors.flameSoft },
+  chipSelectedOnInk: { borderColor: Colors.flameOnInk, backgroundColor: Colors.inkRaised },
   countCompact: { fontSize: 12 },
   more: { paddingHorizontal: 2 },
 
   toggle: {
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    borderWidth: 1, borderColor: Colors.line,
     ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
-  toggle_regular: { width: 36, height: 36, borderRadius: 18 },
-  toggle_compact: { width: 32, height: 32, borderRadius: 16 },
-  toggleOpen: { borderColor: Colors.borderGlow, backgroundColor: Colors.glassBgMid },
+  toggle_regular: { width: 36, height: 36 },
+  toggle_compact: { width: 32, height: 32 },
+  toggleOnInk: { borderColor: Colors.onInkLine },
+  toggleOpen: { borderColor: Colors.ink, backgroundColor: Colors.wash },
+  toggleOpenOnInk: { borderColor: Colors.onInk, backgroundColor: Colors.inkRaised },
   smiley: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   plusDot: {
     position: 'absolute', right: -4, bottom: -3,
-    width: 12, height: 12, borderRadius: 6,
+    width: 12, height: 12,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.accentWarm,
-    borderWidth: 1, borderColor: Colors.bgPrimary,
+    backgroundColor: Colors.flame,
+    borderWidth: 1, borderColor: Colors.paper,
   },
+  plusDotOnInk: { borderColor: Colors.inkPanel },
 
   inlinePicker: { flexDirection: 'row', alignItems: 'center', gap: 2, flexWrap: 'wrap', flexShrink: 1 },
-  emojiBtn: { alignItems: 'center', justifyContent: 'center' },
-  emojiSelected: { backgroundColor: Colors.accentMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow },
+  emojiBtn: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
+  emojiSelected: { backgroundColor: Colors.flameSoft, borderColor: Colors.flame },
+  emojiSelectedOnInk: { backgroundColor: Colors.inkRaised, borderColor: Colors.flameOnInk },
 
   popover: {
     position: 'absolute',
     flexDirection: 'row', gap: 2,
     padding: POPOVER_PAD,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
-    ...Shadow.md,
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.ink,
+    ...Shadow.sm,
   },
 });

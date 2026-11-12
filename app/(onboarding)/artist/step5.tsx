@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Pressable, Platform, useWindowDimensions, StyleProp, ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, RadioMark, useOnboardingFinale } from '@/components/OnboardingProgress';
-import { PressableScale } from '@/components/motion/PressableScale';
+import { Kicker } from '@/components/v5';
+import { OnboardingScreen, haptic, useOnboardingFinale } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 
 const TOTAL = 5;
@@ -32,10 +32,15 @@ const PREMIUM_FEATURES = [
 
 type Plan = 'free' | 'premium';
 
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+  : null;
+
 function FeatureRow({ text, premium }: { text: string; premium?: boolean }) {
   return (
     <View style={styles.featureRow}>
-      <Ionicons name="checkmark" size={14} color={premium ? Colors.accentWarm : Colors.textTertiary} />
+      <Ionicons name="checkmark" size={14} color={premium ? Colors.flameText : Colors.textSecondary} />
       <TText variant="bodySmall" color={premium ? 'primary' : 'secondary'} style={styles.featureText}>
         {text}
       </TText>
@@ -43,33 +48,40 @@ function FeatureRow({ text, premium }: { text: string; premium?: boolean }) {
   );
 }
 
+/** Plan cell: white sheet, hairline; selected = vermilion border, soft vermilion ground, corner mark. */
 function PlanCard({
   plan,
   selected,
   onSelect,
+  style,
   children,
 }: {
   plan: Plan;
   selected: boolean;
   onSelect: () => void;
+  style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }) {
   const premium = plan === 'premium';
   return (
-    <PressableScale
-      onPress={onSelect}
-      haptic={!selected}
-      pressedScale={0.985}
+    <Pressable
+      onPress={() => {
+        if (!selected) haptic();
+        onSelect();
+      }}
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={premium ? 'Formule Premium' : 'Formule gratuite'}
-      style={[styles.card, selected && (premium ? styles.cardPremiumSelected : styles.cardSelected)]}
+      style={(state) => [
+        styles.card,
+        webPointer,
+        ((state as Hover).hovered || selected) && styles.cardSelected,
+        style,
+      ]}
     >
-      <View style={styles.radioSlot}>
-        <RadioMark selected={selected} />
-      </View>
+      {selected ? <View style={styles.cardMark} /> : null}
       {children}
-    </PressableScale>
+    </Pressable>
   );
 }
 
@@ -101,11 +113,15 @@ export default function ArtistStep5() {
   };
 
   const select = (plan: Plan) => setSelected(plan);
+  const { width } = useWindowDimensions();
+  const twoUp = width >= 900;
 
   return (
     <OnboardingScreen
+      audience="artist"
       step={STEP}
       total={TOTAL}
+      label="Votre formule"
       title="Choisissez"
       accent="votre formule"
       lede="Vous pourrez en changer à tout moment depuis vos réglages."
@@ -140,25 +156,26 @@ export default function ArtistStep5() {
         )
       }
     >
-      <View accessibilityRole="radiogroup" style={styles.cards}>
-        <PlanCard plan="free" selected={selected === 'free'} onSelect={() => select('free')}>
-          <TText variant="title2" weight="semibold" style={styles.planName}>Gratuit</TText>
+      <View accessibilityRole="radiogroup" style={[styles.cards, twoUp && styles.cardsWide]}>
+        <PlanCard plan="free" selected={selected === 'free'} onSelect={() => select('free')} style={twoUp ? styles.cardWide : undefined}>
+          <Kicker tone="muted" style={styles.kicker}>01 / Gratuit</Kicker>
+          <TText variant="displayS" style={styles.planName}>Gratuit</TText>
           <View style={styles.priceRow}>
-            <TText variant="displayS" tabular>{'0 €'}</TText>
-            <TText variant="caption" color="tertiary" style={styles.priceUnit}>sans engagement</TText>
+            <TText variant="displayM" tabular style={styles.price}>{'0 €'}</TText>
+            <TText variant="caption" color="secondary">sans engagement</TText>
           </View>
           <View style={styles.divider} />
           {FREE_FEATURES.map((f) => <FeatureRow key={f} text={f} />)}
         </PlanCard>
 
-        <PlanCard plan="premium" selected={selected === 'premium'} onSelect={() => select('premium')}>
-          <TText variant="label" color="accentWarm" uppercase style={styles.kicker}>Recommandé</TText>
-          <TText variant="title2" weight="semibold" style={styles.planName}>Premium</TText>
+        <PlanCard plan="premium" selected={selected === 'premium'} onSelect={() => select('premium')} style={twoUp ? styles.cardWide : undefined}>
+          <Kicker tone="flame" style={styles.kicker}>02 / Recommandé</Kicker>
+          <TText variant="displayS" style={styles.planName}>Premium</TText>
           <View style={styles.priceRow}>
-            <TText variant="displayS" color="accentGlow" tabular>{`${MONTHLY_PRICE} €`}</TText>
-            <TText variant="caption" color="tertiary" style={styles.priceUnit}>par mois</TText>
+            <TText variant="displayM" tabular style={[styles.price, { color: Colors.accentGlow }]}>{`${MONTHLY_PRICE} €`}</TText>
+            <TText variant="caption" color="secondary">par mois</TText>
           </View>
-          <TText variant="caption" color="tertiary" tabular>{`ou ${YEARLY_PRICE} € par an`}</TText>
+          <TText variant="caption" color="secondary" tabular>{`ou ${YEARLY_PRICE} € par an`}</TText>
           <View style={styles.divider} />
           {PREMIUM_FEATURES.map((f) => <FeatureRow key={f} text={f} premium />)}
         </PlanCard>
@@ -169,27 +186,22 @@ export default function ArtistStep5() {
 
 const styles = StyleSheet.create({
   cards: { gap: Spacing.xs },
+  cardsWide: { flexDirection: 'row', alignItems: 'stretch' },
   card: {
-    padding: Spacing.md,
-    borderRadius: Radius.xl,
+    padding: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgCard,
+    borderColor: Colors.line,
+    backgroundColor: Colors.white,
   },
-  cardSelected: { borderColor: Colors.accent },
-  cardPremiumSelected: { borderColor: Colors.borderGlow, backgroundColor: Colors.bgElevated },
+  cardWide: { flex: 1, minWidth: 0 },
+  cardSelected: { borderColor: Colors.flame, backgroundColor: Colors.flameSoft },
+  cardMark: { position: 'absolute', top: 0, right: 0, width: 10, height: 10, backgroundColor: Colors.flame },
 
-  radioSlot: { position: 'absolute', top: Spacing.md, right: Spacing.md },
-
-  kicker: { marginBottom: 6 },
-  planName: { marginBottom: 4, paddingRight: 32 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  priceUnit: { marginBottom: 2 },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderDefault,
-    marginVertical: Spacing.sm,
-  },
+  kicker: { marginBottom: Spacing.sm },
+  planName: { marginBottom: 6 },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 },
+  price: { fontSize: 40, lineHeight: 42 },
+  divider: { height: 1, backgroundColor: Colors.line, marginVertical: Spacing.sm },
   featureRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 28 },
   featureText: { flex: 1 },
 });

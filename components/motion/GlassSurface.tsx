@@ -5,22 +5,25 @@ import { BlurView } from 'expo-blur';
 interface GlassSurfaceProps {
   style?: StyleProp<ViewStyle>;
   intensity?: number;
+  /** `paper` (default) for bars over pages, `ink` for bars over photography. */
+  tone?: 'paper' | 'ink';
   children?: React.ReactNode;
 }
 
 /**
- * Frosted gallery glass for bars floating over photography.
+ * Frosted bar surface. Paper tone over pages, ink tone over photography.
  * iOS and web get a real backdrop blur; Android gets a near-opaque wall tone
  * (its blur is costly and inconsistent across devices).
  */
-export function GlassSurface({ style, intensity = 40, children }: GlassSurfaceProps) {
+export function GlassSurface({ style, intensity = 40, tone = 'paper', children }: GlassSurfaceProps) {
+  const ink = tone === 'ink';
   if (Platform.OS === 'android') {
-    return <View style={[styles.android, style]}>{children}</View>;
+    return <View style={[ink ? styles.androidInk : styles.android, style]}>{children}</View>;
   }
   return (
     <View style={[styles.wrap, style]}>
-      <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={[StyleSheet.absoluteFill, styles.tint]} pointerEvents="none" />
+      <BlurView intensity={intensity} tint={ink ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+      <View style={[StyleSheet.absoluteFill, ink ? styles.tintInk : styles.tint]} pointerEvents="none" />
       {children}
     </View>
   );
@@ -28,6 +31,8 @@ export function GlassSurface({ style, intensity = 40, children }: GlassSurfacePr
 
 const styles = StyleSheet.create({
   wrap: { overflow: 'hidden' },
-  tint: { backgroundColor: 'rgba(11,10,9,0.55)' },
-  android: { backgroundColor: 'rgba(11,10,9,0.96)' },
+  tint: { backgroundColor: 'rgba(240,236,227,0.90)' },
+  tintInk: { backgroundColor: 'rgba(18,19,16,0.62)' },
+  android: { backgroundColor: 'rgba(240,236,227,0.98)' },
+  androidInk: { backgroundColor: 'rgba(18,19,16,0.96)' },
 });

@@ -1,15 +1,15 @@
 import React, { useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, withSequence, withTiming, useReducedMotion,
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { PressableScale, RevealImage, Springs, EASE_OUT } from '@/components/motion';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
+import { Kicker, StatusDot } from './v5';
 import { ArtPlaceholder, BOOKING_STATUS, styleName } from './ArtistCard';
 import { parseReelUrl, REEL_PROVIDER_LABEL, type ReelProvider } from '@/lib/reels';
 import type { ReactionCounts, ReactionKey } from '@/lib/care';
@@ -65,13 +65,13 @@ export function isVideoMedia(url: string | null | undefined, mediaType?: 'photo'
   return mediaType === 'video' || (!!url && (VIDEO_EXT.test(url) || parseReelUrl(url) !== null));
 }
 
-/** Play mark over a video poster. */
+/** Play mark over a video poster: a square paper plate, readable on any photograph. */
 export function PlayBadge({ compact = false }: { compact?: boolean }) {
-  const ring = compact ? 36 : 52;
+  const side = compact ? 36 : 52;
   return (
     <View style={[StyleSheet.absoluteFill, styles.playBadge]} pointerEvents="none">
-      <View style={[styles.videoRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
-        <Ionicons name="play" size={compact ? 14 : 19} color={Colors.textPrimary} style={{ marginLeft: 2 }} />
+      <View style={[styles.playPlate, { width: side, height: side }]}>
+        <Ionicons name="play" size={compact ? 14 : 19} color={Colors.ink} style={{ marginLeft: 2 }} />
       </View>
     </View>
   );
@@ -86,23 +86,17 @@ export function popScale(value: SharedValue<number>, reduced: boolean) {
   value.set(withSequence(withTiming(1.22, { duration: 110, easing: EASE_OUT }), withSpring(1, Springs.pop)));
 }
 
-/** Quiet stand-in for video posts: the feed only renders still photography. */
+/** Stand-in for a video without a poster: an ink plate with a play mark. */
 export function VideoPlaceholder({ compact = false, note }: { compact?: boolean; note?: string }) {
-  const ring = compact ? 40 : 56;
+  const side = compact ? 40 : 56;
   return (
     <View style={[StyleSheet.absoluteFill, styles.video]} accessibilityLabel="Vidéo">
-      <LinearGradient
-        colors={['rgba(201,164,106,0.10)', 'rgba(201,164,106,0.01)']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={[styles.videoRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
-        <Ionicons name="play" size={compact ? 15 : 20} color={Colors.accentGlow} style={{ marginLeft: 2 }} />
+      <View style={[styles.videoMark, { width: side, height: side }]}>
+        <Ionicons name="play" size={compact ? 15 : 20} color={Colors.flameOnInk} style={{ marginLeft: 2 }} />
       </View>
-      <TText variant="caption" color="secondary" style={{ marginTop: Spacing['2xs'] }}>Vidéo</TText>
+      <Kicker tone="onInkMuted" style={{ marginTop: Spacing.xs }}>Vidéo</Kicker>
       {!!note && !compact && (
-        <TText variant="caption" color="tertiary" style={styles.videoNote}>{note}</TText>
+        <TText variant="caption" color="onInkMuted" style={styles.videoNote}>{note}</TText>
       )}
     </View>
   );
@@ -120,7 +114,7 @@ function LikeButton({
     onPress();
   }, [liked, onPress, reduced, scale]);
 
-  const iconColor = liked ? Colors.accentGlow : onImage ? Colors.textPrimary : Colors.textSecondary;
+  const iconColor = liked ? Colors.flame : Colors.ink;
   const label = liked ? 'Retirer le j’aime' : 'Aimer cette réalisation';
 
   return (
@@ -131,7 +125,7 @@ function LikeButton({
       accessibilityRole="button"
       accessibilityLabel={count ? `${label}, ${count} j’aime` : label}
       accessibilityState={{ selected: liked }}
-      hitSlop={6}
+      hitSlop={small ? 4 : 2}
       style={onImage ? [styles.likeOnImage, small && styles.likeOnImageSmall] : styles.likeInline}
     >
       <Animated.View style={anim}>
@@ -154,7 +148,7 @@ export function PostCard({
   const isVideo = isVideoMedia(post.mediaUrl, post.mediaType);
   const stylesLabel = post.styles.slice(0, 2).map(styleName).join(' · ');
   const meta = [post.artistCity, stylesLabel].filter(Boolean).join(' · ');
-  const mediaLabel = `${isVideoMedia(post.mediaUrl, post.mediaType) ? 'Vidéo' : 'Réalisation'} de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
+  const mediaLabel = `${isVideo ? 'Vidéo' : 'Réalisation'} de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
   const status = post.artistBookingStatus ? BOOKING_STATUS[post.artistBookingStatus] : null;
   const mediaSize = imageHeight ? { height: imageHeight } : { aspectRatio: ASPECT[variant] };
   const reactions = (
@@ -163,13 +157,13 @@ export function PostCard({
 
   return (
     <View style={styles.card}>
-      {/* ── The work ── */}
+      {/* ── The work: square, no overlay ── */}
       <View>
         <PressableScale
           onPress={onPress}
           accessibilityRole="link"
           accessibilityLabel={mediaLabel}
-          style={[styles.media, isHalf ? styles.mediaHalf : styles.mediaLarge, mediaSize]}
+          style={[styles.media, mediaSize]}
         >
           {isVideo ? (
             post.thumbnailUrl ? (
@@ -198,7 +192,7 @@ export function PostCard({
         )}
       </View>
 
-      {/* ── Wall label ── */}
+      {/* ── Cartel ── */}
       {isHalf ? (
         <>
           <PressableScale
@@ -207,8 +201,8 @@ export function PostCard({
             accessibilityLabel={`Voir le profil de ${post.artistName}`}
             style={styles.halfLabel}
           >
-            <TText variant="bodySmall" weight="medium" numberOfLines={1}>{post.artistName}</TText>
-            {!!meta && <TText variant="caption" color="tertiary" numberOfLines={1}>{meta}</TText>}
+            <TText variant="title2" serif numberOfLines={1} style={styles.halfName}>{post.artistName}</TText>
+            {!!meta && <TText variant="caption" color="secondary" numberOfLines={1}>{meta}</TText>}
           </PressableScale>
           <View style={styles.halfReactions}>{reactions}</View>
         </>
@@ -224,7 +218,7 @@ export function PostCard({
               >
                 <TAvatar uri={post.artistAvatarUrl} name={post.artistName} size="sm" />
                 <View style={styles.artistText}>
-                  <TText variant="title2" serif numberOfLines={1} style={styles.artistName}>{post.artistName}</TText>
+                  <TText variant="displayS" numberOfLines={1} style={styles.artistName}>{post.artistName}</TText>
                   {!!meta && <TText variant="caption" color="secondary" numberOfLines={1}>{meta}</TText>}
                 </View>
               </PressableScale>
@@ -249,12 +243,7 @@ export function PostCard({
 
           {variant === 'full' && (status || onQuickBook) && (
             <View style={styles.actionRow}>
-              {status ? (
-                <View style={styles.status}>
-                  <View style={[styles.statusDot, { backgroundColor: status.color }]} />
-                  <TText variant="caption" color="secondary">{status.label}</TText>
-                </View>
-              ) : <View />}
+              {status ? <StatusDot tone={status.tone} label={status.label} /> : <View />}
               {onQuickBook && (
                 <PressableScale
                   onPress={onQuickBook}
@@ -263,8 +252,10 @@ export function PostCard({
                   hitSlop={8}
                   style={styles.requestLink}
                 >
-                  <TText variant="bodySmall" weight="medium" color="accentGlow">Demander un projet</TText>
-                  <Ionicons name="arrow-forward" size={14} color={Colors.accentGlow} />
+                  <TText variant="label" weight="bold" uppercase color="accentWarm" style={{ letterSpacing: 1 }}>
+                    Demander un projet
+                  </TText>
+                  <Ionicons name="arrow-forward" size={13} color={Colors.flameText} />
                 </PressableScale>
               )}
             </View>
@@ -281,53 +272,49 @@ const styles = StyleSheet.create({
   media: {
     width: '100%',
     overflow: 'hidden',
-    backgroundColor: Colors.bgSurface,
+    backgroundColor: Colors.clay,
   },
-  mediaLarge: { borderRadius: Radius.xl },
-  mediaHalf: { borderRadius: Radius.lg },
 
-  video: { backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
-  playBadge: { alignItems: 'center', justifyContent: 'center' },
-  videoRing: {
+  video: { backgroundColor: Colors.inkPanel, alignItems: 'center', justifyContent: 'center', padding: Spacing.sm },
+  videoMark: {
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: 'rgba(11,10,9,0.4)',
+    borderWidth: 1, borderColor: Colors.onInkLine,
   },
+  playBadge: { alignItems: 'center', justifyContent: 'center' },
+  playPlate: { alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.paper },
   videoNote: { marginTop: 4, textAlign: 'center', maxWidth: 240 },
 
   likeCorner: { position: 'absolute', top: Spacing['2xs'], right: Spacing['2xs'] },
   likeOnImage: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 40, height: 40,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(11,10,9,0.55)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
+    backgroundColor: Colors.paper,
   },
-  likeOnImageSmall: { width: 36, height: 36, borderRadius: 18 },
+  likeOnImageSmall: { width: 36, height: 36 },
   likeInline: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    minWidth: 40, height: 40, paddingHorizontal: 4,
+    minWidth: 44, height: 44, paddingHorizontal: 4,
     justifyContent: 'flex-end',
   },
 
-  halfLabel: { paddingTop: 10, gap: 1 },
-  halfReactions: { flexDirection: 'row', marginTop: 6 },
+  halfLabel: { paddingTop: 12, gap: 2 },
+  halfName: { fontSize: 21, lineHeight: 23 },
+  halfReactions: { flexDirection: 'row', marginTop: 8 },
 
   label: { paddingTop: 14 },
   labelRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: Spacing.xs, rowGap: 4 },
   // Grows to fill the row; below ~180 px the engagement cluster moves to its own line.
   artistSlot: { flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 0 },
   engagement: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 1, maxWidth: '100%' },
-  artist: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
-  artistText: { flex: 1, gap: 1 },
-  artistName: { fontSize: 21, lineHeight: 24 },
+  artist: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
+  artistText: { flex: 1, minWidth: 0, gap: 2 },
+  artistName: { fontSize: 26, lineHeight: 28, letterSpacing: -0.6 },
   caption: { marginTop: Spacing['2xs'], maxWidth: 640 },
 
   actionRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8,
     marginTop: 12, paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  requestLink: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
+  requestLink: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
 });

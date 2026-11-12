@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
-import { Colors, Radius } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
 import { TText } from './TText';
 
 type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
@@ -24,74 +24,56 @@ const sizeMap: Record<AvatarSize, number> = {
   '2xl': 96,
 };
 
+/**
+ * Square portrait plate. Without a photo: the first initial in serif italic on
+ * a clay ground, like a monogram stamped on a cartel.
+ */
 export function TAvatar({ uri, name, size = 'md', showBadge = false, isPremium = false, style }: TAvatarProps) {
   const dim = sizeMap[size];
-  const initials = name
-    ? name
-        .split(' ')
-        .map((w) => w[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-    : '?';
+  const initial = name?.trim()?.[0]?.toLowerCase() ?? '?';
 
   return (
     <View style={[{ width: dim, height: dim }, style]}>
       {uri ? (
         <Image
           source={{ uri }}
-          style={{ width: dim, height: dim, borderRadius: dim / 2 }}
+          style={{ width: dim, height: dim, backgroundColor: Colors.clay }}
           contentFit="cover"
+          accessibilityLabel={name ? `Portrait de ${name}` : undefined}
         />
       ) : (
-        <View
-          style={[
-            styles.fallback,
-            { width: dim, height: dim, borderRadius: dim / 2 },
-          ]}
-        >
+        <View style={[styles.fallback, { width: dim, height: dim }]}>
           <TText
             variant="displayS"
             italic
-            color="accentGlow"
-            style={{ fontSize: dim * 0.42, lineHeight: dim * 0.5 }}
+            style={{ fontSize: dim * 0.58, lineHeight: dim * 0.66, letterSpacing: 0, color: Colors.ink }}
           >
-            {initials}
+            {initial}
           </TText>
         </View>
       )}
-      {showBadge && isPremium && (
-        <View style={[styles.badge, { right: -1, bottom: -1 }]}>
-          <View style={styles.badgeDot} />
-        </View>
-      )}
+      {showBadge && isPremium && <View style={styles.badge} />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fallback: {
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.clay,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.borderGlow,
+    borderColor: Colors.clayDeep,
   },
+  // Premium marker: a vermilion corner, not a floating dot.
   badge: {
     position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: Colors.premiumGold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.bgPrimary,
-  },
-  badgeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.textInverse,
+    right: -3,
+    bottom: -3,
+    width: 10,
+    height: 10,
+    backgroundColor: Colors.flame,
+    borderWidth: 2,
+    borderColor: Colors.paper,
   },
 });

@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -17,7 +18,9 @@ import {
   Geist_700Bold,
 } from '@expo-google-fonts/geist';
 import { useAuthStore } from '@/store/auth-store';
-import { Colors } from '@/constants/theme';
+import { Colors, Layout } from '@/constants/theme';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { ShellContext } from '@/hooks/useContentDimensions';
 import { ToastProvider } from '@/components/ui/TToast';
 import { registerForPushNotifications } from '@/lib/notifications';
 import { authRedirect, safeNextPath } from '@/lib/auth-routing';
@@ -79,13 +82,23 @@ export default function RootLayout() {
     }
   }, [user?.id]);
 
+  // Wide web screens get the fixed ink rail; immersive and sign-in flows keep the full window.
+  const { width: windowWidth } = useWindowDimensions();
+  const root = segments[0] as string | undefined;
+  const immersive = root === '(auth)' || root === '(onboarding)' || root === 'auth' || root === 'reels';
+  const showRail = Platform.OS === 'web' && windowWidth >= Layout.wideBreakpoint && !immersive;
+  const shell = useMemo(() => ({ sidebarWidth: showRail ? Layout.sidebar : 0 }), [showRail]);
+
   if (!fontsReady) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.bgPrimary }}>
       <SafeAreaProvider>
         <Seo {...pageMeta(segments)} />
-        <StatusBar style="light" backgroundColor={Colors.bgPrimary} />
+        <StatusBar style="dark" backgroundColor={Colors.bgPrimary} />
+        <ShellContext.Provider value={shell}>
+        {showRail && <Sidebar />}
+        <View style={{ flex: 1, marginLeft: shell.sidebarWidth }}>
         <AppErrorBoundary getRoute={getCurrentPath}>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
@@ -117,6 +130,8 @@ export default function RootLayout() {
             <Stack.Screen name="legal/privacy-policy" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           </Stack>
         </AppErrorBoundary>
+        </View>
+        </ShellContext.Provider>
         <ToastProvider />
       </SafeAreaProvider>
     </GestureHandlerRootView>

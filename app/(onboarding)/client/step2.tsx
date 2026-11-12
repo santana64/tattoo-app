@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Spacing } from '@/constants/theme';
-import { TText } from '@/components/ui/TText';
+import { Kicker } from '@/components/v5';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
@@ -33,8 +33,10 @@ export default function ClientStep2() {
 
   return (
     <OnboardingScreen
+      audience="client"
       step={STEP}
       total={TOTAL}
+      label="Votre ville"
       title="Dans quelle ville"
       accent="êtes-vous ?"
       lede="Nous mettrons en avant les artistes proches de vous. Vous pourrez la modifier plus tard."
@@ -63,9 +65,7 @@ export default function ClientStep2() {
         maxLength={60}
       />
 
-      <TText variant="label" color="tertiary" uppercase style={styles.suggestLabel}>
-        Suggestions
-      </TText>
+      <Kicker tone="muted" style={styles.suggestLabel}>Suggestions</Kicker>
       <View style={styles.chips}>
         {CITY_SUGGESTIONS.map((c) => (
           <OnboardingChip
@@ -82,6 +82,6 @@ export default function ClientStep2() {
 }
 
 const styles = StyleSheet.create({
-  suggestLabel: { marginTop: Spacing['2xs'], marginBottom: Spacing.xs },
+  suggestLabel: { marginTop: Spacing.xs, marginBottom: Spacing.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

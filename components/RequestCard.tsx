@@ -1,18 +1,17 @@
-import React, { useCallback, useEffect } from 'react';
-import { View, StyleSheet, Pressable, type PressableProps } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, StyleSheet, Pressable, Platform, type PressableProps } from 'react-native';
 import { useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated, { useSharedValue, useAnimatedStyle, withDelay, withTiming, useReducedMotion } from 'react-native-reanimated';
 import { format } from 'date-fns/format';
 import { isSameYear } from 'date-fns/isSameYear';
 import { isToday } from 'date-fns/isToday';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { fr } from 'date-fns/locale/fr';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Radius, Spacing } from '@/constants/theme';
 import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
-import { PressableScale, EASE_OUT } from './motion';
+import { Kicker, StatusDot, TextLink, type StatusTone } from './v5';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import type { TattooRequest, RequestStatus } from '@/store/request-store';
 import { PROJECT_TYPE_LABELS } from '@/constants/tattoo';
 
@@ -20,26 +19,34 @@ import { PROJECT_TYPE_LABELS } from '@/constants/tattoo';
 
 export type RequestViewer = 'artist' | 'client';
 
-/** Status display: 6px dot + label. Waiting = warning, open/positive = success. */
-export const REQUEST_STATUS: Record<RequestStatus, { label: string; artistLabel?: string; color: string }> = {
-  submitted:            { label: 'En attente de réponse', artistLabel: 'Nouvelle demande', color: Colors.warning },
-  clarification_needed: { label: 'Précision demandée', color: Colors.warning },
-  accepted:             { label: 'Acceptée', color: Colors.success },
-  confirmed:            { label: 'Rendez-vous confirmé', color: Colors.success },
-  declined:             { label: 'Refusée', color: Colors.error },
-  completed:            { label: 'Terminée', color: Colors.textSecondary },
-  archived:             { label: 'Archivée', color: Colors.textTertiary },
+interface StatusMeta {
+  label: string;
+  artistLabel?: string;
+  tone: StatusTone;
+  /** The artist's tone when the status asks them to act. */
+  artistTone?: StatusTone;
+}
+
+/** Status display: 6px dot + small capitals (StatusDot). */
+export const REQUEST_STATUS: Record<RequestStatus, StatusMeta> = {
+  submitted:            { label: 'En attente de réponse', artistLabel: 'Nouvelle demande', tone: 'wait', artistTone: 'alert' },
+  clarification_needed: { label: 'Précision demandée', tone: 'wait' },
+  accepted:             { label: 'Acceptée', tone: 'open' },
+  confirmed:            { label: 'Rendez-vous confirmé', tone: 'open' },
+  declined:             { label: 'Refusée', tone: 'alert' },
+  completed:            { label: 'Terminée', tone: 'closed' },
+  archived:             { label: 'Archivée', tone: 'closed' },
 };
 
 /**
  * A question (no project) is never "waiting for an answer" as a project is: the
  * reply happens in the conversation, so its open states read as a thread.
  */
-const INQUIRY_STATUS: Partial<Record<RequestStatus, { label: string; artistLabel?: string; color: string }>> = {
-  submitted:            { label: 'Question envoyée', artistLabel: 'Question reçue', color: Colors.accentWarm },
-  clarification_needed: { label: 'Question envoyée', artistLabel: 'Question reçue', color: Colors.accentWarm },
-  accepted:             { label: 'Échange en cours', color: Colors.accentWarm },
-  declined:             { label: 'Échange clos', color: Colors.textTertiary },
+const INQUIRY_STATUS: Partial<Record<RequestStatus, StatusMeta>> = {
+  submitted:            { label: 'Question envoyée', artistLabel: 'Question reçue', tone: 'wait', artistTone: 'alert' },
+  clarification_needed: { label: 'Question envoyée', artistLabel: 'Question reçue', tone: 'wait', artistTone: 'alert' },
+  accepted:             { label: 'Échange en cours', tone: 'open' },
+  declined:             { label: 'Échange clos', tone: 'closed' },
 };
 
 const statusMeta = (status: RequestStatus, inquiry?: boolean) =>
@@ -48,6 +55,11 @@ const statusMeta = (status: RequestStatus, inquiry?: boolean) =>
 export const requestStatusLabel = (status: RequestStatus, viewAs: RequestViewer, inquiry?: boolean) => {
   const s = statusMeta(status, inquiry);
   return viewAs === 'artist' && s.artistLabel ? s.artistLabel : s.label;
+};
+
+export const requestStatusTone = (status: RequestStatus, viewAs: RequestViewer, inquiry?: boolean): StatusTone => {
+  const s = statusMeta(status, inquiry);
+  return viewAs === 'artist' && s.artistTone ? s.artistTone : s.tone;
 };
 
 /** "Question" for an inquiry; the project summary otherwise. */
@@ -95,21 +107,20 @@ export function formatListDate(iso: string | null | undefined): string {
   return format(d, 'dd/MM/yy', { locale: fr });
 }
 
-export function RequestStatusLine({ status, viewAs, strong, inquiry }: {
-  status: RequestStatus; viewAs: RequestViewer; strong?: boolean; inquiry?: boolean;
+export function RequestStatusLine({ status, viewAs, inquiry, onInk }: {
+  status: RequestStatus; viewAs: RequestViewer; inquiry?: boolean; onInk?: boolean;
 }) {
-  const s = statusMeta(status, inquiry);
   return (
-    <View style={styles.statusLine}>
-      <View style={[styles.statusDot, { backgroundColor: s.color }]} />
-      <TText variant="caption" weight={strong ? 'medium' : 'regular'} color={strong ? 'primary' : 'secondary'}>
-        {requestStatusLabel(status, viewAs, inquiry)}
-      </TText>
-    </View>
+    <StatusDot
+      tone={requestStatusTone(status, viewAs, inquiry)}
+      label={requestStatusLabel(status, viewAs, inquiry)}
+      onInk={onInk}
+      style={styles.statusLine}
+    />
   );
 }
 
-// ─── Card: one editorial row in the inbox ─────────────────────────────────────
+// ─── Card: one line of the inbox ledger ───────────────────────────────────────
 
 interface RequestCardProps {
   request: TattooRequest;
@@ -118,11 +129,16 @@ interface RequestCardProps {
   onPressOut?: PressableProps['onPressOut'];
 }
 
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color', transitionDuration: '180ms' } as object)
+  : null;
+
 export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestCardProps) {
   const router = useRouter();
+  const { isWide } = useContentDimensions();
 
   const inquiry = request.isInquiry;
-  const needsAction = viewAs === 'artist' && request.status === 'submitted';
   const name = (viewAs === 'artist' ? request.clientName : request.artistName) ?? '';
   const avatar = viewAs === 'artist' ? request.clientAvatarUrl : request.artistAvatarUrl;
   const place = viewAs === 'client' ? request.artistCity : undefined;
@@ -134,85 +150,113 @@ export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestC
   const budget = inquiry ? null : formatBudget(request);
   const statusLabel = requestStatusLabel(request.status, viewAs, inquiry);
   const threadOpen = inquiry && request.status !== 'archived' && request.status !== 'declined';
+  const canWrite = !inquiry && request.status === 'accepted' && viewAs === 'client';
 
   // Navigation, not a commit: press feedback is visual only (no haptic).
   const open = useCallback(() => router.push(`/request/${request.id}`), [request.id, router]);
   const openThread = useCallback(() => router.push(`/conversation/${request.id}`), [request.id, router]);
 
+  const action = threadOpen ? (
+    <TextLink
+      label={viewAs === 'artist' ? 'Répondre' : 'Conversation'}
+      icon="chatbubble-outline"
+      onPress={openThread}
+      accessibilityLabel={viewAs === 'artist' ? `Répondre à ${name}` : `Voir la conversation avec ${name}`}
+    />
+  ) : canWrite ? (
+    <TextLink label="Écrire" icon="chatbubble-outline" onPress={openThread} accessibilityLabel={`Écrire à ${name}`} />
+  ) : null;
+
+  const subject = (
+    <TText variant="caption" color={inquiry ? 'accentWarm' : 'secondary'} numberOfLines={1} style={styles.summary}>
+      {summary}{place ? ` · ${place}` : ''}
+    </TText>
+  );
+
   return (
-    <PressableScale
+    <Pressable
       onPress={open}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
-      pressedScale={0.98}
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${summary}, ${statusLabel}${date ? `, envoyée le ${date}` : ''}`}
       accessibilityHint="Ouvre le détail de la demande"
-      style={styles.row}
+      style={(state) => [styles.row, webPointer, ((state as Hover).hovered || state.pressed) && styles.rowActive]}
     >
-        <TAvatar uri={avatar} name={name} size="lg" />
+      {(state) => {
+        const lit = (state as Hover).hovered || state.pressed;
+        const title = (
+          <TText variant="displayS" numberOfLines={1} style={[styles.name, lit && { color: Colors.flameText }]}>
+            {name}
+          </TText>
+        );
 
-        <View style={styles.body}>
-          <View style={styles.titleRow}>
-            <TText variant="title2" serif numberOfLines={1} style={styles.name}>
-              {name}
-            </TText>
-            {!!date && (
-              <TText variant="caption" color="tertiary" tabular>
-                {date}
+        if (isWide) {
+          return (
+            <View style={styles.wideRow}>
+              <TAvatar uri={avatar} name={name} size="md" />
+              <View style={styles.wideSubject}>
+                {title}
+                {subject}
+              </View>
+              <View style={styles.wideStatus}>
+                <RequestStatusLine status={request.status} viewAs={viewAs} inquiry={inquiry} />
+              </View>
+              <TText variant="caption" tabular color="secondary" numberOfLines={1} style={styles.wideBudget}>
+                {budget ?? '—'}
               </TText>
-            )}
-          </View>
-
-          <View style={styles.summaryRow}>
-            {inquiry && <Ionicons name="help-circle-outline" size={13} color={Colors.accentWarm} />}
-            <TText variant="caption" color={inquiry ? 'accentWarm' : 'secondary'} numberOfLines={1} style={styles.summary}>
-              {summary}{place ? ` · ${place}` : ''}
-            </TText>
-          </View>
-
-          {!!request.description && (
-            <TText variant="bodySmall" color="tertiary" numberOfLines={2} style={styles.description}>
-              {request.description}
-            </TText>
-          )}
-
-          <View style={styles.footer}>
-            <RequestStatusLine status={request.status} viewAs={viewAs} strong={needsAction} inquiry={inquiry} />
-            <View style={styles.footerRight}>
-              {!!budget && <TText variant="caption" color="secondary" tabular>{budget}</TText>}
-              {threadOpen && (
-                <Pressable
-                  onPress={openThread}
-                  accessibilityRole="button"
-                  accessibilityLabel={viewAs === 'artist' ? `Répondre à ${name}` : `Voir la conversation avec ${name}`}
-                  hitSlop={10}
-                  style={({ pressed }) => [styles.messageLink, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="chatbubble-outline" size={13} color={Colors.accentWarm} />
-                  <TText variant="caption" weight="medium" color="accentWarm">{viewAs === 'artist' ? 'Répondre' : 'Conversation'}</TText>
-                </Pressable>
-              )}
-              {!inquiry && request.status === 'accepted' && viewAs === 'client' && (
-                <Pressable
-                  onPress={() => router.push(`/conversation/${request.id}`)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Écrire à ${name}`}
-                  hitSlop={10}
-                  style={({ pressed }) => [styles.messageLink, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="chatbubble-outline" size={13} color={Colors.accentWarm} />
-                  <TText variant="caption" weight="medium" color="accentWarm">Écrire</TText>
-                </Pressable>
-              )}
+              <TText variant="caption" tabular color="tertiary" numberOfLines={1} style={styles.wideDate}>{date}</TText>
+              <View style={styles.wideAction}>{action}</View>
             </View>
-          </View>
-        </View>
-    </PressableScale>
+          );
+        }
+
+        return (
+          <>
+            <View style={styles.topLine}>
+              <RequestStatusLine status={request.status} viewAs={viewAs} inquiry={inquiry} />
+              {!!date && <TText variant="caption" color="tertiary" tabular>{date}</TText>}
+            </View>
+            <View style={styles.main}>
+              <TAvatar uri={avatar} name={name} size="lg" />
+              <View style={styles.body}>
+                {title}
+                {subject}
+                {!!request.description && (
+                  <TText variant="bodySmall" color="tertiary" numberOfLines={2} style={styles.description}>
+                    {request.description}
+                  </TText>
+                )}
+              </View>
+            </View>
+            {(!!budget || !!action) && (
+              <View style={styles.footer}>
+                {budget ? <TText variant="caption" color="secondary" tabular>{budget}</TText> : <View />}
+                {action}
+              </View>
+            )}
+          </>
+        );
+      }}
+    </Pressable>
   );
 }
 
-// ─── Status timeline: a hairline rail drawn top-down on mount ─────────────────
+/** Column titles of the wide ledger; aligned with the wide RequestCard. */
+export function RequestLedgerHead({ viewAs }: { viewAs: RequestViewer }) {
+  return (
+    <View style={[styles.wideRow, styles.ledgerHead]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={styles.avatarSpacer} />
+      <Kicker tone="muted" style={styles.wideSubject}>{viewAs === 'artist' ? 'Client · projet' : 'Artiste · projet'}</Kicker>
+      <Kicker tone="muted" style={styles.wideStatus}>État</Kicker>
+      <Kicker tone="muted" style={styles.wideBudget}>Budget</Kicker>
+      <Kicker tone="muted" style={styles.wideDate}>Date</Kicker>
+      <View style={styles.wideAction} />
+    </View>
+  );
+}
+
+// ─── Status timeline: vermilion dots on a hairline ────────────────────────────
 
 export type TimelineState = 'done' | 'current' | 'upcoming' | 'ended';
 export interface TimelineStep {
@@ -220,26 +264,13 @@ export interface TimelineStep {
   label: string;
   detail?: string;
   state: TimelineState;
-  /** Status color for current/ended steps. Done steps use the gold accent. */
-  color?: string;
 }
 
 const STATE_A11Y: Record<TimelineState, string> = { done: 'terminé', current: 'en cours', upcoming: 'à venir', ended: 'clos' };
+const STATE_WORD: Record<TimelineState, string> = { done: 'Terminée', current: 'En cours', upcoming: 'À venir', ended: 'Close' };
 
-function TimelineRow({ step, index, last, nextState, reduced }: {
-  step: TimelineStep; index: number; last: boolean; nextState?: TimelineState; reduced: boolean;
-}) {
-  const draw = useSharedValue(reduced ? 1 : 0);
-  useEffect(() => {
-    if (reduced) { draw.set(1); return; }
-    draw.set(withDelay(240 + index * 180, withTiming(1, { duration: 460, easing: EASE_OUT })));
-  }, [draw, index, reduced]);
-  const lineStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: draw.get() }] }));
-
-  const color = step.color ?? Colors.accentWarm;
-  const reached = step.state === 'done' && nextState !== undefined && nextState !== 'upcoming';
+function TimelineRow({ step, index, last }: { step: TimelineStep; index: number; last: boolean }) {
   const muted = step.state === 'upcoming';
-
   return (
     <View
       style={tl.row}
@@ -247,36 +278,29 @@ function TimelineRow({ step, index, last, nextState, reduced }: {
       accessibilityLabel={`${step.label}${step.detail ? `, ${step.detail}` : ''}, ${STATE_A11Y[step.state]}`}
     >
       <View style={tl.rail}>
-        {step.state === 'current' ? (
-          <View style={[tl.ring, { borderColor: color }]}>
-            <View style={[tl.dot, { backgroundColor: color }]} />
-          </View>
-        ) : (
-          <View style={tl.ringSpacer}>
+        <View style={tl.marker}>
+          {step.state === 'current' ? (
+            <View style={tl.ring}><View style={[tl.dot, tl.dotFlame]} /></View>
+          ) : (
             <View
               style={[
                 tl.dot,
-                muted
-                  ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.textTertiary }
-                  : { backgroundColor: step.state === 'done' ? Colors.accentWarm : color },
+                step.state === 'done' && tl.dotFlame,
+                step.state === 'upcoming' && tl.dotOpen,
+                step.state === 'ended' && tl.dotEnded,
               ]}
             />
-          </View>
-        )}
-        {!last && (
-          <View style={tl.track}>
-            <Animated.View
-              style={[tl.fill, { backgroundColor: reached ? Colors.accentWarm : Colors.borderDefault }, lineStyle]}
-            />
-          </View>
-        )}
+          )}
+        </View>
+        {!last && <View style={tl.line} />}
       </View>
       <View style={[tl.text, last && { paddingBottom: 0 }]}>
-        <TText variant="bodySmall" weight={step.state === 'current' ? 'semibold' : 'medium'} color={muted ? 'tertiary' : 'primary'}>
-          {step.label}
-        </TText>
+        <Kicker tone={step.state === 'current' ? 'flame' : 'muted'}>
+          {`Étape ${String(index + 1).padStart(2, '0')} · ${STATE_WORD[step.state]}`}
+        </Kicker>
+        <TText variant="displayS" style={[tl.label, muted && { color: Colors.textTertiary }]}>{step.label}</TText>
         {!!step.detail && (
-          <TText variant="caption" color={muted ? 'tertiary' : 'secondary'} tabular style={{ marginTop: 1 }}>
+          <TText variant="caption" color={muted ? 'tertiary' : 'secondary'} tabular style={{ marginTop: 2 }}>
             {step.detail}
           </TText>
         )}
@@ -286,59 +310,60 @@ function TimelineRow({ step, index, last, nextState, reduced }: {
 }
 
 export function StatusTimeline({ steps }: { steps: TimelineStep[] }) {
-  const reduced = useReducedMotion();
   return (
     <View accessibilityRole="list">
       {steps.map((s, i) => (
-        <TimelineRow key={s.key} step={s} index={i} last={i === steps.length - 1} nextState={steps[i + 1]?.state} reduced={reduced} />
+        <TimelineRow key={s.key} step={s} index={i} last={i === steps.length - 1} />
       ))}
     </View>
   );
 }
 
 const tl = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.xs },
+  row: { flexDirection: 'row', gap: Spacing.sm },
   rail: { width: 18, alignItems: 'center' },
+  marker: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
   ring: {
-    width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+    width: 18, height: 18, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.flame,
+    alignItems: 'center', justifyContent: 'center',
   },
-  ringSpacer: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  track: { flex: 1, width: 1, marginVertical: 4, overflow: 'hidden' },
-  fill: { flex: 1, width: 1, transformOrigin: 'top' },
-  text: { flex: 1, paddingBottom: Spacing.md, minHeight: 44 },
+  dot: { width: 10, height: 10, borderRadius: Radius.full },
+  dotFlame: { backgroundColor: Colors.flame },
+  dotOpen: { backgroundColor: Colors.paper, borderWidth: 1, borderColor: Colors.metal },
+  dotEnded: { backgroundColor: Colors.metal },
+  line: { flex: 1, width: 1, marginTop: 4, marginBottom: 2, backgroundColor: Colors.line },
+  text: { flex: 1, minWidth: 0, paddingBottom: Spacing.lg, minHeight: 44 },
+  label: { fontSize: 24, lineHeight: 27, letterSpacing: -0.4, marginTop: 6 },
 });
 
 const styles = StyleSheet.create({
-  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusLine: { flexShrink: 1 },
 
   row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.xs,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing['2xs'],
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderDefault,
-    borderRadius: Radius.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
   },
+  rowActive: { backgroundColor: Colors.wash },
 
+  topLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.xs, marginBottom: Spacing.xs },
+  main: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs },
   body: { flex: 1, gap: 3, minWidth: 0 },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  name: { fontSize: 24, lineHeight: 27, letterSpacing: -0.4 },
   summary: { flexShrink: 1 },
-  titleRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.xs },
-  name: { flex: 1, fontSize: 21, lineHeight: 26 },
   description: { marginTop: 4 },
-
   footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.xs,
-    marginTop: Spacing['2xs'],
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.xs,
+    marginTop: Spacing['2xs'], minHeight: 32,
   },
-  footerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  messageLink: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 28 },
+
+  wideRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  ledgerHead: { paddingHorizontal: Spacing['2xs'], paddingBottom: Spacing.xs },
+  avatarSpacer: { width: 40 },
+  wideSubject: { flex: 1, minWidth: 0, gap: 3 },
+  wideStatus: { width: 190 },
+  wideBudget: { width: 130 },
+  wideDate: { width: 64, textAlign: 'right' },
+  wideAction: { width: 140, alignItems: 'flex-end' },
 });

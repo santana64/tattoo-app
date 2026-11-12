@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ViewStyle,
+  View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ViewStyle, StyleProp,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -8,15 +8,17 @@ import * as Haptics from 'expo-haptics';
 import Animated, {
   useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { EASE_OUT, MotionDuration, enterUp, fadeIn } from '@/components/motion/tokens';
 import { PressableScale } from '@/components/motion/PressableScale';
+import { EditorialTitle, IconButton, Kicker, StepProgress } from '@/components/v5';
+import { StageAside, StageBand, StageTitle, useStage } from '@/components/v5/Stage';
 import { TText } from './ui/TText';
-import { TProgressBar } from './ui/TProgressBar';
+import { TButton } from './ui/TButton';
 import { Logo } from './ui/Logo';
 
-/** Forms and onboarding columns stay narrow and centered on wide screens. */
-export const FORM_MAX_WIDTH = 480;
+/** Forms and onboarding columns stay narrow on wide screens. */
+export const FORM_MAX_WIDTH = 560;
 
 /** Haptic feedback on native only. Use for commits that are not a TButton press (TButton has its own). */
 export function haptic(kind: 'select' | 'success' = 'select') {
@@ -25,58 +27,61 @@ export function haptic(kind: 'select' | 'success' = 'select') {
   else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
 // ── Progress ──────────────────────────────────────────────────
 
 interface OnboardingProgressProps {
   total: number;
   current: number;
-  /** Rendered on the left of the step counter (back button, wordmark…). */
-  leading?: React.ReactNode;
-  style?: ViewStyle;
+  /** Name of the current step, in small capitals at the right. */
+  label?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
-/** "Étape 2 sur 5" in tabular figures above a thin gold line that fills from the previous step. */
-export function OnboardingProgress({ total, current, leading, style }: OnboardingProgressProps) {
+/** "Étape 02 / 05" above one bar per step; done steps are vermilion. */
+export function OnboardingProgress({ total, current, label, style }: OnboardingProgressProps) {
   const safeTotal = Math.max(total, 1);
   const safeCurrent = Math.min(Math.max(current, 1), safeTotal);
-
   return (
-    <View style={style}>
-      <View style={styles.progressRow}>
-        {leading ?? <View />}
-        <View
-          accessible
-          accessibilityRole="progressbar"
-          accessibilityLabel={`Étape ${safeCurrent} sur ${safeTotal}`}
-          accessibilityValue={{ min: 1, max: safeTotal, now: safeCurrent }}
-        >
-          <TText variant="caption" color="tertiary" tabular>
-            Étape{' '}
-            <TText variant="caption" weight="medium" color="primary" tabular>{safeCurrent}</TText>
-            {' '}sur {safeTotal}
-          </TText>
-        </View>
-      </View>
-      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <TProgressBar
-          progress={safeCurrent / safeTotal}
-          from={(safeCurrent - 1) / safeTotal}
-          height={2}
-          style={styles.progressLine}
-        />
-      </View>
-    </View>
+    <StepProgress
+      current={safeCurrent}
+      total={safeTotal}
+      label={label}
+      style={style}
+    />
   );
 }
 
 // ── Screen scaffold ───────────────────────────────────────────
 
+export type OnboardingAudience = 'client' | 'artist';
+
+const INTRO: Record<OnboardingAudience, { kicker: string; title: string; emphasis: string; copy: string }> = {
+  client: {
+    kicker: 'Client / Inscription',
+    title: 'Faisons',
+    emphasis: 'connaissance.',
+    copy: 'Trois questions pour que les artistes sachent à qui ils répondent, et pour composer votre fil.',
+  },
+  artist: {
+    kicker: 'Artiste / Inscription',
+    title: 'Ouvrez',
+    emphasis: 'votre atelier.',
+    copy: 'Cinq étapes pour présenter votre travail : votre nom, vos styles, votre portrait, vos conditions et votre formule.',
+  },
+};
+
 interface OnboardingScreenProps {
+  /** Which journey: sets the statement of the ink column. */
+  audience: OnboardingAudience;
   step: number;
   total: number;
+  /** Short name of the step ("Votre ville"), shown beside the counter. */
+  label?: string;
   /** Plain part of the serif title. */
   title: string;
-  /** The single italic gold phrase that closes the title. */
+  /** The single italic vermilion phrase that closes the title. */
   accent: string;
   lede?: string;
   /** Shown only when provided (e.g. when there is history to go back to). */
@@ -91,8 +96,10 @@ interface OnboardingScreenProps {
 }
 
 export function OnboardingScreen({
+  audience,
   step,
   total,
+  label,
   title,
   accent,
   lede,
@@ -103,73 +110,96 @@ export function OnboardingScreen({
   children,
 }: OnboardingScreenProps) {
   const insets = useSafeAreaInsets();
+  const { wide, asideWidth } = useStage();
+  const intro = INTRO[audience];
+  const sidePadding = wide ? Spacing['3xl'] : 20;
 
-  const leading = onBack ? (
-    <PressableScale
-      onPress={onBack}
-      pressedScale={0.92}
-      accessibilityRole="button"
-      accessibilityLabel="Retour à l’étape précédente"
-      hitSlop={8}
-      style={styles.backButton}
-    >
-      <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-    </PressableScale>
-  ) : (
-    <Logo size="sm" variant="wordmark" />
-  );
+  const back = onBack
+    ? wide
+      ? (
+        <TButton
+          title="Retour"
+          variant="ghost"
+          size="md"
+          fullWidth={false}
+          onPress={onBack}
+          accessibilityLabel="Retour à l’étape précédente"
+          icon={<Ionicons name="arrow-back" size={15} color={Colors.textSecondary} />}
+        />
+      )
+      : <IconButton icon="arrow-back" label="Retour à l’étape précédente" onPress={onBack} />
+    : null;
 
-  const body = (
-    <>
-      <View style={[styles.header, { paddingTop: insets.top + Spacing['2xs'] }]}>
-        <OnboardingProgress total={total} current={step} leading={leading} style={styles.column} />
-      </View>
-
+  const main = (
+    <View style={styles.main}>
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        style={styles.flex}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: sidePadding,
+            paddingTop: wide ? insets.top + Spacing['3xl'] : Spacing.lg,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.column}>
-          {/* Step change: title, lede and content rise in a short stagger. */}
-          <Animated.View entering={enterUp(0, 60)}>
-            <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-              {title}{' '}
-              <TText variant="displayM" italic color="accentGlow">{accent}</TText>
-            </TText>
-          </Animated.View>
-          {lede ? (
-            <Animated.View entering={enterUp(1, 60)}>
-              <TText variant="body" color="secondary" style={styles.lede}>{lede}</TText>
-            </Animated.View>
-          ) : null}
-
-          <Animated.View entering={enterUp(2, 60)} style={styles.content}>
-            {children}
-          </Animated.View>
+        <View style={[styles.column, wide && styles.columnWide]}>
+          <OnboardingProgress total={total} current={step} label={label} style={styles.progress} />
+          <EditorialTitle size="section" emphasis={accent}>{title}</EditorialTitle>
+          {lede ? <TText variant="body" color="secondary" style={styles.lede}>{lede}</TText> : null}
+          <View style={styles.content}>{children}</View>
         </View>
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, Spacing.sm) + Spacing['2xs'] }]}>
-        <View style={[styles.column, styles.footerInner]}>{footer}</View>
+      <View
+        style={[
+          styles.footer,
+          { paddingHorizontal: sidePadding, paddingBottom: Math.max(insets.bottom, Spacing.sm) + Spacing['2xs'] },
+        ]}
+      >
+        <View style={[styles.column, wide && styles.columnWide, styles.footerRow]}>
+          {back}
+          <View style={[styles.footerActions, wide && styles.footerActionsWide]}>{footer}</View>
+        </View>
       </View>
+    </View>
+  );
 
-      {overlay}
+  const body = wide ? (
+    <View style={styles.split}>
+      <StageAside
+        width={asideWidth}
+        kicker={intro.kicker}
+        title={intro.title}
+        emphasis={intro.emphasis}
+        copy={intro.copy}
+        footer={
+          <View style={styles.cartel} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <TText variant="displayXL" tabular style={styles.cartelNumber}>{pad2(step)}</TText>
+            <Kicker tone="onInkMuted" style={styles.cartelLabel}>{`/ ${pad2(total)}${label ? ` — ${label}` : ''}`}</Kicker>
+          </View>
+        }
+      />
+      {main}
+    </View>
+  ) : (
+    <>
+      <StageBand meta={intro.kicker} />
+      {main}
     </>
   );
 
-  if (keyboard) {
-    return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {body}
-      </KeyboardAvoidingView>
-    );
-  }
-  return <View style={styles.container}>{body}</View>;
+  return (
+    <View style={styles.container}>
+      {keyboard ? (
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          {body}
+        </KeyboardAvoidingView>
+      ) : body}
+      {overlay}
+    </View>
+  );
 }
 
 // ── Selectable chip ───────────────────────────────────────────
@@ -183,7 +213,7 @@ interface OnboardingChipProps {
   accessibilityLabel?: string;
 }
 
-/** 36px hairline chip; selected = paper fill with ink text. Toggling is a commit: light haptic. */
+/** Hairline pill; selected = ink fill with paper text. Toggling is a commit: light haptic. */
 export function OnboardingChip({
   label,
   selected,
@@ -201,38 +231,15 @@ export function OnboardingChip({
       hitSlop={{ top: 4, bottom: 4 }}
       style={[styles.chip, selected && styles.chipSelected]}
     >
-      {selected ? <Ionicons name={selectedIcon} size={14} color={Colors.textInverse} /> : null}
+      {selected ? <Ionicons name={selectedIcon} size={13} color={Colors.paper} /> : null}
       <TText
         variant="caption"
-        weight="medium"
-        style={[styles.chipLabel, { color: selected ? Colors.textInverse : Colors.textSecondary }]}
+        weight="semibold"
+        style={[styles.chipLabel, { color: selected ? Colors.paper : Colors.ink }]}
       >
         {label}
       </TText>
     </PressableScale>
-  );
-}
-
-// ── Radio mark ────────────────────────────────────────────────
-
-/** Hairline ring; the paper dot fades and settles in over ~180ms when selected. */
-export function RadioMark({ selected }: { selected: boolean }) {
-  const reduced = useReducedMotion();
-  const on = useSharedValue(selected ? 1 : 0);
-
-  useEffect(() => {
-    on.set(withTiming(selected ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
-  }, [on, selected]);
-
-  const dotStyle = useAnimatedStyle(() => ({
-    opacity: on.get(),
-    transform: [{ scale: reduced ? 1 : 0.6 + on.get() * 0.4 }],
-  }));
-
-  return (
-    <View style={[styles.radio, selected && styles.radioOn]}>
-      <Animated.View style={[styles.radioDot, dotStyle]} />
-    </View>
   );
 }
 
@@ -276,13 +283,14 @@ export function useOnboardingFinale() {
   };
 }
 
+/** The whole window turns to ink: monogram, serif welcome, a vermilion rule that draws itself. */
 function OnboardingFinale({ title, accent, lede }: FinaleCopy) {
   const reduced = useReducedMotion();
+  const { wide } = useStage();
   const rule = useSharedValue(reduced ? 1 : 0);
 
   useEffect(() => {
     if (reduced) return;
-    // A thin gold rule draws itself under the title: transform only.
     rule.set(withDelay(360, withTiming(1, { duration: MotionDuration.reveal, easing: EASE_OUT })));
   }, [reduced, rule]);
 
@@ -295,107 +303,83 @@ function OnboardingFinale({ title, accent, lede }: FinaleCopy) {
       accessibilityViewIsModal
       accessibilityLiveRegion="polite"
     >
-      <Animated.View entering={enterUp(0, 80)}>
-        <Logo size="xl" variant="mark" animate={!reduced} />
-      </Animated.View>
-      <Animated.View entering={enterUp(1, 80)}>
-        <TText variant="displayM" accessibilityRole="header" style={styles.finaleTitle}>
-          {title}{' '}
-          <TText variant="displayM" italic color="accentGlow">{accent}</TText>
-        </TText>
-      </Animated.View>
-      <Animated.View style={[styles.finaleRule, ruleStyle]} />
-      {lede ? (
-        <Animated.View entering={enterUp(2, 80)}>
-          <TText variant="body" color="secondary" style={styles.finaleLede}>{lede}</TText>
+      <View style={styles.finaleColumn}>
+        <Animated.View entering={enterUp(0, 80)}>
+          <Logo size="lg" variant="mark" animate={!reduced} color={Colors.onInk} />
         </Animated.View>
-      ) : null}
+        <Animated.View entering={enterUp(1, 80)} style={styles.finaleTitle}>
+          <Kicker tone="flameOnInk" style={styles.finaleKicker}>The human canvas</Kicker>
+          <StageTitle size={wide ? 76 : 50} emphasis={accent} onInk breakEmphasis>{title}</StageTitle>
+        </Animated.View>
+        <Animated.View style={[styles.finaleRule, ruleStyle]} />
+        {lede ? (
+          <Animated.View entering={enterUp(2, 80)}>
+            <TText variant="body" color="onInkMuted" style={styles.finaleLede}>{lede}</TText>
+          </Animated.View>
+        ) : null}
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  container: { flex: 1, backgroundColor: Colors.paper },
+  flex: { flex: 1 },
+  split: { flex: 1, flexDirection: 'row' },
+  main: { flex: 1, minWidth: 0 },
 
   column: { width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
+  columnWide: { alignSelf: 'flex-start' },
 
-  header: { paddingHorizontal: Layout.gutter, paddingBottom: Spacing.xs },
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 40,
-  },
-  progressLine: { marginTop: Spacing.xs },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-
-  scroll: { flex: 1 },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: Layout.gutter,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xl,
-  },
-  title: { marginBottom: Spacing.xs },
-  lede: { maxWidth: 420 },
+  scrollContent: { flexGrow: 1, paddingBottom: Spacing.xl },
+  progress: { marginBottom: Spacing.xl },
+  lede: { maxWidth: 460, marginTop: Spacing.sm },
   content: { marginTop: Spacing.xl },
 
   footer: {
-    paddingHorizontal: Layout.gutter,
     paddingTop: Spacing.sm,
-    backgroundColor: Colors.bgPrimary,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
+    backgroundColor: Colors.paper,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
   },
-  footerInner: { gap: Spacing['3xs'] },
+  footerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs },
+  footerActions: { flex: 1, minWidth: 0, gap: Spacing['3xs'] },
+  footerActionsWide: { flex: 0, width: 340, marginLeft: 'auto' },
+
+  cartel: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  cartelNumber: { color: Colors.onInk, fontSize: 96, lineHeight: 90, letterSpacing: -3 },
+  cartelLabel: { marginBottom: 14, flexShrink: 1 },
 
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: 18,
+    minHeight: 40,
+    paddingHorizontal: 15,
+    borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: Colors.borderDefault,
+    borderColor: Colors.line,
   },
-  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  chipLabel: { fontSize: 13 },
-
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.borderGlass,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOn: { borderColor: Colors.accentAction },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.accentAction },
+  chipSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  chipLabel: { fontSize: 13, lineHeight: 17 },
 
   finale: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.xl,
-    backgroundColor: Colors.bgPrimary,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: Colors.inkPanel,
   },
-  finaleTitle: { textAlign: 'center', marginTop: Spacing.lg },
+  finaleColumn: { width: '100%', maxWidth: 560 },
+  finaleTitle: { marginTop: Spacing.xl },
+  finaleKicker: { marginBottom: Spacing.md },
   finaleRule: {
-    width: 64,
-    height: 1,
-    marginVertical: Spacing.md,
-    backgroundColor: Colors.accentWarm,
+    width: 96,
+    height: 2,
+    marginVertical: Spacing.lg,
+    backgroundColor: Colors.flame,
+    transformOrigin: 'left',
   },
-  finaleLede: { textAlign: 'center', maxWidth: 340 },
+  finaleLede: { maxWidth: 380 },
 });

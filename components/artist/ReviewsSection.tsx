@@ -5,6 +5,7 @@ import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { TStarRating } from '@/components/ui/TStarRating';
+import { Kicker, SectionHead } from '@/components/v5';
 import { fetchArtistReviews, formatRating, type PublicReview } from '@/lib/studio';
 
 interface ReviewsSectionProps {
@@ -31,23 +32,26 @@ function formatReviewDate(value: string | null, now = new Date()): string | null
   return (date.getFullYear() === now.getFullYear() ? sameYearFmt : otherYearFmt).format(date);
 }
 
-function ReviewRow({ review }: { review: PublicReview }) {
+function ReviewRow({ review, index }: { review: PublicReview; index: number }) {
   const date = formatReviewDate(review.createdAt);
   return (
     <View style={styles.review}>
-      <View style={styles.reviewHead}>
-        <TAvatar uri={review.avatarUrl} name={review.author} size="sm" />
-        <View style={styles.reviewMeta}>
-          <TText variant="bodySmall" weight="medium" numberOfLines={1}>{review.author}</TText>
-          <View style={styles.reviewSub}>
-            <TStarRating value={review.rating} readonly size={12} />
-            {date && <TText variant="caption" color="tertiary" numberOfLines={1}>{date}</TText>}
+      <TText variant="label" weight="bold" tabular style={styles.number}>{String(index + 1).padStart(2, '0')}</TText>
+      <View style={styles.reviewMain}>
+        <View style={styles.reviewHead}>
+          <TAvatar uri={review.avatarUrl} name={review.author} size="sm" />
+          <View style={styles.reviewMeta}>
+            <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{review.author}</TText>
+            <View style={styles.reviewSub}>
+              <TStarRating value={review.rating} readonly size={12} />
+              {date && <TText variant="caption" color="tertiary" numberOfLines={1}>{date}</TText>}
+            </View>
           </View>
         </View>
+        {!!review.comment?.trim() && (
+          <TText variant="title2" serif style={styles.comment}>« {review.comment.trim()} »</TText>
+        )}
       </View>
-      {!!review.comment?.trim() && (
-        <TText variant="body" color="secondary" style={styles.comment}>{review.comment.trim()}</TText>
-      )}
     </View>
   );
 }
@@ -57,15 +61,18 @@ function ReviewsSkeleton() {
     <View accessibilityLabel="Chargement des avis">
       {[0, 1, 2].map((i) => (
         <View key={i} style={styles.review}>
-          <View style={styles.reviewHead}>
-            <TSkeleton width={32} height={32} radius={16} />
-            <View style={{ flex: 1, gap: 6 }}>
-              <TSkeleton width="35%" height={12} />
-              <TSkeleton width="25%" height={10} />
+          <TSkeleton width={20} height={10} radius={0} />
+          <View style={styles.reviewMain}>
+            <View style={styles.reviewHead}>
+              <TSkeleton width={32} height={32} radius={0} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <TSkeleton width="35%" height={12} radius={0} />
+                <TSkeleton width="25%" height={10} radius={0} />
+              </View>
             </View>
+            <TSkeleton width="90%" height={14} radius={0} style={{ marginTop: Spacing.xs }} />
+            <TSkeleton width="70%" height={14} radius={0} style={{ marginTop: 6 }} />
           </View>
-          <TSkeleton width="90%" height={12} style={{ marginTop: Spacing.xs }} />
-          <TSkeleton width="70%" height={12} style={{ marginTop: 6 }} />
         </View>
       ))}
     </View>
@@ -91,8 +98,8 @@ export function ReviewsSection({ artistId, ratingAvg, ratingCount }: ReviewsSect
 
   const countLabel = `${ratingCount} avis ${ratingCount > 1 ? 'vérifiés' : 'vérifié'}`;
   return (
-    <View style={styles.section}>
-      <TText variant="label" color="accentWarm" uppercase>Avis</TText>
+    <View>
+      <SectionHead kicker="Avis" title="Ce qu’en disent" emphasis="les clients." />
 
       <View
         style={styles.summary}
@@ -103,40 +110,45 @@ export function ReviewsSection({ artistId, ratingAvg, ratingCount }: ReviewsSect
           : countLabel}
       >
         {ratingAvg !== null && (
-          <TText variant="displayL" tabular style={styles.average}>{formatRating(ratingAvg)}</TText>
+          <TText variant="displayXL" tabular style={styles.average}>{formatRating(ratingAvg)}</TText>
         )}
         <View style={styles.summaryText}>
           {ratingAvg !== null && <TStarRating value={ratingAvg} readonly size={16} />}
-          <TText variant="bodySmall" color="secondary" tabular>{countLabel}</TText>
+          <Kicker tone="ink">{countLabel}</Kicker>
+          <TText variant="caption" color="secondary">Chaque avis suit une séance réalisée via Inkr.</TText>
         </View>
       </View>
-      <TText variant="caption" color="tertiary" style={styles.caption}>
-        Chaque avis suit une séance réalisée via Inkr.
-      </TText>
 
       {reviews === null ? (
         <ReviewsSkeleton />
       ) : (
-        reviews.map((review) => <ReviewRow key={review.id} review={review} />)
+        <View style={styles.list}>
+          {reviews.map((review, i) => <ReviewRow key={review.id} review={review} index={i} />)}
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { paddingTop: Spacing.sm },
-  summary: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm, marginTop: Spacing.xs },
-  average: { lineHeight: 50 },
-  summaryText: { gap: 4, paddingBottom: 6 },
-  caption: { marginTop: Spacing['2xs'], marginBottom: Spacing.xs },
+  summary: {
+    flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: Spacing.md,
+    paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.ink,
+  },
+  average: { fontSize: 88, lineHeight: 84, letterSpacing: -3, color: Colors.ink },
+  summaryText: { gap: 6, paddingBottom: 8, flexShrink: 1, minWidth: 180 },
+  list: { maxWidth: 820 },
 
   review: {
+    flexDirection: 'row', gap: Spacing.sm,
     paddingVertical: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderDefault,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
   },
+  number: { width: 28, color: Colors.textTertiary, paddingTop: 2 },
+  reviewMain: { flex: 1, minWidth: 0 },
   reviewHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  reviewMeta: { flex: 1, gap: 2 },
+  reviewMeta: { flex: 1, gap: 4, minWidth: 0 },
   reviewSub: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
-  comment: { marginTop: Spacing.xs },
+  comment: { marginTop: Spacing.xs, maxWidth: 640 },
 });

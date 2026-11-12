@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Pressable, ViewStyle } from 'react-native';
+import { View, StyleSheet, Pressable, ViewStyle, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -12,9 +12,14 @@ interface THeaderProps {
   onBack?: () => void;
   rightElement?: React.ReactNode;
   style?: ViewStyle;
+  /** Floats over photography: no ground, the back button becomes a paper plate. */
   transparent?: boolean;
 }
 
+/**
+ * Stacked-screen bar: square back button, the screen name as a tracked-capitals
+ * breadcrumb, an ink rule underneath.
+ */
 export function THeader({
   title,
   showBack = false,
@@ -36,7 +41,7 @@ export function THeader({
     <View
       style={[
         styles.container,
-        { paddingTop: insets.top + 6 },
+        { paddingTop: insets.top + 8 },
         transparent ? styles.transparent : styles.solid,
         style,
       ]}
@@ -48,16 +53,33 @@ export function THeader({
             accessibilityRole="button"
             accessibilityLabel="Retour"
             hitSlop={8}
-            style={({ pressed }) => [styles.backButton, transparent && styles.backOnImage, pressed && { opacity: 0.6 }]}
+            style={(state) => {
+              const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+              return [
+                styles.backButton,
+                transparent && styles.backOnImage,
+                (pressed || hovered) && styles.backActive,
+              ];
+            }}
           >
-            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+            {(state) => {
+              const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+              return <Ionicons name="arrow-back" size={18} color={pressed || hovered ? '#FFFFFF' : Colors.ink} />;
+            }}
           </Pressable>
         ) : (
           <View style={styles.spacer} />
         )}
 
         {title ? (
-          <TText variant="bodySmall" weight="semibold" style={styles.title} numberOfLines={1} accessibilityRole="header">
+          <TText
+            variant="label"
+            weight="bold"
+            uppercase
+            style={styles.title}
+            numberOfLines={1}
+            accessibilityRole="header"
+          >
             {title}
           </TText>
         ) : <View style={{ flex: 1 }} />}
@@ -72,14 +94,14 @@ export function THeader({
 
 const styles = StyleSheet.create({
   container: {
-    paddingBottom: 8,
+    paddingBottom: 10,
     paddingHorizontal: Spacing.sm,
     zIndex: 10,
   },
   solid: {
-    backgroundColor: Colors.bgPrimary,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+    backgroundColor: Colors.paper,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
   },
   transparent: {
     backgroundColor: 'transparent',
@@ -89,28 +111,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 44,
+    gap: 12,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+      : null),
   },
   backOnImage: {
-    backgroundColor: 'rgba(11,10,9,0.55)',
-    borderColor: Colors.glassBorderBright,
+    backgroundColor: Colors.paper,
+    borderColor: Colors.paper,
   },
-  spacer: { width: 40 },
+  backActive: {
+    backgroundColor: Colors.flame,
+    borderColor: Colors.flame,
+  },
+  spacer: { width: 44 },
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 15,
+    letterSpacing: 1.4,
   },
   right: {
-    minWidth: 40,
+    minWidth: 44,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },

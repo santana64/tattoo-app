@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Kicker } from '@/components/v5';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -11,7 +12,7 @@ import { TImagePicker } from '@/components/ui/TImagePicker';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
-import { EASE_OUT, MotionDuration, RevealImage, fadeIn } from '@/components/motion';
+import { RevealImage, fadeIn } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import { uploadHealedPhoto } from '@/lib/storage';
 import {
@@ -26,18 +27,14 @@ interface HealedPhotoCardProps {
 
 const NOTE_MAX = 300;
 
-/** Switch visual; the surrounding row owns the press and the accessibility state. */
+/**
+ * Switch visual drawn like the kit Toggle (wash track off, ink track with a
+ * vermilion knob on); the surrounding row owns the press and the accessibility state.
+ */
 function Switch({ value }: { value: boolean }) {
-  const p = useSharedValue(value ? 1 : 0);
-  useEffect(() => {
-    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
-  }, [value, p]);
-  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
   return (
-    <View style={styles.track} importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[StyleSheet.absoluteFill, styles.trackOn, onStyle]} />
-      <Animated.View style={[styles.knob, knobStyle]} />
+    <View style={[styles.track, value && styles.trackOn]} importantForAccessibility="no-hide-descendants">
+      <View style={[styles.knob, value && styles.knobOn]} />
     </View>
   );
 }
@@ -141,7 +138,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
     return role === 'artist' ? null : (
       <View style={styles.card} accessibilityLabel="Chargement de la photo cicatrisée">
         <TSkeleton width="55%" height={14} />
-        <TSkeleton height={160} radius={Radius.lg} style={{ marginTop: Spacing.sm }} />
+        <TSkeleton height={160} style={{ marginTop: Spacing.sm }} />
       </View>
     );
   }
@@ -160,8 +157,8 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
     const isClient = role === 'client';
     return (
       <Animated.View entering={fadeIn()} style={styles.card}>
-        <TText variant="label" color="accentWarm" uppercase>Cicatrisé</TText>
-        <TText variant="title2" serif style={styles.heading}>
+        <Kicker tone="flame">Cicatrisé</Kicker>
+        <TText variant="displayS" style={styles.heading}>
           {isClient ? 'Votre photo cicatrisée' : 'Photo cicatrisée envoyée par votre client'}
         </TText>
         <RevealImage
@@ -171,7 +168,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
           accessibilityLabel={photo.note ? `Tatouage cicatrisé : ${photo.note}` : 'Tatouage cicatrisé'}
         />
         {!!photo.note && (
-          <TText variant="bodySmall" color="secondary" style={styles.note} selectable>« {photo.note} »</TText>
+          <TText variant="body" serif italic color="secondary" style={styles.note} selectable>« {photo.note} »</TText>
         )}
         {isClient && photo.id ? (
           <PublicRow
@@ -199,9 +196,9 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
 
   return (
     <Animated.View entering={fadeIn()} style={styles.card}>
-      <TText variant="label" color="accentWarm" uppercase>Après la séance</TText>
-      <TText variant="title2" serif style={styles.heading}>
-        Votre tatouage a cicatrisé ? <TText variant="title2" serif italic color="accentGlow">Montrez le résultat</TText>
+      <Kicker tone="flame">Après la séance</Kicker>
+      <TText variant="displayS" style={styles.heading}>
+        Votre tatouage a cicatrisé{' '}? <TText variant="displayS" italic color="accentGlow" style={styles.headingType}>Montrez le résultat.</TText>
       </TText>
       <TText variant="bodySmall" color="secondary" style={styles.lede}>
         Une photo prise à la lumière du jour, quelques semaines après la séance, montre le vrai travail de l’artiste.
@@ -237,7 +234,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
 
       {sending && (
         <View style={styles.progressWrap}>
-          <TProgressBar progress={progress} color={Colors.accentWarm} />
+          <TProgressBar progress={progress} color={Colors.flame} />
           <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
             Envoi en cours… {Math.round(progress * 100)} %
           </TText>
@@ -263,35 +260,33 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
 const styles = StyleSheet.create({
   card: {
     padding: Spacing.md,
-    borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgCard,
+    borderWidth: 1, borderColor: Colors.line,
+    borderTopWidth: 2, borderTopColor: Colors.flame,
+    backgroundColor: Colors.white,
   },
-  heading: { marginTop: 6 },
+  heading: { marginTop: 8, fontSize: 28, lineHeight: 30, letterSpacing: -0.5 },
+  headingType: { fontSize: 28, lineHeight: 30, letterSpacing: -0.5 },
   lede: { marginTop: Spacing['2xs'], marginBottom: Spacing.md },
-  photo: { width: '100%', aspectRatio: 4 / 5, maxHeight: 520, borderRadius: Radius.md, marginTop: Spacing.sm },
-  note: { marginTop: Spacing.xs, fontStyle: 'italic' },
+  photo: { width: '100%', aspectRatio: 4 / 5, maxHeight: 520, marginTop: Spacing.sm, backgroundColor: Colors.clay },
+  note: { marginTop: Spacing.xs, fontSize: 18, lineHeight: 24 },
   visibility: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.sm },
   noteInput: { minHeight: 84, textAlignVertical: 'top', paddingTop: 14 },
 
   toggleRow: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     minHeight: 60, marginTop: Spacing.xs, marginBottom: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    borderTopWidth: 1, borderBottomWidth: 1,
+    borderColor: Colors.line,
     ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
   track: {
-    width: 46, height: 28, borderRadius: 14,
-    backgroundColor: Colors.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    overflow: 'hidden',
+    width: 58, height: 30, borderRadius: Radius.full, padding: 5,
+    borderWidth: 1, borderColor: Colors.ink, backgroundColor: Colors.wash,
+    flexDirection: 'row', alignItems: 'center',
   },
-  trackOn: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
-  knob: {
-    position: 'absolute', top: 2.5, left: 2.5,
-    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
-  },
+  trackOn: { backgroundColor: Colors.ink, justifyContent: 'flex-end' },
+  knob: { width: 18, height: 18, borderRadius: Radius.full, backgroundColor: '#FFFFFF' },
+  knobOn: { backgroundColor: Colors.flame },
 
   progressWrap: { marginBottom: Spacing.md },
   formError: { marginBottom: Spacing.sm },

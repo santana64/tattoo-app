@@ -1,23 +1,31 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
-  StyleSheet, View, TextInput, Pressable,
-  ScrollView, RefreshControl, useWindowDimensions, Platform, ActivityIndicator,
+  StyleSheet,
+  View,
+  TextInput,
+  Pressable,
+  ScrollView,
+  RefreshControl,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, {
-  FadeIn, Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue,
-} from 'react-native-reanimated';
-import { BottomSheet, GlassSurface } from '@/components/motion';
+import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
+import { BottomSheet } from '@/components/motion';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
+import { TInput } from '@/components/ui/TInput';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { ArtistCard } from '@/components/ArtistCard';
 import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  ArtCanvas, IconButton, Kicker, Masthead, SectionHead, StatusDot, TextLink, type StatusTone,
+} from '@/components/v5';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
@@ -40,11 +48,11 @@ interface ExploreTrendingPost {
 type Availability = 'all' | 'open' | 'paused' | 'closed';
 type SortKey = 'relevance' | 'open' | 'budget_asc';
 
-const AVAILABILITY_OPTIONS: { value: Availability; label: string; dot?: string }[] = [
+const AVAILABILITY_OPTIONS: { value: Availability; label: string; tone?: StatusTone }[] = [
   { value: 'all', label: 'Tous' },
-  { value: 'open', label: 'Prend des projets', dot: Colors.success },
-  { value: 'paused', label: 'Liste d’attente', dot: Colors.warning },
-  { value: 'closed', label: 'Complet', dot: Colors.textTertiary },
+  { value: 'open', label: 'Prend des projets', tone: 'open' },
+  { value: 'paused', label: 'Liste d’attente', tone: 'wait' },
+  { value: 'closed', label: 'Complet', tone: 'closed' },
 ];
 // Minimum budget an artist accepts — not a quote. Artists without a public budget are excluded when a cap is set.
 const BUDGET_OPTIONS: { label: string; value: number | null }[] = [
@@ -102,8 +110,15 @@ function matchesFilters(a: Artist, f: { term: string; style: string | null; avai
 }
 
 // ─── Small building blocks ────────────────────────────────────────────────────
-function Chip({ label, selected, onPress, dot, icon, onLayout }: {
-  label: string; selected: boolean; onPress: () => void; dot?: string;
+type Hover = { pressed: boolean; hovered?: boolean; focused?: boolean };
+const webPointer = Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null;
+const STATUS_DOT: Record<StatusTone, string> = {
+  open: Colors.moss, wait: '#C08A49', closed: '#A29B90', alert: Colors.flame,
+};
+
+/** Filter pill (v5: the only rounded control). Carries a status dot or an icon; reports its x for the rail. */
+function Chip({ label, selected, onPress, tone, icon, onLayout }: {
+  label: string; selected: boolean; onPress: () => void; tone?: StatusTone;
   icon?: keyof typeof Ionicons.glyphMap; onLayout?: (x: number) => void;
 }) {
   return (
@@ -113,56 +128,72 @@ function Chip({ label, selected, onPress, dot, icon, onLayout }: {
       accessibilityRole="button"
       accessibilityState={{ selected }}
       style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [styles.chip, (pressed || hovered) && !selected && styles.chipHover, selected && styles.chipSelected];
+        const { pressed, hovered, focused } = state as Hover;
+        return [
+          styles.chip,
+          (pressed || hovered) && !selected && styles.chipHover,
+          selected && styles.chipSelected,
+          focused && styles.chipFocused,
+        ];
       }}
     >
-      {dot && <View style={[styles.chipDot, { backgroundColor: dot }]} />}
-      {icon && <Ionicons name={icon} size={14} color={selected ? Colors.textInverse : Colors.textSecondary} />}
-      <TText variant="caption" weight="medium" style={{ fontSize: 13, color: selected ? Colors.textInverse : Colors.textSecondary }}>
+      {tone && <View style={[styles.chipDot, { backgroundColor: STATUS_DOT[tone] }]} />}
+      {icon && <Ionicons name={icon} size={14} color={selected ? Colors.paper : Colors.ink} />}
+      <TText variant="caption" weight="semibold" style={{ fontSize: 12.5, lineHeight: 16, color: selected ? Colors.paper : Colors.ink }}>
         {label}
       </TText>
     </Pressable>
   );
 }
 
-function SectionLabel({ children, right }: { children: string; right?: React.ReactNode }) {
+/** A labelled group of pills: "Statut", "Budget", "Trier par". */
+function FilterGroup({ label, children, note }: { label: string; children: React.ReactNode; note?: string }) {
   return (
-    <View style={styles.sectionLabel}>
-      <TText variant="label" color="tertiary" uppercase>{children}</TText>
-      {right}
+    <View style={styles.filterGroup}>
+      <Kicker tone="muted" style={styles.filterLabel}>{label}</Kicker>
+      <View style={styles.wrapRow} accessibilityLabel={label}>{children}</View>
+      {!!note && <TText variant="caption" color="tertiary" style={styles.filterNote}>{note}</TText>}
     </View>
   );
 }
 
-function TrendingTile({ post }: { post: ExploreTrendingPost }) {
+function TrendingTile({ post, index }: { post: ExploreTrendingPost; index: number }) {
   const router = useRouter();
   return (
     <Pressable
       onPress={() => router.push(`/post/${post.id}`)}
       accessibilityRole="link"
       accessibilityLabel={`Réalisation de ${post.artistName}`}
-      style={({ pressed }) => [styles.trendingTile, pressed && { opacity: 0.85 }]}
+      style={(state) => [styles.trendingTile, (state as Hover).pressed && { opacity: 0.85 }, webPointer]}
     >
-      <View style={styles.trendingImage}>
-        <Image source={{ uri: post.mediaUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
-      </View>
-      <TText variant="caption" color="secondary" numberOfLines={1} style={{ marginTop: 6 }}>{post.artistName}</TText>
+      {(state) => (
+        <>
+          <ArtCanvas uri={post.mediaUrl} aspectRatio={4 / 5} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
+          <TText
+            variant="title2"
+            serif
+            numberOfLines={1}
+            style={[styles.trendingName, (state as Hover).hovered && { color: Colors.flameText }]}
+          >
+            {post.artistName}
+          </TText>
+        </>
+      )}
     </Pressable>
   );
 }
 
 function ListSkeleton() {
   return (
-    <View style={{ gap: Spacing.xl, marginTop: Spacing.sm }}>
+    <View style={{ gap: Spacing['2xl'], marginTop: Spacing.sm }}>
       {[0, 1].map((i) => (
-        <View key={i}>
-          <TSkeleton height={232} radius={Radius.xl} />
+        <View key={i} style={styles.skeletonCard}>
+          <TSkeleton height={240} radius={0} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 }}>
-            <TSkeleton width={40} height={40} radius={20} />
+            <TSkeleton width={40} height={40} radius={0} />
             <View style={{ flex: 1, gap: 8 }}>
-              <TSkeleton width="45%" height={16} />
-              <TSkeleton width="30%" height={11} />
+              <TSkeleton width="45%" height={20} radius={0} />
+              <TSkeleton width="30%" height={11} radius={0} />
             </View>
           </View>
         </View>
@@ -176,7 +207,8 @@ export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ style?: string }>();
-  const { width } = useWindowDimensions();
+  const { width, isWide, gutter } = useContentDimensions();
+  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const { savedArtistIds, fetchSaved, toggle } = useSavedArtistsStore();
   useEffect(() => { void fetchSaved(user?.id); }, [fetchSaved, user?.id]);
@@ -393,8 +425,8 @@ export default function ExploreScreen() {
   // Keep the selected style visible in the rail (e.g. after a deep link from the welcome screen).
   const revealChip = useCallback((slug: string | null) => {
     const x = slug ? chipX.current[slug] : 0;
-    if (x !== undefined) chipRail.current?.scrollTo({ x: Math.max(0, x - Layout.gutter), animated: true });
-  }, []);
+    if (x !== undefined) chipRail.current?.scrollTo({ x: Math.max(0, x - gutter), animated: true });
+  }, [gutter]);
   useEffect(() => { revealChip(selectedStyle); }, [selectedStyle, revealChip]);
 
   const handleRefresh = useCallback(() => {
@@ -526,16 +558,16 @@ export default function ExploreScreen() {
   const listData = nearMode
     ? (nearState === 'ready' ? nearListed.map((r) => r.artist) : [])
     : (isLoading ? [] : listed);
-
-  // Wider screens get more columns; phones keep the editorial single column by default.
+  // List: one cartel per row on phones, two on wide screens. Grid: two plates, four on wide screens.
   const contentWidth = Math.min(width, Layout.maxContent);
-  const columns = viewMode === 'grid' ? (contentWidth >= 1000 ? 4 : contentWidth >= 700 ? 3 : 2) : contentWidth >= 900 ? 2 : 1;
+  const columns = viewMode === 'grid' ? (contentWidth >= 1000 ? 4 : 2) : isWide ? 2 : 1;
 
   const renderArtist = useCallback(
-    ({ item }: { item: Artist }) => (
+    ({ item, index }: { item: Artist; index: number }) => (
       <View style={[styles.cell, columns > 1 && styles.cellMulti]}>
         <ArtistCard
           artist={item}
+          index={index}
           isSaved={savedArtistIds.has(item.id)}
           onSave={toggleSaveArtist}
           variant={viewMode === 'grid' ? 'tile' : 'default'}
@@ -548,29 +580,63 @@ export default function ExploreScreen() {
     [savedArtistIds, toggleSaveArtist, viewMode, previews, stats, columns, nearMode, nearPreviews, nearDistances],
   );
 
-  // ── Scroll-driven masthead (UI thread only)
-  const [barH, setBarH] = useState(0);
-  const [titleH, setTitleH] = useState(0);
-  const scrollY = useSharedValue(0);
-  const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
-  const barStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -interpolate(scrollY.get(), [0, titleH], [0, titleH], Extrapolation.CLAMP) }],
-  }));
-  const titleStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.get(), [0, titleH * 0.7], [1, 0], Extrapolation.CLAMP),
-  }));
-  const glassStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.get(), [titleH * 0.4, titleH], [0, 1], Extrapolation.CLAMP),
-  }));
-
   const openCount = openTotal;
   const styleName = selectedStyle ? STYLES.find((s) => s.slug === selectedStyle)?.name : null;
 
   const nextRadius = RADIUS_OPTIONS.find((r) => r > radius);
   const nearCount = nearListed.length;
 
+  const availabilityLabel = AVAILABILITY_OPTIONS.find((o) => o.value === availability)?.label;
+  const budgetLabel = BUDGET_OPTIONS.find((o) => o.value === budgetMax)?.label;
+  const sortLabel = SORT_OPTIONS.find((o) => o.value === sortBy)?.label;
+  // Phones keep the sheet; this line keeps the active choices readable without opening it.
+  const activeSummary = [
+    availability !== 'all' ? `Statut : ${availabilityLabel}` : null,
+    budgetMax !== null ? `Budget : ${budgetLabel?.toLowerCase()}` : null,
+    sortBy !== 'relevance' ? `Tri : ${sortLabel?.toLowerCase()}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const statusFilters = (
+    <FilterGroup label="Statut">
+      {AVAILABILITY_OPTIONS.map((o) => (
+        <Chip key={o.value} label={o.label} tone={o.tone} selected={availability === o.value} onPress={() => setAvailability(o.value)} />
+      ))}
+    </FilterGroup>
+  );
+  const budgetFilters = (
+    <FilterGroup label="Budget minimum de l’artiste" note="Indicatif : le prix final dépend du projet et fait l’objet d’un devis par l’artiste.">
+      {BUDGET_OPTIONS.map((o) => (
+        <Chip key={o.label} label={o.label} selected={budgetMax === o.value} onPress={() => setBudgetMax(o.value)} />
+      ))}
+    </FilterGroup>
+  );
+  const sortFilters = (
+    <FilterGroup label="Trier par">
+      {SORT_OPTIONS.map((o) => (
+        <Chip key={o.value} label={o.label} selected={sortBy === o.value} onPress={() => setSortBy(o.value)} />
+      ))}
+    </FilterGroup>
+  );
+
   const nearPanel = nearMode ? (
     <View style={styles.nearPanel}>
+      <View style={styles.nearHead}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Kicker tone="flame">Autour de moi</Kicker>
+          <TText variant="displayS" numberOfLines={1} accessibilityLiveRegion="polite" style={styles.nearTitle}>
+            {nearState === 'locating'
+              ? 'Localisation…'
+              : nearCoords && !cityMode ? `Autour de ${nearPlace}` : 'Autour d’une ville'}
+          </TText>
+        </View>
+        {!cityMode && (
+          <TextLink label="Changer de ville" icon="business-outline" onPress={() => { setCityMode(true); setNearMessage(null); }} />
+        )}
+        {cityMode && geolocationAvailable() && (
+          <TextLink label="Ma position" icon="navigate-outline" accessibilityLabel="Utiliser ma position" onPress={locateMe} />
+        )}
+      </View>
+
       {showPrivacy && (
         <View style={styles.nearPrivacy}>
           <Ionicons name="lock-closed-outline" size={13} color={Colors.textTertiary} />
@@ -580,44 +646,20 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      <View style={styles.nearHead}>
-        <Ionicons name={cityMode ? 'business-outline' : 'navigate-outline'} size={17} color={Colors.accentWarm} />
-        <TText variant="bodySmall" weight="medium" style={{ flex: 1 }} numberOfLines={1} accessibilityLiveRegion="polite">
-          {nearState === 'locating'
-            ? 'Localisation…'
-            : nearCoords && !cityMode ? `Autour de ${nearPlace}` : 'Autour d’une ville'}
-        </TText>
-        {!cityMode && (
-          <Pressable onPress={() => { setCityMode(true); setNearMessage(null); }} hitSlop={8} accessibilityRole="button">
-            <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Changer de ville</TText>
-          </Pressable>
-        )}
-        {cityMode && geolocationAvailable() && (
-          <Pressable onPress={locateMe} hitSlop={8} accessibilityRole="button" accessibilityLabel="Utiliser ma position">
-            <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Ma position</TText>
-          </Pressable>
-        )}
-      </View>
-
       {cityMode && (
         <View>
           <View style={styles.cityRow}>
-            <View style={[styles.searchBox, styles.cityBox]}>
-              <Ionicons name="location-outline" size={16} color={Colors.textTertiary} />
-              <TextInput
-                style={styles.searchInput}
-                value={cityQuery}
-                onChangeText={setCityQuery}
-                placeholder="Ville, par exemple Lyon"
-                placeholderTextColor={Colors.textTertiary}
-                selectionColor={Colors.accentWarm}
-                returnKeyType="search"
-                onSubmitEditing={() => { void searchCity(); }}
-                autoCorrect={false}
-                maxLength={80}
-                accessibilityLabel="Chercher autour d’une ville"
-              />
-            </View>
+            <TInput
+              value={cityQuery}
+              onChangeText={setCityQuery}
+              placeholder="Ville, par exemple Lyon"
+              returnKeyType="search"
+              onSubmitEditing={() => { void searchCity(); }}
+              autoCorrect={false}
+              maxLength={80}
+              accessibilityLabel="Chercher autour d’une ville"
+              containerStyle={styles.cityInput}
+            />
             <TButton
               title="Chercher"
               size="md"
@@ -626,7 +668,7 @@ export default function ExploreScreen() {
               onPress={() => { void searchCity(); }}
             />
           </View>
-          <TText variant="micro" color="tertiary" style={{ marginTop: 6 }}>
+          <TText variant="micro" color="tertiary" style={{ marginTop: 6, letterSpacing: 0 }}>
             Seul le nom de la ville est envoyé au service de cartes OpenStreetMap.
           </TText>
         </View>
@@ -637,7 +679,7 @@ export default function ExploreScreen() {
       )}
 
       <View style={styles.radiusRow} accessibilityRole="radiogroup" accessibilityLabel="Rayon de recherche">
-        <TText variant="caption" color="tertiary">Rayon</TText>
+        <Kicker tone="muted">Rayon</Kicker>
         {RADIUS_OPTIONS.map((r) => (
           <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => changeRadius(r)} />
         ))}
@@ -647,11 +689,117 @@ export default function ExploreScreen() {
 
   const ListHeader = (
     <View>
+      <Masthead
+        kicker="02 / Découvrir"
+        title="La bonne"
+        emphasis="rencontre."
+        description="Trouvez un univers, puis une personne. Laissez les portfolios parler en premier : par style, par ville, par disponibilité."
+        style={styles.masthead}
+      />
+
+      {/* Search */}
+      <View style={[styles.searchRow, isWide && styles.searchRowWide]}>
+        <View style={styles.searchField}>
+          <Kicker tone="muted" style={styles.fieldLabel}>Artiste, ville ou style</Kicker>
+          <Pressable
+            onPress={() => inputRef.current?.focus()}
+            style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}
+            accessible={false}
+          >
+            <Ionicons name="search" size={17} color={searchFocused ? Colors.flameText : Colors.textTertiary} />
+            <TextInput
+              ref={inputRef}
+              style={styles.searchInput}
+              placeholder="Un nom, une ville, un univers"
+              placeholderTextColor={Colors.textTertiary}
+              selectionColor={Colors.flame}
+              value={query}
+              onChangeText={setQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              returnKeyType="search"
+              autoCorrect={false}
+              accessibilityLabel="Rechercher un artiste, une ville ou un style"
+            />
+            {!!query && (
+              <IconButton icon="close" label="Effacer la recherche" size={30} onPress={() => setQuery('')} style={styles.clearBtn} />
+            )}
+          </Pressable>
+        </View>
+        {!isWide && (
+          <Pressable
+            onPress={() => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFilters(true); }}
+            accessibilityRole="button"
+            accessibilityLabel={sheetFilterCount ? `Filtres, ${sheetFilterCount} actifs` : 'Filtres'}
+            style={(state) => [
+              styles.filterBtn,
+              sheetFilterCount > 0 && styles.filterBtnActive,
+              (state as Hover).pressed && { opacity: 0.8 },
+              webPointer,
+            ]}
+          >
+            <Ionicons name="options-outline" size={19} color={sheetFilterCount ? Colors.paper : Colors.ink} />
+            {sheetFilterCount > 0 && (
+              <TText variant="caption" weight="semibold" tabular style={{ color: Colors.paper, marginLeft: 4 }}>{sheetFilterCount}</TText>
+            )}
+          </Pressable>
+        )}
+        {isWide && hasFilters && (
+          <TButton title="Effacer les filtres" variant="secondary" size="md" fullWidth={false} onPress={resetAll} />
+        )}
+      </View>
+
+      {/* Styles, and the way into "near me" */}
+      <Kicker tone="muted" style={styles.fieldLabel}>Style</Kicker>
+      <ScrollView
+        ref={chipRail}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={[styles.chipScroller, { marginHorizontal: -gutter }]}
+        contentContainerStyle={[styles.chipRow, { paddingHorizontal: gutter }]}
+      >
+        <Chip
+          label="Autour de moi"
+          icon="navigate-outline"
+          selected={nearMode}
+          onPress={() => (nearMode ? leaveNear() : startNear())}
+        />
+        <View style={styles.chipSeparator} />
+        <Chip label="Tous les styles" selected={!selectedStyle} onPress={() => setSelectedStyle(null)} />
+        {STYLES.map((s) => (
+          <Chip
+            key={s.id}
+            label={s.name}
+            selected={selectedStyle === s.slug}
+            onPress={() => setSelectedStyle(selectedStyle === s.slug ? null : s.slug)}
+            onLayout={(x) => {
+              chipX.current[s.slug] = x;
+              if (s.slug === selectedStyle) revealChip(s.slug);
+            }}
+          />
+        ))}
+      </ScrollView>
+
+      {/* Wide: every filter stays on the page, read as one line of groups. Phones: the sheet. */}
+      {isWide ? (
+        <View style={styles.inlineFilters}>
+          {statusFilters}
+          {budgetFilters}
+          {sortFilters}
+        </View>
+      ) : !!activeSummary && (
+        <View style={styles.summaryRow}>
+          <TText variant="caption" color="secondary" style={{ flex: 1 }} numberOfLines={2}>{activeSummary}</TText>
+          <TextLink label="Modifier" icon="options-outline" onPress={() => setShowFilters(true)} />
+        </View>
+      )}
+
       {nearPanel}
+
       {!nearMode && !hasFilters && !isLoading && !fetchError && (
         <>
           {spotlightArtist && (
-            <Animated.View entering={FadeIn.duration(500)} style={styles.spotlight}>
+            <Animated.View entering={reduced ? undefined : FadeIn.duration(500)} style={styles.spotlight}>
               <ArtistCard
                 artist={spotlightArtist}
                 variant="featured"
@@ -669,9 +817,14 @@ export default function ExploreScreen() {
 
           {trendingPosts.length > 0 && (
             <View style={styles.trendingSection}>
-              <SectionLabel>Réalisations populaires</SectionLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
-                {trendingPosts.map((p) => <TrendingTile key={p.id} post={p} />)}
+              <SectionHead kicker="Réalisations les plus aimées" />
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginHorizontal: -gutter }}
+                contentContainerStyle={[styles.trendingRow, { paddingHorizontal: gutter }]}
+              >
+                {trendingPosts.map((p, i) => <TrendingTile key={p.id} post={p} index={i} />)}
               </ScrollView>
             </View>
           )}
@@ -680,23 +833,25 @@ export default function ExploreScreen() {
 
       {(nearMode ? nearState === 'ready' : !fetchError) && (
         <View style={styles.countRow}>
-          <TText variant="bodySmall" color="secondary" tabular accessibilityLiveRegion="polite">
-            {nearMode
-              ? `${nearCount} artiste${nearCount > 1 ? 's' : ''} à moins de ${radius} km${styleName ? ` · ${styleName}` : ''}`
-              : isLoading ? 'Recherche…' : `${total} artiste${total > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
-          </TText>
-          <View style={styles.viewToggle} accessibilityRole="radiogroup">
+          <View style={{ flex: 1, minWidth: 0, gap: 6 }} accessibilityLiveRegion="polite">
+            <Kicker>
+              {nearMode
+                ? `${nearCount} artiste${nearCount > 1 ? 's' : ''} à moins de ${radius} km${styleName ? ` · ${styleName}` : ''}`
+                : isLoading ? 'Recherche…' : `${total} artiste${total > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
+            </Kicker>
+            {!nearMode && !isLoading && openCount > 0 && (
+              <StatusDot tone="open" label={`${openCount} ${openCount > 1 ? 'prennent' : 'prend'} des projets`} />
+            )}
+          </View>
+          <View style={styles.viewToggle}>
             {(['list', 'grid'] as const).map((m) => (
-              <Pressable
+              <IconButton
                 key={m}
+                icon={m === 'grid' ? 'grid-outline' : 'reorder-two-outline'}
+                label={m === 'grid' ? 'Affichage en grille' : 'Affichage en liste'}
+                active={viewMode === m}
                 onPress={() => setViewMode(m)}
-                accessibilityRole="radio"
-                accessibilityLabel={m === 'grid' ? 'Affichage en grille' : 'Affichage en liste'}
-                accessibilityState={{ selected: viewMode === m }}
-                style={[styles.viewToggleBtn, viewMode === m && styles.viewToggleBtnActive]}
-              >
-                <Ionicons name={m === 'grid' ? 'grid-outline' : 'reorder-two-outline'} size={16} color={viewMode === m ? Colors.textPrimary : Colors.textTertiary} />
-              </Pressable>
+              />
             ))}
           </View>
         </View>
@@ -706,98 +861,6 @@ export default function ExploreScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Pinned bar: the masthead slides away under the status bar, search + styles stay on frosted glass. */}
-      <Animated.View
-        style={[styles.bar, { paddingTop: insets.top }, barStyle]}
-        onLayout={(e) => setBarH(e.nativeEvent.layout.height)}
-      >
-        <Animated.View style={[StyleSheet.absoluteFill, glassStyle]} pointerEvents="none">
-          <GlassSurface style={StyleSheet.absoluteFill} />
-          <View style={styles.barHairline} />
-        </Animated.View>
-      <View style={styles.frame}>
-        {/* Masthead */}
-        <Animated.View style={[styles.header, titleStyle]} onLayout={(e) => setTitleH(e.nativeEvent.layout.height)}>
-          <TText variant="displayM" accessibilityRole="header">
-            Trouver <TText variant="displayM" italic color="accentGlow">un artiste</TText>
-          </TText>
-          <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }}>
-            {isLoading || fetchError ? 'Tatoueurs, studios et guest spots' : `${total} artiste${total > 1 ? 's' : ''} · ${openCount} ${openCount > 1 ? 'prennent' : 'prend'} des projets`}
-          </TText>
-        </Animated.View>
-
-        {/* Search */}
-        <View style={styles.searchRow}>
-          <Pressable
-            onPress={() => inputRef.current?.focus()}
-            style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}
-          >
-            <Ionicons name="search" size={17} color={searchFocused ? Colors.accentWarm : Colors.textTertiary} />
-            <TextInput
-              ref={inputRef}
-              style={styles.searchInput}
-              placeholder="Artiste, ville ou style"
-              placeholderTextColor={Colors.textTertiary}
-              selectionColor={Colors.accentWarm}
-              value={query}
-              onChangeText={setQuery}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              returnKeyType="search"
-              autoCorrect={false}
-              accessibilityLabel="Rechercher un artiste, une ville ou un style"
-            />
-            {!!query && (
-              <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Effacer la recherche" style={styles.clearBtn}>
-                <Ionicons name="close" size={13} color={Colors.textSecondary} />
-              </Pressable>
-            )}
-          </Pressable>
-          <Pressable
-            onPress={() => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFilters(true); }}
-            accessibilityRole="button"
-            accessibilityLabel={sheetFilterCount ? `Filtres, ${sheetFilterCount} actifs` : 'Filtres'}
-            style={({ pressed }) => [styles.filterBtn, sheetFilterCount > 0 && styles.filterBtnActive, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name="options-outline" size={19} color={sheetFilterCount ? Colors.textInverse : Colors.textPrimary} />
-            {sheetFilterCount > 0 && (
-              <TText variant="caption" weight="semibold" tabular style={{ color: Colors.textInverse, marginLeft: 4 }}>{sheetFilterCount}</TText>
-            )}
-          </Pressable>
-        </View>
-
-        {/* Styles */}
-        <ScrollView ref={chipRail} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.chipScroller}>
-          <Chip
-            label="Autour de moi"
-            icon="navigate-outline"
-            selected={nearMode}
-            onPress={() => (nearMode ? leaveNear() : startNear())}
-          />
-          <View style={styles.chipSeparator} />
-          <Chip label="Tous les styles" selected={!selectedStyle} onPress={() => setSelectedStyle(null)} />
-          {STYLES.map((s) => (
-            <Chip
-              key={s.id}
-              label={s.name}
-              selected={selectedStyle === s.slug}
-              onPress={() => setSelectedStyle(selectedStyle === s.slug ? null : s.slug)}
-              onLayout={(x) => {
-                chipX.current[s.slug] = x;
-                if (s.slug === selectedStyle) revealChip(s.slug);
-              }}
-            />
-          ))}
-        </ScrollView>
-      </View>
-      </Animated.View>
-
-      {/* Status-bar cover once the masthead has slid under it */}
-      <Animated.View style={[styles.statusCover, { height: insets.top }, glassStyle]} pointerEvents="none">
-        <GlassSurface style={StyleSheet.absoluteFill} />
-      </Animated.View>
-
-      {/* Results */}
       <Animated.FlatList
         data={listData}
         keyExtractor={(item) => item.id}
@@ -806,9 +869,10 @@ export default function ExploreScreen() {
         numColumns={columns}
         columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
         style={styles.list}
-        contentContainerStyle={[styles.listContent, { paddingTop: barH + Spacing.xs, paddingBottom: insets.bottom + 110 }]}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingHorizontal: gutter, paddingTop: insets.top, paddingBottom: insets.bottom + 110 },
+        ]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
         onEndReached={() => { if (!nearMode) void fetchMore(); }}
@@ -817,8 +881,9 @@ export default function ExploreScreen() {
           <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: Spacing.md }} accessibilityLabel="Chargement des artistes suivants" />
         ) : null}
         keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={nearMode ? nearState === 'loading' : isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} progressViewOffset={barH} />
+          <RefreshControl refreshing={nearMode ? nearState === 'loading' : isRefreshing} onRefresh={handleRefresh} tintColor={Colors.flame} colors={[Colors.flame]} progressViewOffset={insets.top} />
         }
         ListEmptyComponent={
           nearMode ? (
@@ -875,38 +940,20 @@ export default function ExploreScreen() {
         }
       />
 
-      {/* ── Filter sheet ── */}
+      {/* ── Filter sheet (phones; wide screens show the same groups inline) ── */}
       <BottomSheet visible={showFilters} onClose={() => setShowFilters(false)} accessibilityLabel="Filtres">
         <View style={styles.sheetHeader}>
           <TText variant="displayS">Filtres</TText>
-          <Pressable onPress={() => { setAvailability('all'); setBudgetMax(null); setSortBy('relevance'); }} hitSlop={8} accessibilityRole="button">
-            <TText variant="bodySmall" color="secondary" style={{ textDecorationLine: 'underline' }}>Réinitialiser</TText>
-          </Pressable>
+          <TextLink
+            label="Réinitialiser"
+            icon="refresh-outline"
+            onPress={() => { setAvailability('all'); setBudgetMax(null); setSortBy('relevance'); }}
+          />
         </View>
 
-        <SectionLabel>Disponibilité</SectionLabel>
-        <View style={styles.wrapRow}>
-          {AVAILABILITY_OPTIONS.map((o) => (
-            <Chip key={o.value} label={o.label} dot={o.dot} selected={availability === o.value} onPress={() => setAvailability(o.value)} />
-          ))}
-        </View>
-
-        <SectionLabel>Budget minimum de l’artiste</SectionLabel>
-        <View style={styles.wrapRow}>
-          {BUDGET_OPTIONS.map((o) => (
-            <Chip key={o.label} label={o.label} selected={budgetMax === o.value} onPress={() => setBudgetMax(o.value)} />
-          ))}
-        </View>
-        <TText variant="caption" color="tertiary" style={styles.sheetNote}>
-          Indicatif : le prix final dépend du projet et fait l’objet d’un devis par l’artiste.
-        </TText>
-
-        <SectionLabel>Trier par</SectionLabel>
-        <View style={styles.wrapRow}>
-          {SORT_OPTIONS.map((o) => (
-            <Chip key={o.value} label={o.label} selected={sortBy === o.value} onPress={() => setSortBy(o.value)} />
-          ))}
-        </View>
+        {statusFilters}
+        {budgetFilters}
+        {sortFilters}
 
         <TButton
           title={isLoading ? 'Voir les artistes' : `Voir ${total} artiste${total > 1 ? 's' : ''}`}
@@ -919,98 +966,100 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
-  bar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
-  barHairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
-  statusCover: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 11 },
+  container: { flex: 1, backgroundColor: Colors.paper },
 
-  header: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.sm, paddingBottom: Spacing.md },
+  masthead: { marginBottom: Spacing.lg },
 
-  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: Layout.gutter, marginBottom: Spacing.sm },
+  fieldLabel: { marginBottom: 8 },
+  searchRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: Spacing.md },
+  searchRowWide: { gap: Spacing.sm },
+  searchField: { flex: 1, minWidth: 0 },
   searchBox: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
-    height: 50, paddingHorizontal: 16,
-    backgroundColor: Colors.bgElevated, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.borderDefault,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    height: 50, paddingLeft: 16, paddingRight: 8,
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.line,
   },
-  searchBoxFocused: { borderColor: Colors.borderFocus, backgroundColor: Colors.bgSurface },
+  searchBoxFocused: { borderColor: Colors.flame },
   searchInput: {
-    flex: 1, height: '100%', color: Colors.textPrimary, fontFamily: Fonts.sans, fontSize: FontSize.body,
+    flex: 1, height: '100%', color: Colors.ink, fontFamily: Fonts.sans, fontSize: FontSize.body,
     ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null),
   },
-  clearBtn: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: Colors.bgSubtle, alignItems: 'center', justifyContent: 'center',
-  },
+  clearBtn: { borderColor: 'transparent' },
   filterBtn: {
-    minWidth: 50, height: 50, paddingHorizontal: 14, borderRadius: Radius.lg,
+    minWidth: 50, height: 50, paddingHorizontal: 14,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault, backgroundColor: Colors.bgElevated,
+    borderWidth: 1, borderColor: Colors.ink, backgroundColor: 'transparent',
   },
-  filterBtnActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  filterBtnActive: { backgroundColor: Colors.ink },
 
-  chipScroller: { flexGrow: 0, paddingBottom: Spacing.sm },
-  chipRow: { paddingHorizontal: Layout.gutter, gap: 8 },
+  chipScroller: { flexGrow: 0, marginBottom: Spacing.sm },
+  chipRow: { gap: 8, paddingBottom: 4 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 7,
-    height: 36, paddingHorizontal: 14, borderRadius: 18,
-    borderWidth: 1, borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    minHeight: 38, paddingHorizontal: 14,
+    borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.line,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+      : null),
   },
-  chipHover: { backgroundColor: Colors.glassBgMid },
-  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  chipDot: { width: 6, height: 6, borderRadius: 3 },
-  chipSeparator: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: 6, backgroundColor: Colors.borderDefault },
+  chipHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  chipSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  chipFocused: { borderColor: Colors.flame },
+  chipDot: { width: 6, height: 6, borderRadius: Radius.full },
+  chipSeparator: { width: 1, alignSelf: 'stretch', marginVertical: 6, backgroundColor: Colors.line },
+
+  inlineFilters: {
+    flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing['2xl'], rowGap: Spacing.sm,
+    paddingTop: Spacing.sm, marginBottom: Spacing.md,
+    borderTopWidth: 1, borderTopColor: Colors.line,
+  },
+  filterGroup: { marginBottom: Spacing.sm, flexShrink: 1, maxWidth: '100%' },
+  filterLabel: { marginBottom: 10 },
+  filterNote: { maxWidth: 360, marginTop: 2 },
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+
+  summaryRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: Spacing['2xs'], marginBottom: Spacing.sm,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
+  },
 
   nearPanel: {
-    gap: Spacing.xs, padding: Spacing.sm, marginTop: Spacing.xs, marginBottom: Spacing.md,
-    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
+    gap: Spacing.sm, padding: Spacing.md, marginTop: Spacing.xs, marginBottom: Spacing.lg,
+    backgroundColor: Colors.white,
+    borderTopWidth: 2, borderTopColor: Colors.ink,
   },
+  nearHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: Spacing.sm },
+  nearTitle: { marginTop: 6 },
   nearPrivacy: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  nearHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'], minHeight: 28 },
-  cityRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
-  cityBox: { height: 46 },
+  cityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xs'] },
+  cityInput: { flex: 1, minWidth: 0, marginBottom: 0 },
   radiusRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
 
   list: { flex: 1 },
-  listContent: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter, paddingTop: Spacing.xs },
-  columnWrapper: { gap: Spacing.md },
+  listContent: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  columnWrapper: { gap: Spacing.lg },
   cell: { width: '100%' },
-  cellMulti: { flex: 1, width: undefined },
+  cellMulti: { flex: 1, width: undefined, minWidth: 0 },
 
-  spotlight: { marginTop: Spacing.xs },
+  spotlight: { marginTop: Spacing.sm },
 
-  sectionLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.xs, marginTop: Spacing.xs },
-
-  trendingSection: { marginBottom: Spacing.xl },
+  trendingSection: { marginTop: Spacing.lg, marginBottom: Spacing.xl },
   discoveryRail: { marginTop: Spacing.md },
-  trendingRow: { gap: 10 },
-  trendingTile: { width: 116 },
-  trendingImage: { width: 116, height: 146, borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.bgSurface },
+  trendingRow: { gap: Spacing.sm },
+  trendingTile: { width: 148 },
+  trendingName: { fontSize: 19, lineHeight: 21, marginTop: 8 },
+
+  skeletonCard: { borderTopWidth: 1, borderTopColor: Colors.line, paddingTop: Spacing.xs },
 
   countRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingBottom: Spacing.md, marginBottom: Spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm,
+    paddingBottom: Spacing.sm, marginBottom: Spacing.md, marginTop: Spacing.xs,
+    borderBottomWidth: 1, borderBottomColor: Colors.ink,
   },
-  viewToggle: { flexDirection: 'row', gap: 2, padding: 3, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderDefault },
-  viewToggleBtn: { width: 32, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.sm },
-  viewToggleBtnActive: { backgroundColor: Colors.bgSubtle },
+  viewToggle: { flexDirection: 'row', gap: 6 },
 
   // Sheet
-  backdrop: { flex: 1, backgroundColor: 'rgba(5,4,3,0.72)' },
-  sheet: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    alignSelf: 'center', width: '100%', maxWidth: 560,
-    backgroundColor: Colors.bgElevated,
-    borderTopLeftRadius: Radius['2xl'], borderTopRightRadius: Radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    paddingHorizontal: Layout.gutter, paddingTop: 10,
-  },
-  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.borderDefault, alignSelf: 'center', marginBottom: Spacing.md },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.sm },
-  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.md },
-  sheetNote: { marginTop: -Spacing.xs, marginBottom: Spacing.md },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md },
 });

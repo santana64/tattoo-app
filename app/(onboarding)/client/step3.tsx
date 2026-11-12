@@ -46,8 +46,10 @@ export default function ClientStep3() {
 
   return (
     <OnboardingScreen
+      audience="client"
       step={STEP}
       total={TOTAL}
+      label="Vos inspirations"
       title="Quels styles"
       accent="vous attirent ?"
       lede="Votre fil s’adapte à vos choix. Sélectionnez-en autant que vous le souhaitez."

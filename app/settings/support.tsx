@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View, Linking, Platform, KeyboardAvoidingView } from 'react-native';
+import { ScrollView, StyleSheet, View, Linking, Platform, KeyboardAvoidingView, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
-import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
-import { PressableScale, fadeIn } from '@/components/motion';
+import { Kicker, Masthead, SettingRow, TextLink } from '@/components/v5';
+import { SETTINGS_PANE, SettingsSection } from '@/components/v5/SettingsParts';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 
 const APP_VERSION = Constants.expoConfig?.version;
 
@@ -40,31 +40,43 @@ const FAQ_ITEMS = [
 ];
 
 const SOCIALS = [
-  { icon: 'logo-instagram' as const, label: 'Instagram', url: 'https://instagram.com/inkrapp' },
-  { icon: 'logo-twitter' as const, label: 'X (Twitter)', url: 'https://twitter.com/inkrapp' },
-  { icon: 'logo-discord' as const, label: 'Discord', url: 'https://discord.gg/inkr' },
+  { label: 'Instagram', url: 'https://instagram.com/inkrapp' },
+  { label: 'X (Twitter)', url: 'https://twitter.com/inkrapp' },
+  { label: 'Discord', url: 'https://discord.gg/inkr' },
 ];
 
-// ── Accordion item ───────────────────────────────────────────────
-function AccordionItem({ question, answer, isOpen, onPress }: {
-  question: string; answer: string; isOpen: boolean; onPress: () => void;
+// ── Accordion item: numbered question, answer underneath ─────────
+type Hover = { pressed: boolean; hovered?: boolean };
+
+function AccordionItem({ number, question, answer, isOpen, onPress }: {
+  number: string; question: string; answer: string; isOpen: boolean; onPress: () => void;
 }) {
   return (
-    <View>
-      <PressableScale
+    <View style={styles.faqItem}>
+      <Pressable
         onPress={onPress}
-        pressedScale={0.985}
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
-        style={styles.faqRow}
+        style={[styles.faqRow, Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null]}
       >
-        <TText variant="body" weight="medium" style={{ flex: 1 }}>{question}</TText>
-        <Ionicons name={isOpen ? 'remove' : 'add'} size={18} color={Colors.textSecondary} />
-      </PressableScale>
+        {(state) => {
+          const lit = (state as Hover).hovered || (state as Hover).pressed;
+          return (
+            <>
+              <Kicker tone="flame" style={styles.faqNumber}>{number}</Kicker>
+              <TText
+                variant="displayS"
+                style={[styles.faqQuestion, { color: lit ? Colors.flameText : Colors.ink }]}
+              >
+                {question}
+              </TText>
+              <Ionicons name={isOpen ? 'remove' : 'add'} size={18} color={Colors.ink} />
+            </>
+          );
+        }}
+      </Pressable>
       {isOpen && (
-        <Animated.View entering={fadeIn()}>
-          <TText variant="bodySmall" color="secondary" style={styles.faqAnswer}>{answer}</TText>
-        </Animated.View>
+        <TText variant="bodySmall" color="secondary" style={styles.faqAnswer}>{answer}</TText>
       )}
     </View>
   );
@@ -73,6 +85,7 @@ function AccordionItem({ question, answer, isOpen, onPress }: {
 // ── Main screen ──────────────────────────────────────────────────
 export default function SupportScreen() {
   const insets = useSafeAreaInsets();
+  const { isWide, gutter } = useContentDimensions();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [subject, setSubject] = useState('');
@@ -88,7 +101,7 @@ export default function SupportScreen() {
   const handleSend = () => {
     if (!canSend) return;
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // In production: POST to support API
+    // Support is reached by e-mail: open a pre-filled draft in the mail app.
     const mailto = `mailto:support@inkr.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(description)}`;
     Linking.openURL(mailto).catch(() => {});
     setSent(true);
@@ -104,129 +117,114 @@ export default function SupportScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <THeader title="Aide et support" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={[styles.content, { paddingHorizontal: gutter, paddingBottom: insets.bottom + Spacing['3xl'] }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.hero}>
-          <TText variant="label" color="accentWarm" uppercase>Assistance</TText>
-          <TText variant="displayM" style={{ marginTop: 6 }} accessibilityRole="header">
-            Comment pouvons-nous <TText variant="displayM" italic color="accentGlow">vous aider</TText> ?
-          </TText>
-          <TText variant="body" color="secondary" style={{ marginTop: Spacing.xs }}>
-            Consultez les questions fréquentes ou écrivez-nous : nous vous répondons par e-mail.
-          </TText>
-        </View>
+        <Masthead
+          kicker="Assistance"
+          title="Comment pouvons-nous"
+          emphasis="vous aider ?"
+          description="Consultez les questions fréquentes ou écrivez-nous : nous vous répondons par e-mail."
+        />
 
-        {/* FAQ */}
-        <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Questions fréquentes</TText>
-        <View style={styles.list}>
-          {FAQ_ITEMS.map((item, i) => (
-            <React.Fragment key={item.q}>
-              {i > 0 && <TDivider />}
+        <View style={styles.pane}>
+          {/* FAQ */}
+          <SettingsSection number="01" title="Questions fréquentes" style={styles.firstSection}>
+            {FAQ_ITEMS.map((item, i) => (
               <AccordionItem
+                key={item.q}
+                number={String(i + 1).padStart(2, '0')}
                 question={item.q}
                 answer={item.a}
                 isOpen={openFaq === i}
                 onPress={() => toggleFaq(i)}
               />
-            </React.Fragment>
-          ))}
-        </View>
+            ))}
+          </SettingsSection>
 
-        {/* Contact */}
-        <TText variant="label" color="tertiary" uppercase style={[styles.sectionLabel, { marginTop: Spacing['2xl'] }]}>
-          Contacter le support
-        </TText>
-        {!showForm ? (
-          <PressableScale
-            onPress={() => setShowForm(true)}
-            pressedScale={0.985}
-            accessibilityRole="button"
-            accessibilityLabel="Écrire un message au support"
-            style={[styles.list, styles.contactRow]}
-          >
-            <Ionicons name="mail-outline" size={19} color={Colors.accentWarm} style={{ width: 22 }} />
-            <View style={{ flex: 1 }}>
-              <TText variant="body" weight="medium">Écrire un message</TText>
-              <TText variant="caption" color="tertiary">Le message s’ouvre dans votre messagerie</TText>
-            </View>
-            <Ionicons name="chevron-forward" size={15} color={Colors.textTertiary} />
-          </PressableScale>
-        ) : (
-          <Animated.View entering={fadeIn()}>
-            <TInput
-              label="Sujet"
-              value={subject}
-              onChangeText={setSubject}
-              placeholder="Résumez votre question en quelques mots"
-            />
-            <TInput
-              label="Description"
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Décrivez la situation : écran concerné, étapes, message d’erreur…"
-              multiline
-              inputStyle={{ minHeight: 110, textAlignVertical: 'top', paddingTop: 14 }}
-              helper={canSend ? undefined : 'Au moins quelques mots dans chaque champ.'}
-            />
-            <View style={{ gap: 10 }}>
-              <TButton
-                title={sent ? 'Brouillon ouvert dans votre messagerie' : 'Préparer l’e-mail'}
-                onPress={handleSend}
-                disabled={!canSend || sent}
-                icon={sent ? <Ionicons name="checkmark" size={18} color={Colors.textInverse} /> : undefined}
+          {/* Contact */}
+          <SettingsSection number="02" title="Contacter le support">
+            {!showForm ? (
+              <SettingRow
+                title="Écrire un message"
+                description="Le message s’ouvre dans votre messagerie"
+                accessibilityLabel="Écrire un message au support"
+                onPress={() => setShowForm(true)}
               />
-              <TButton title="Annuler" variant="ghost" onPress={() => setShowForm(false)} />
+            ) : (
+              <View style={styles.form}>
+                <TInput
+                  label="Sujet"
+                  value={subject}
+                  onChangeText={setSubject}
+                  placeholder="Résumez votre question en quelques mots"
+                />
+                <TInput
+                  label="Description"
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Décrivez la situation : écran concerné, étapes, message d’erreur…"
+                  multiline
+                  inputStyle={{ minHeight: 120, textAlignVertical: 'top', paddingTop: 14 }}
+                  helper={canSend ? undefined : 'Au moins quelques mots dans chaque champ.'}
+                />
+                <View style={[styles.formActions, isWide && styles.formActionsWide]}>
+                  <TButton
+                    title={sent ? 'Brouillon ouvert dans votre messagerie' : 'Préparer l’e-mail'}
+                    onPress={handleSend}
+                    disabled={!canSend || sent}
+                    fullWidth={!isWide}
+                    icon={sent ? <Ionicons name="checkmark" size={18} color={Colors.textInverse} /> : undefined}
+                  />
+                  <TButton title="Annuler" variant="ghost" fullWidth={!isWide} onPress={() => setShowForm(false)} />
+                </View>
+              </View>
+            )}
+          </SettingsSection>
+
+          {/* Social links */}
+          <SettingsSection number="03" title="Nous suivre">
+            <View style={styles.socials}>
+              {SOCIALS.map(({ label, url }) => (
+                <TextLink
+                  key={label}
+                  label={label}
+                  icon="open-outline"
+                  accessibilityLabel={label}
+                  onPress={() => { Linking.openURL(url).catch(() => {}); }}
+                  style={styles.social}
+                />
+              ))}
             </View>
-          </Animated.View>
-        )}
+          </SettingsSection>
 
-        {/* Social links */}
-        <TText variant="label" color="tertiary" uppercase style={[styles.sectionLabel, { marginTop: Spacing['2xl'] }]}>
-          Nous suivre
-        </TText>
-        <View style={styles.list}>
-          {SOCIALS.map(({ icon, label, url }, i) => (
-            <React.Fragment key={label}>
-              {i > 0 && <TDivider inset={34} />}
-              <PressableScale
-                onPress={() => { Linking.openURL(url).catch(() => {}); }}
-                pressedScale={0.985}
-                accessibilityRole="link"
-                accessibilityLabel={label}
-                style={styles.contactRow}
-              >
-                <Ionicons name={icon} size={19} color={Colors.textSecondary} style={{ width: 22 }} />
-                <TText variant="body" style={{ flex: 1 }}>{label}</TText>
-                <Ionicons name="open-outline" size={15} color={Colors.textTertiary} />
-              </PressableScale>
-            </React.Fragment>
-          ))}
+          {!!APP_VERSION && (
+            <Kicker tone="muted" style={styles.version}>{`Inkr ${APP_VERSION}`}</Kicker>
+          )}
         </View>
-
-        {!!APP_VERSION && (
-          <TText variant="caption" color="tertiary" tabular style={styles.version}>INKR {APP_VERSION}</TText>
-        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xl,
-  },
-  hero: { marginBottom: Spacing.xl },
-  sectionLabel: { marginBottom: Spacing['2xs'] },
-  list: {
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  faqRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingVertical: 12 },
-  faqAnswer: { paddingBottom: Spacing.sm, maxWidth: Layout.maxReading },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingVertical: 10 },
-  version: { textAlign: 'center', marginTop: Spacing.xl },
+  container: { flex: 1, backgroundColor: Colors.paper },
+  content: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  pane: { width: '100%', maxWidth: SETTINGS_PANE },
+  firstSection: { marginTop: 0 },
+
+  faqItem: { borderBottomWidth: 1, borderBottomColor: Colors.line },
+  faqRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 64, paddingVertical: Spacing.sm },
+  faqNumber: { width: 22 },
+  faqQuestion: { flex: 1, fontSize: 22, lineHeight: 26, letterSpacing: -0.3 },
+  faqAnswer: { paddingLeft: 22 + Spacing.sm, paddingRight: Spacing.lg, paddingBottom: Spacing.md, lineHeight: 22, maxWidth: Layout.maxReading },
+
+  form: { paddingTop: Spacing.md },
+  formActions: { gap: 10 },
+  formActionsWide: { flexDirection: 'row', flexWrap: 'wrap' },
+
+  socials: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.lg, paddingTop: Spacing.sm },
+  social: { minHeight: 44 },
+  version: { marginTop: Spacing['2xl'] },
 });

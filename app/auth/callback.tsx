@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import Animated, { useReducedMotion } from 'react-native-reanimated';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth-store';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { enterUp, fadeIn } from '@/components/motion/tokens';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { Logo } from '@/components/ui/Logo';
+import { EditorialTitle, Kicker } from '@/components/v5';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 
 // A code is single-use. Reuse the pending result on React strict-mode remount.
 let lastCode: string | undefined;
@@ -29,6 +30,7 @@ export default function AuthCallbackScreen() {
   const [exchanged, setExchanged] = useState(false);
   const { user, isLoading, error: profileError } = useAuthStore();
   const reduced = useReducedMotion();
+  const { gutter } = useContentDimensions();
 
   useEffect(() => {
     let active = true;
@@ -56,24 +58,19 @@ export default function AuthCallbackScreen() {
   }, [exchanged, isLoading, user, profileError, router]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingHorizontal: gutter }]}>
       {error ? (
         <View style={styles.column} accessibilityLiveRegion="polite">
-          <Animated.View entering={enterUp(0)} style={styles.iconRing}>
-            <Ionicons name="link-outline" size={20} color={Colors.accentWarm} />
+          <Animated.View entering={enterUp(0)}>
+            <Kicker tone="flame" style={styles.kicker}>Connexion / Retour</Kicker>
+            <EditorialTitle emphasis="interrompue.">Connexion</EditorialTitle>
           </Animated.View>
           <Animated.View entering={enterUp(1)}>
-            <TText variant="displayM" style={styles.title} accessibilityRole="header">
-              Connexion{' '}
-              <TText variant="displayM" italic color="accentGlow">interrompue</TText>
-            </TText>
-          </Animated.View>
-          <Animated.View entering={enterUp(2)}>
             <TText variant="body" color="secondary" style={styles.message}>{error}</TText>
           </Animated.View>
-          <Animated.View entering={enterUp(3)} style={styles.actions}>
-            <TButton title="Revenir à la connexion" onPress={() => router.replace('/(auth)/sign-in')} />
-            <TButton title="Explorer les artistes" variant="ghost" size="md" onPress={() => router.replace('/(tabs)/explore')} />
+          <Animated.View entering={enterUp(2)} style={styles.actions}>
+            <TButton title="Revenir à la connexion" fullWidth={false} onPress={() => router.replace('/(auth)/sign-in')} />
+            <TButton title="Explorer les artistes" variant="ghost" size="md" fullWidth={false} onPress={() => router.replace('/(tabs)/explore')} />
           </Animated.View>
         </View>
       ) : (
@@ -85,11 +82,12 @@ export default function AuthCallbackScreen() {
           accessibilityLabel="Connexion en cours"
         >
           <Logo size="lg" variant="mark" animate={!reduced} />
-          <TText variant="displayS" style={styles.title}>
+          <Kicker tone="muted" style={styles.pendingKicker}>Connexion / Vérification</Kicker>
+          <TText variant="displayM" style={styles.pendingTitle}>
             Connexion{' '}
-            <TText variant="displayS" italic color="accentGlow">en cours…</TText>
+            <TText variant="displayM" italic color="accentGlow" style={styles.pendingTitle}>en cours…</TText>
           </TText>
-          <ActivityIndicator color={Colors.textSecondary} size="small" />
+          <ActivityIndicator color={Colors.ink} size="small" style={styles.spinner} />
         </Animated.View>
       )}
     </View>
@@ -101,22 +99,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: Layout.gutter,
-    backgroundColor: Colors.bgPrimary,
+    backgroundColor: Colors.paper,
   },
-  column: { width: '100%', maxWidth: 420, alignItems: 'center' },
-  iconRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
-    marginBottom: Spacing.md,
+  column: {
+    width: '100%',
+    maxWidth: 560,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
+    paddingTop: Spacing.lg,
   },
-  title: { textAlign: 'center', marginTop: Spacing.md, marginBottom: Spacing.sm },
-  message: { textAlign: 'center', marginBottom: Spacing.xl },
-  actions: { width: '100%', gap: Spacing['3xs'] },
+  kicker: { marginBottom: Spacing.sm },
+  message: { marginTop: Spacing.md, marginBottom: Spacing.xl, maxWidth: 460 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing['2xs'] },
+  pendingKicker: { marginTop: Spacing.lg, marginBottom: Spacing.xs },
+  pendingTitle: { fontSize: 40, lineHeight: 42 },
+  spinner: { alignSelf: 'flex-start', marginTop: Spacing.md },
 });

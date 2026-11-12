@@ -3,13 +3,14 @@ import { View, StyleSheet, ScrollView, Modal } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
-import { BottomSheet, PressableScale, RevealImage } from '@/components/motion';
-import { ArtPlaceholder } from '@/components/ArtistCard';
+import { BottomSheet, PressableScale } from '@/components/motion';
+import { IconButton, SectionHead, StatusDot } from '@/components/v5';
+import { PlateMark, WorkPlate } from './WorkPlate';
 import { useAuthStore } from '@/store/auth-store';
 import {
   deleteGuestSpot, fetchArtistGuestSpots, fetchUpcomingGuestSpots, formatGuestDates, type GuestSpot,
@@ -20,6 +21,8 @@ interface GuestSpotRailProps {
   artistId?: string;
   /** The artist's own rail: adds an "announce" tile and a delete button on each card. */
   ownerActions?: boolean;
+  /** Side padding of the page the rail bleeds out of. */
+  gutter?: number;
 }
 
 type RailGuest = GuestSpot & { artist?: { id: string; blaze: string } | null };
@@ -36,7 +39,6 @@ function placesLeft(spot: Pick<GuestSpot, 'slots_total' | 'slots_booked'>): stri
 }
 
 function GuestCard({ spot, showArtist, onPress }: { spot: RailGuest; showArtist: boolean; onPress: () => void }) {
-  const where = `${spot.host_city} · ${spot.host_studio}`;
   const dates = formatGuestDates(spot.date_from, spot.date_to);
   const places = placesLeft(spot);
   const full = places === 'Complet';
@@ -51,29 +53,19 @@ function GuestCard({ spot, showArtist, onPress }: { spot: RailGuest; showArtist:
 
   return (
     <PressableScale onPress={onPress} accessibilityRole="link" accessibilityLabel={label} style={styles.card}>
-      <View style={styles.cover}>
-        <RevealImage
-          uri={spot.cover_image_url}
-          style={StyleSheet.absoluteFill}
-          fallback={<ArtPlaceholder name={artistName ?? spot.host_city} size={40} />}
-        />
-        <View style={styles.dates}>
-          <TText variant="caption" weight="semibold" tabular>{dates}</TText>
-        </View>
-      </View>
+      <WorkPlate uri={spot.cover_image_url} tone="slate" style={styles.cover}>
+        <PlateMark label={dates} />
+      </WorkPlate>
       <View style={styles.body}>
-        {showArtist && !!artistName && (
-          <TText variant="label" color="accentWarm" uppercase numberOfLines={1}>{artistName}</TText>
-        )}
-        <TText variant="title2" serif numberOfLines={1} style={styles.where}>{where}</TText>
+        <TText variant="label" weight="bold" uppercase numberOfLines={1} style={styles.kicker}>
+          {showArtist && artistName ? `${artistName} · ${spot.host_city}` : spot.host_city}
+        </TText>
+        <TText variant="title2" serif numberOfLines={1} style={styles.where}>{spot.host_studio}</TText>
         <View style={styles.metaRow}>
-          <TText variant="bodySmall" tabular style={{ color: Colors.accentGlow }}>
+          <TText variant="caption" weight="semibold" tabular style={styles.price}>
             dès {spot.price_from.toLocaleString('fr-FR')} €
           </TText>
-          <View style={styles.places}>
-            <View style={[styles.dot, { backgroundColor: full ? Colors.textTertiary : Colors.success }]} />
-            <TText variant="caption" color="secondary">{places}</TText>
-          </View>
+          <StatusDot tone={full ? 'closed' : 'open'} label={places} />
         </View>
       </View>
     </PressableScale>
@@ -83,11 +75,11 @@ function GuestCard({ spot, showArtist, onPress }: { spot: RailGuest; showArtist:
 function AnnounceTile({ onPress }: { onPress: () => void }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel="Annoncer un guest" style={[styles.card, styles.announce]}>
-      <View style={styles.announceRing}>
-        <Ionicons name="add" size={20} color={Colors.accentWarm} />
+      <View style={styles.announceMark}>
+        <Ionicons name="add" size={20} color={Colors.flameText} />
       </View>
-      <TText variant="bodySmall" weight="medium">Annoncer un guest</TText>
-      <TText variant="caption" color="tertiary" style={{ textAlign: 'center' }}>
+      <TText variant="label" weight="bold" uppercase>Annoncer un guest</TText>
+      <TText variant="caption" color="secondary" style={{ textAlign: 'center' }}>
         Quelques jours dans un autre studio, une autre ville.
       </TText>
     </PressableScale>
@@ -96,18 +88,19 @@ function AnnounceTile({ onPress }: { onPress: () => void }) {
 
 function SkeletonCard() {
   return (
-    <View style={[styles.card, styles.skeletonCard]}>
-      <TSkeleton width={CARD_W} height={COVER_H} radius={0} />
+    <View style={styles.card}>
+      <TSkeleton width={CARD_W - 2} height={COVER_H} radius={0} />
       <View style={styles.body}>
-        <TSkeleton width="70%" height={16} />
-        <TSkeleton width="45%" height={12} style={{ marginTop: 8 }} />
+        <TSkeleton width="40%" height={10} radius={0} />
+        <TSkeleton width="70%" height={18} radius={0} style={{ marginTop: 8 }} />
+        <TSkeleton width="45%" height={12} radius={0} style={{ marginTop: 10 }} />
       </View>
     </View>
   );
 }
 
 /** Guest spots: an artist working away for a few days. */
-export function GuestSpotRail({ artistId, ownerActions = false }: GuestSpotRailProps) {
+export function GuestSpotRail({ artistId, ownerActions = false, gutter = Layout.gutter }: GuestSpotRailProps) {
   const router = useRouter();
   const { user } = useAuthStore();
   const [items, setItems] = useState<RailGuest[] | null>(null);
@@ -163,18 +156,20 @@ export function GuestSpotRail({ artistId, ownerActions = false }: GuestSpotRailP
 
   const showArtist = !artistId;
   const title = artistId ? 'En guest' : 'Guests à venir';
+  const count = !loading && list.length > 0 ? `${list.length} date${list.length > 1 ? 's' : ''}` : null;
 
   return (
     <View>
-      <View style={styles.head}>
-        <TText variant="displayS" accessibilityRole="header">{title}</TText>
-        {!loading && list.length > 0 && (
-          <TText variant="caption" color="tertiary" tabular>
-            {list.length} date{list.length > 1 ? 's' : ''}
-          </TText>
-        )}
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.rail}>
+      <SectionHead
+        kicker={[artistId ? 'Hors les murs' : 'Agenda des guests', count].filter(Boolean).join(' · ')}
+        title={title}
+      />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginHorizontal: -gutter }}
+        contentContainerStyle={[styles.rail, { paddingHorizontal: gutter }]}
+      >
         {ownerActions && <AnnounceTile onPress={() => router.push('/guest/new')} />}
         {loading
           ? [0, 1].map((i) => <SkeletonCard key={i} />)
@@ -190,16 +185,13 @@ export function GuestSpotRail({ artistId, ownerActions = false }: GuestSpotRailP
                 />
                 {canDelete && (
                   <View style={styles.deleteSlot}>
-                    <PressableScale
+                    <IconButton
+                      icon="trash-outline"
+                      label={`Supprimer le guest à ${spot.host_city}`}
                       onPress={() => askDelete(spot)}
-                      pressedScale={0.92}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Supprimer le guest à ${spot.host_city}`}
-                      hitSlop={6}
-                      style={styles.deleteBtn}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={Colors.textPrimary} />
-                    </PressableScale>
+                      plate
+                      size={36}
+                    />
                   </View>
                 )}
               </View>
@@ -236,49 +228,35 @@ export function GuestSpotRail({ artistId, ownerActions = false }: GuestSpotRailP
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: Spacing.sm },
-  // The rail bleeds to the screen edge while its first card stays on the gutter.
-  scroller: { marginHorizontal: -Layout.gutter },
-  rail: { gap: Spacing.sm, paddingHorizontal: Layout.gutter },
+  rail: { gap: Spacing.sm },
 
   cardSlot: { width: CARD_W },
   card: {
-    width: CARD_W, borderRadius: Radius.lg, overflow: 'hidden',
-    backgroundColor: Colors.bgCard,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderSubtle,
+    width: CARD_W, overflow: 'hidden',
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.line,
   },
-  skeletonCard: { backgroundColor: Colors.bgCard },
-  cover: { width: '100%', height: COVER_H, backgroundColor: Colors.bgSurface },
-  dates: {
-    position: 'absolute', left: 10, bottom: 10,
-    paddingHorizontal: 9, paddingVertical: 4, borderRadius: Radius.xs,
-    backgroundColor: 'rgba(11,10,9,0.72)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
+  cover: { width: '100%', height: COVER_H },
+  body: { paddingHorizontal: Spacing.sm, paddingTop: Spacing.xs, paddingBottom: Spacing.sm },
+  kicker: { color: Colors.flameText },
+  where: { marginTop: 4, fontSize: 22, lineHeight: 26, letterSpacing: -0.3 },
+  metaRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    marginTop: Spacing.xs, paddingTop: Spacing.xs, borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  body: { padding: Spacing.xs, gap: 2 },
-  where: { marginTop: 1 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
-  places: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  price: { color: Colors.ink },
 
   deleteSlot: { position: 'absolute', top: 8, right: 8 },
-  deleteBtn: {
-    width: 34, height: 34, borderRadius: 17,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(11,10,9,0.65)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
-  },
 
   announce: {
-    minHeight: COVER_H + 76, alignItems: 'center', justifyContent: 'center', gap: 4,
+    minHeight: COVER_H + 104, alignItems: 'center', justifyContent: 'center', gap: 6,
     padding: Spacing.sm, backgroundColor: 'transparent',
-    borderStyle: 'dashed', borderWidth: 1, borderColor: Colors.borderDefault,
+    borderStyle: 'dashed', borderColor: Colors.metal,
   },
-  announceRing: {
-    width: 44, height: 44, borderRadius: 22, marginBottom: 8,
+  announceMark: {
+    width: 44, height: 44, marginBottom: 6,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    borderWidth: 1, borderColor: Colors.flame,
   },
 
   modalRoot: { flex: 1 },

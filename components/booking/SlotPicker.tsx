@@ -7,7 +7,7 @@ import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale } from '@/components/motion';
+import { Kicker } from '@/components/v5';
 import { fetchFreeSlots, formatSlotTime, groupSlotsByDay, type FreeSlot } from '@/lib/studio';
 import { durationLabel } from '@/lib/care';
 import { DurationSwitch, cleanDurations } from './DurationSwitch';
@@ -67,10 +67,10 @@ function PickerSkeleton() {
   return (
     <View style={{ gap: Spacing.sm }}>
       <View style={styles.dayRow}>
-        {[0, 1, 2, 3, 4, 5].map((i) => <TSkeleton key={i} width={58} height={74} radius={Radius.lg} />)}
+        {[0, 1, 2, 3, 4, 5].map((i) => <TSkeleton key={i} width={58} height={78} />)}
       </View>
       <View style={styles.wrap}>
-        {[0, 1, 2, 3, 4].map((i) => <TSkeleton key={i} width={72} height={40} radius={Radius.md} />)}
+        {[0, 1, 2, 3, 4].map((i) => <TSkeleton key={i} width={72} height={44} />)}
       </View>
     </View>
   );
@@ -150,7 +150,7 @@ export function SlotPicker({
 
   const durationSwitch = switchDuration !== undefined ? (
     <View style={styles.durationBlock}>
-      <TText variant="caption" color="tertiary">Durée de la séance</TText>
+      <Kicker tone="muted">Durée de la séance</Kicker>
       <DurationSwitch durations={options} value={switchDuration} onChange={changeDuration} />
     </View>
   ) : null;
@@ -200,41 +200,43 @@ export function SlotPicker({
             const pickedCount = g.slots.filter((s) => chosen.has(s.start.getTime())).length;
             const label = `${capitalize(longDate.format(g.date))}, ${g.slots.length} créneau${g.slots.length > 1 ? 'x' : ''} libre${g.slots.length > 1 ? 's' : ''}${pickedCount ? `, ${pickedCount} choisi${pickedCount > 1 ? 's' : ''}` : ''}`;
             return (
-              <PressableScale
+              <Pressable
                 key={g.key}
                 onPress={() => setDayKey(g.key)}
-                pressedScale={0.94}
                 accessibilityRole="button"
                 accessibilityLabel={label}
                 accessibilityState={{ selected }}
-                style={[styles.dayCell, selected && styles.dayCellSelected]}
+                style={(state) => {
+                  const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                  return [styles.dayCell, (pressed || hovered) && !selected && styles.cellHover, selected && styles.dayCellSelected];
+                }}
               >
-                <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+                <TText variant="micro" uppercase style={{ color: selected ? Colors.onInkMuted : Colors.textTertiary }}>
                   {weekdayShort.format(g.date).replace('.', '')}
                 </TText>
-                <TText variant="title2" tabular style={{ color: selected ? Colors.textInverse : Colors.textPrimary }}>
+                <TText variant="displayS" tabular style={[styles.dayNum, { color: selected ? Colors.onInk : Colors.ink }]}>
                   {g.date.getDate()}
                 </TText>
-                <TText variant="micro" style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+                <TText variant="micro" style={{ color: selected ? Colors.onInkMuted : Colors.textTertiary }}>
                   {monthShort.format(g.date).replace('.', '')}
                 </TText>
                 {pickedCount > 0 && (
                   <View style={[styles.badge, selected && styles.badgeOnSelected]}>
-                    <TText variant="micro" tabular style={{ color: selected ? Colors.accentAction : Colors.textInverse, lineHeight: 12 }}>
+                    <TText variant="micro" tabular style={{ color: selected ? Colors.ink : '#FFFFFF', lineHeight: 12, letterSpacing: 0 }}>
                       {pickedCount}
                     </TText>
                   </View>
                 )}
-              </PressableScale>
+              </Pressable>
             );
           })}
         </ScrollView>
 
         {activeDay && (
           <View style={styles.times}>
-            <TText variant="caption" color="tertiary" style={{ marginBottom: Spacing['2xs'] }}>
+            <Kicker tone="muted" style={{ marginBottom: Spacing['2xs'] }}>
               {capitalize(longDate.format(activeDay.date))}
-            </TText>
+            </Kicker>
             <View style={styles.wrap} accessibilityRole={max === 1 ? 'radiogroup' : undefined}>
               {activeDay.slots.map((s) => {
                 const selected = chosen.has(s.start.getTime());
@@ -251,7 +253,7 @@ export function SlotPicker({
                       return [styles.timeChip, (pressed || hovered) && !selected && styles.timeChipHover, selected && styles.timeChipSelected];
                     }}
                   >
-                    <TText variant="bodySmall" weight="medium" tabular style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>
+                    <TText variant="bodySmall" weight="medium" tabular style={{ color: selected ? Colors.onInk : Colors.ink }}>
                       {time}
                     </TText>
                   </Pressable>
@@ -263,7 +265,7 @@ export function SlotPicker({
 
         {value.length > 0 && (
           <View style={styles.chosen}>
-            <TText variant="caption" color="tertiary" accessibilityLiveRegion="polite">
+            <TText variant="label" weight="bold" uppercase tabular color="tertiary" accessibilityLiveRegion="polite">
               {value.length} sur {max} choisi{value.length > 1 ? 's' : ''}
             </TText>
             <View style={styles.wrap}>
@@ -274,10 +276,13 @@ export function SlotPicker({
                   accessibilityRole="button"
                   accessibilityLabel={`Retirer ${capitalize(longDate.format(new Date(iso)))} à ${formatSlotTime(new Date(iso))}`}
                   hitSlop={4}
-                  style={({ pressed }) => [styles.chosenPill, pressed && { opacity: 0.6 }]}
+                  style={(state) => {
+                    const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                    return [styles.chosenPill, (pressed || hovered) && styles.cellHover];
+                  }}
                 >
                   <TText variant="caption" tabular weight="medium">{formatChosenSlot(iso)}</TText>
-                  <Ionicons name="close" size={13} color={Colors.textTertiary} />
+                  <Ionicons name="close" size={13} color={Colors.ink} />
                 </Pressable>
               ))}
             </View>
@@ -295,46 +300,56 @@ export function SlotPicker({
   );
 }
 
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+  : null;
+
 const styles = StyleSheet.create({
   durationBlock: { gap: Spacing['2xs'], marginBottom: Spacing.md },
-  dayRow: { flexDirection: 'row', gap: 8, paddingRight: Spacing.sm },
+  dayRow: { flexDirection: 'row', gap: 6, paddingRight: Spacing.sm },
   dayCell: {
-    width: 58, minHeight: 74, paddingVertical: 10, alignItems: 'center', gap: 2,
-    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    width: 58, minHeight: 78, paddingVertical: 10, alignItems: 'center', gap: 2,
+    borderWidth: 1, borderColor: Colors.line, backgroundColor: Colors.white,
+    ...webPointer,
   },
-  dayCellSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  dayCellSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  dayNum: { fontSize: 26, lineHeight: 28, letterSpacing: -0.4 },
+  // A square vermilion tab in the corner: how many starts are chosen that day.
   badge: {
-    position: 'absolute', top: 4, right: 4,
-    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4,
+    position: 'absolute', top: 0, right: 0,
+    minWidth: 16, height: 16, paddingHorizontal: 4,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.accentWarm,
+    backgroundColor: Colors.flame,
   },
-  badgeOnSelected: { backgroundColor: Colors.textInverse },
+  badgeOnSelected: { backgroundColor: Colors.paper },
+  cellHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
 
   times: { marginTop: Spacing.md },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   timeChip: {
-    minWidth: 72, height: 40, paddingHorizontal: 12,
+    minWidth: 72, minHeight: 44, paddingHorizontal: 12,
     alignItems: 'center', justifyContent: 'center',
-    borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    borderWidth: 1, borderColor: Colors.line, backgroundColor: Colors.white,
+    ...webPointer,
   },
-  timeChipHover: { backgroundColor: Colors.glassBgMid },
-  timeChipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  timeChipHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  timeChipSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
 
   chosen: {
     marginTop: Spacing.md, paddingTop: Spacing.sm, gap: Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
+  // Removable pills: the one rounded shape v5 allows for filters and selections.
   chosenPill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    height: 30, paddingHorizontal: 10, borderRadius: Radius.full,
-    backgroundColor: Colors.glassBgMid, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlass,
+    minHeight: 36, paddingHorizontal: 12, borderRadius: Radius.full,
+    backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.ink,
+    ...webPointer,
   },
 
   notice: {
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs,
-    padding: Spacing.sm, borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault, backgroundColor: Colors.bgElevated,
+    padding: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.line, backgroundColor: Colors.white,
   },
 });

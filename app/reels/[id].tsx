@@ -4,15 +4,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { Colors, Spacing } from '@/constants/theme';
+import { Colors, Gradients, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 import { PressableScale } from '@/components/motion';
+import { IconButton } from '@/components/v5';
 import { Seo } from '@/components/Seo';
 import { ReelPlayer } from '@/components/reels/ReelPlayer';
 import { ReelEmbed } from '@/components/reels/ReelEmbed';
@@ -56,24 +56,6 @@ function mapReel(raw: any): Reel {
     artistCity: raw.artists?.city ?? '',
     artistAvatarUrl: raw.artists?.avatar_url ?? null,
   };
-}
-
-function RoundButton({ icon, label, onPress, selected }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; selected?: boolean;
-}) {
-  return (
-    <PressableScale
-      onPress={onPress}
-      pressedScale={0.92}
-      hitSlop={8}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={selected === undefined ? undefined : { selected }}
-      style={styles.roundButton}
-    >
-      <Ionicons name={icon} size={20} color={selected ? Colors.accentGlow : Colors.textPrimary} />
-    </PressableScale>
-  );
 }
 
 export default function ReelsScreen() {
@@ -206,7 +188,7 @@ export default function ReelsScreen() {
           ) : null}
 
           <LinearGradient
-            colors={['rgba(7,6,5,0)', 'rgba(7,6,5,0.78)']}
+            colors={Gradients.heroOverlay}
             style={styles.shade}
             pointerEvents="none"
           />
@@ -220,12 +202,12 @@ export default function ReelsScreen() {
             >
               <TAvatar uri={item.artistAvatarUrl} name={item.artistName} size="sm" />
               <View style={{ flexShrink: 1 }}>
-                <TText variant="body" weight="semibold" numberOfLines={1}>{item.artistName}</TText>
-                {!!item.artistCity && <TText variant="caption" color="secondary" numberOfLines={1}>{item.artistCity}</TText>}
+                <TText variant="title2" serif color="onInk" numberOfLines={1} style={styles.artistName}>{item.artistName}</TText>
+                {!!item.artistCity && <TText variant="caption" color="onInkMuted" numberOfLines={1}>{item.artistCity}</TText>}
               </View>
             </PressableScale>
             {!!item.caption && (
-              <TText variant="bodySmall" color="secondary" numberOfLines={3} style={styles.captionText}>{item.caption}</TText>
+              <TText variant="bodySmall" color="onInk" numberOfLines={3} style={styles.captionText}>{item.caption}</TText>
             )}
           </View>
 
@@ -237,21 +219,24 @@ export default function ReelsScreen() {
                 compact
                 initialCounts={reactionCounts[item.id]}
                 initialMine={mineLoaded ? myReactions[item.id] : undefined}
+                onInk
               />
             </View>
-            <RoundButton
+            <IconButton
               icon={isLiked ? 'heart' : 'heart-outline'}
               label={isLiked ? 'Retirer le j’aime' : 'Aimer cette vidéo'}
-              selected={isLiked}
+              active={isLiked}
+              plate
               onPress={() => { void toggleLike(item); }}
             />
             {item.likes > 0 && (
-              <TText variant="caption" tabular style={styles.count}>{item.likes.toLocaleString('fr-FR')}</TText>
+              <TText variant="caption" weight="semibold" tabular color="onInk" style={styles.count}>{item.likes.toLocaleString('fr-FR')}</TText>
             )}
             {!item.embedProvider && (
-              <RoundButton
+              <IconButton
                 icon={muted ? 'volume-mute' : 'volume-high'}
                 label={muted ? 'Activer le son' : 'Couper le son'}
+                plate
                 onPress={() => setMuted((m) => !m)}
               />
             )}
@@ -268,7 +253,7 @@ export default function ReelsScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, (state === 'error' || state === 'missing') && styles.containerPaper]}>
       <Seo
         title={seoTitle}
         description={current?.caption || 'Vidéos de tatoueurs sur Inkr.'}
@@ -277,7 +262,7 @@ export default function ReelsScreen() {
       />
 
       {state === 'loading' && (
-        <ActivityIndicator color={Colors.textTertiary} style={styles.center} accessibilityLabel="Chargement de la vidéo" />
+        <ActivityIndicator color={Colors.onInkMuted} style={styles.center} accessibilityLabel="Chargement de la vidéo" />
       )}
       {state === 'error' && (
         <EmptyState
@@ -321,33 +306,31 @@ export default function ReelsScreen() {
       )}
 
       <View style={[styles.topBar, { top: insets.top + Spacing.xs }]} pointerEvents="box-none">
-        <RoundButton icon="chevron-back" label="Fermer les vidéos" onPress={close} />
+        <IconButton icon="chevron-back" label="Fermer les vidéos" plate onPress={close} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgInk },
+  container: { flex: 1, backgroundColor: Colors.inkPanel },
+  // Error and missing states are paper notices (EmptyState is set in ink).
+  containerPaper: { backgroundColor: Colors.paper },
   center: { flex: 1 },
   webPager: { flex: 1 },
-  page: { width: '100%', alignItems: 'center', backgroundColor: Colors.bgInk },
-  stage: { flex: 1, overflow: 'hidden', backgroundColor: Colors.bgInk },
-  shade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 220 },
+  page: { width: '100%', alignItems: 'center', backgroundColor: Colors.inkPanel },
+  stage: { flex: 1, overflow: 'hidden', backgroundColor: Colors.inkPanel },
+  shade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 260 },
   caption: { position: 'absolute', left: 0, right: 72, bottom: 0, paddingHorizontal: Spacing.sm },
-  artist: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'flex-start', maxWidth: '100%' },
+  artist: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'flex-start', maxWidth: '100%', minHeight: 44 },
+  artistName: { fontSize: 22, lineHeight: 24 },
   captionText: { marginTop: Spacing['2xs'] },
   rail: { position: 'absolute', right: Spacing.sm, alignItems: 'flex-end', gap: 8 },
   reactions: {
     flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4,
     paddingVertical: 4, paddingLeft: 6, paddingRight: 4,
-    borderRadius: 22, backgroundColor: 'rgba(7,6,5,0.45)',
+    backgroundColor: Colors.scrim,
   },
-  count: { color: Colors.textPrimary, marginTop: -4, marginBottom: 4, width: 44, textAlign: 'center' },
-  roundButton: {
-    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(7,6,5,0.55)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(244,239,230,0.18)',
-  },
+  count: { marginTop: -4, marginBottom: 4, width: 44, textAlign: 'center' },
   topBar: { position: 'absolute', left: Spacing.sm },
 });

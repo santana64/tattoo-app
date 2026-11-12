@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, ViewStyle, Modal } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { PressableScale } from '@/components/motion/PressableScale';
 import { RevealImage } from '@/components/motion/RevealImage';
 import { BottomSheet } from '@/components/motion/BottomSheet';
@@ -19,6 +19,13 @@ interface TImagePickerProps {
   placeholder?: string;
   style?: ViewStyle;
   multiple?: false;
+  /**
+   * Size the tile to `aspect` (a true preview of the crop) instead of the
+   * compact fixed height. Off by default.
+   */
+  fillAspect?: boolean;
+  /** Short note under the placeholder, e.g. the recommended format. */
+  hint?: string;
 }
 
 function SourceOption({
@@ -32,7 +39,7 @@ function SourceOption({
 }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.option}>
-      <Ionicons name={icon} size={20} color={Colors.textPrimary} />
+      <Ionicons name={icon} size={20} color={Colors.ink} />
       <TText variant="body" weight="medium">{label}</TText>
     </PressableScale>
   );
@@ -44,6 +51,8 @@ export function TImagePicker({
   aspect,
   placeholder = 'Ajouter une photo',
   style,
+  fillAspect = false,
+  hint,
 }: TImagePickerProps) {
   const [showOptions, setShowOptions] = useState(false);
   // The sheet lives in a transparent Modal so it covers the whole screen, not just this tile.
@@ -88,24 +97,31 @@ export function TImagePicker({
         onPress={openSheet}
         accessibilityRole="button"
         accessibilityLabel={value ? 'Changer la photo' : placeholder}
-        style={[styles.container, value ? styles.hasImage : styles.empty]}
+        style={[
+          styles.container,
+          value ? styles.hasImage : styles.empty,
+          fillAspect && aspect ? { height: undefined, aspectRatio: aspect[0] / aspect[1] } : null,
+        ]}
       >
         {value ? (
           <>
             <RevealImage key={value} uri={value} style={StyleSheet.absoluteFill} accessibilityLabel="Photo sélectionnée" />
-            <View style={styles.editPill}>
-              <Ionicons name="camera-outline" size={14} color={Colors.textPrimary} />
-              <TText variant="caption" weight="medium">Changer</TText>
+            <View style={styles.editPlate}>
+              <Ionicons name="camera-outline" size={14} color={Colors.ink} />
+              <TText variant="label" weight="bold" uppercase style={{ color: Colors.ink, letterSpacing: 0.8 }}>Changer</TText>
             </View>
           </>
         ) : (
           <View style={styles.emptyContent}>
-            <View style={styles.iconRing}>
-              <Ionicons name="add" size={20} color={Colors.accentWarm} />
+            <View style={styles.iconFrame}>
+              <Ionicons name="add" size={20} color={Colors.ink} />
             </View>
-            <TText variant="bodySmall" color="secondary" style={styles.placeholder}>
+            <TText variant="bodySmall" weight="semibold" style={styles.placeholder}>
               {placeholder}
             </TText>
+            {hint ? (
+              <TText variant="caption" color="secondary" style={styles.placeholder}>{hint}</TText>
+            ) : null}
           </View>
         )}
       </PressableScale>
@@ -123,7 +139,7 @@ export function TImagePicker({
             onClose={() => void closeSheet()}
             accessibilityLabel="Choisir la source de la photo"
           >
-            <TText variant="label" color="tertiary" uppercase style={styles.sheetLabel}>
+            <TText variant="label" weight="bold" uppercase style={styles.sheetLabel}>
               Ajouter une photo
             </TText>
             <SourceOption icon="images-outline" label="Choisir dans la photothèque" onPress={handleLibrary} />
@@ -146,50 +162,46 @@ export function TImagePicker({
 }
 
 const styles = StyleSheet.create({
-  container: { borderRadius: Radius.lg, overflow: 'hidden' },
+  container: { overflow: 'hidden' },
   empty: {
     height: 160,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: Colors.borderDefault,
+    borderColor: Colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.bgElevated,
+    backgroundColor: Colors.white,
   },
-  hasImage: { height: 200, backgroundColor: Colors.bgSurface },
-  emptyContent: { alignItems: 'center', gap: 10, paddingHorizontal: Spacing.sm },
-  iconRing: {
+  hasImage: { height: 200, backgroundColor: Colors.clay },
+  emptyContent: { alignItems: 'center', gap: 8, paddingHorizontal: Spacing.sm },
+  iconFrame: {
     width: 44,
     height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    borderWidth: 1,
+    borderColor: Colors.ink,
+    marginBottom: 4,
   },
   placeholder: { textAlign: 'center' },
-  editPill: {
+  editPlate: {
     position: 'absolute',
     right: Spacing['2xs'],
     bottom: Spacing['2xs'],
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 30,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    backgroundColor: 'rgba(11,10,9,0.65)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.glassBorderBright,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    backgroundColor: Colors.paper,
   },
   modalRoot: { flex: 1 },
-  sheetLabel: { marginBottom: Spacing['2xs'] },
+  sheetLabel: { marginBottom: Spacing['2xs'], color: Colors.ink },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
     minHeight: 52,
   },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
+  divider: { height: 1, backgroundColor: Colors.line },
 });

@@ -32,8 +32,10 @@ export default function ClientStep1() {
 
   return (
     <OnboardingScreen
+      audience="client"
       step={STEP}
       total={TOTAL}
+      label="Votre prénom"
       title="Comment vous"
       accent="appelez-vous ?"
       lede="Les artistes verront votre prénom lorsque vous leur enverrez une demande."

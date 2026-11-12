@@ -2,15 +2,15 @@ import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Platform, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
-import { BottomSheet, enterUp } from '@/components/motion';
+import { Kicker, StatusDot, type StatusTone } from '@/components/v5';
+import { BottomSheet } from '@/components/motion';
 import {
   type Appointment, DURATIONS_MIN, buildSlot, completeAppointment, dayTimes, fetchRequestAppointments,
   formatDuration, formatSlot, proposeAppointment, respondToAppointment, upcomingDays,
@@ -31,18 +31,20 @@ interface AppointmentPanelProps {
   preferredSlots?: string[];
 }
 
-const STATUS = {
-  proposed:  { label: 'Créneau proposé', color: Colors.warning },
-  confirmed: { label: 'Rendez-vous confirmé', color: Colors.success },
-  completed: { label: 'Séance réalisée', color: Colors.accentWarm },
-  canceled:  { label: 'Annulé', color: Colors.textTertiary },
-} as const;
+const STATUS: Record<'proposed' | 'confirmed' | 'completed' | 'canceled', { label: string; tone: StatusTone }> = {
+  proposed:  { label: 'Créneau proposé', tone: 'wait' },
+  confirmed: { label: 'Rendez-vous confirmé', tone: 'open' },
+  completed: { label: 'Séance réalisée', tone: 'closed' },
+  canceled:  { label: 'Annulé', tone: 'closed' },
+};
 
 const dayLabel = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
 const monthLabel = new Intl.DateTimeFormat('fr-FR', { month: 'short' });
 const startDateLabel = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const startTimeLabel = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' });
 const DEFAULT_DURATION_MIN = 180;
+
+type Hover = { pressed: boolean; hovered?: boolean };
 
 /** "samedi 18 octobre · 14:00" — a wished start, before any duration is agreed. */
 export function formatPreferredSlot(iso: string): string {
@@ -75,9 +77,7 @@ function PreferredSlots({ slots, duration, interactive, pending, disabled, onPic
   if (slots.length === 0) return null;
   return (
     <View style={styles.preferred}>
-      <TText variant="label" color="tertiary" uppercase>
-        {interactive ? 'Créneaux souhaités par le client' : 'Vos créneaux souhaités'}
-      </TText>
+      <Kicker tone="muted">{interactive ? 'Créneaux souhaités par le client' : 'Vos créneaux souhaités'}</Kicker>
       {interactive && (
         <TText variant="caption" color="tertiary">
           Un geste pour le proposer · séance de {formatDuration(duration)}
@@ -107,14 +107,14 @@ function PreferredSlots({ slots, duration, interactive, pending, disabled, onPic
               accessibilityLabel={`Proposer ce créneau : ${label}`}
               accessibilityState={{ disabled, busy: loading }}
               style={(state) => {
-                const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                const { pressed, hovered } = state as Hover;
                 return [styles.preferredChip, (pressed || hovered) && styles.preferredChipActive, disabled && !loading && { opacity: 0.5 }];
               }}
             >
               <TText variant="bodySmall" weight="medium" tabular style={{ flex: 1 }}>{label}</TText>
               {loading
-                ? <ActivityIndicator size="small" color={Colors.accentWarm} />
-                : <Ionicons name="paper-plane-outline" size={15} color={Colors.accentWarm} />}
+                ? <ActivityIndicator size="small" color={Colors.flameText} />
+                : <Ionicons name="paper-plane-outline" size={15} color={Colors.flameText} />}
             </Pressable>
           );
         })}
@@ -145,8 +145,9 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
 
   return (
     <View>
+      <Kicker tone="flame">Rendez-vous</Kicker>
       <TText variant="displayS" style={styles.sheetTitle}>
-        Proposer un <TText variant="displayS" italic color="accentGlow">créneau</TText>
+        Proposer un <TText variant="displayS" italic color="accentGlow">créneau.</TText>
       </TText>
 
       <PreferredSlots
@@ -158,7 +159,7 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
         onPick={(start, end) => onSubmit(start, end, notes, start.toISOString())}
       />
 
-      <TText variant="label" color="tertiary" uppercase style={styles.pickLabel}>Jour</TText>
+      <Kicker tone="muted" style={styles.pickLabel}>Jour</Kicker>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
         {days.map((d) => {
           const selected = day?.getTime() === d.getTime();
@@ -169,13 +170,13 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
               accessibilityRole="button"
               accessibilityState={{ selected }}
               accessibilityLabel={d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-              style={[styles.dayCell, selected && styles.cellSelected]}
+              style={(state) => [styles.dayCell, ((state as Hover).hovered || state.pressed) && !selected && styles.cellHover, selected && styles.cellSelected]}
             >
-              <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+              <TText variant="micro" uppercase style={{ color: selected ? Colors.onInkMuted : Colors.textTertiary }}>
                 {dayLabel.format(d).replace('.', '')}
               </TText>
-              <TText variant="title2" tabular style={{ color: selected ? Colors.textInverse : Colors.textPrimary }}>{d.getDate()}</TText>
-              <TText variant="micro" style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+              <TText variant="displayS" tabular style={[styles.dayNum, { color: selected ? Colors.onInk : Colors.ink }]}>{d.getDate()}</TText>
+              <TText variant="micro" style={{ color: selected ? Colors.onInkMuted : Colors.textTertiary }}>
                 {monthLabel.format(d).replace('.', '')}
               </TText>
             </Pressable>
@@ -183,7 +184,7 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
         })}
       </ScrollView>
 
-      <TText variant="label" color="tertiary" uppercase style={styles.pickLabel}>Heure de début</TText>
+      <Kicker tone="muted" style={styles.pickLabel}>Heure de début</Kicker>
       <View style={styles.wrap}>
         {times.map((t) => {
           const selected = time === t;
@@ -193,15 +194,15 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
               onPress={() => setTime(t)}
               accessibilityRole="button"
               accessibilityState={{ selected }}
-              style={[styles.timeCell, selected && styles.cellSelected]}
+              style={(state) => [styles.timeCell, ((state as Hover).hovered || state.pressed) && !selected && styles.cellHover, selected && styles.cellSelected]}
             >
-              <TText variant="caption" tabular weight="medium" style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>{t}</TText>
+              <TText variant="caption" tabular weight="medium" style={{ color: selected ? Colors.onInk : Colors.ink }}>{t}</TText>
             </Pressable>
           );
         })}
       </View>
 
-      <TText variant="label" color="tertiary" uppercase style={styles.pickLabel}>Durée estimée</TText>
+      <Kicker tone="muted" style={styles.pickLabel}>Durée estimée</Kicker>
       <View style={styles.wrap}>
         {durations.map((m) => {
           const selected = duration === m;
@@ -211,9 +212,9 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
               onPress={() => setDuration(m)}
               accessibilityRole="button"
               accessibilityState={{ selected }}
-              style={[styles.timeCell, selected && styles.cellSelected]}
+              style={(state) => [styles.timeCell, ((state as Hover).hovered || state.pressed) && !selected && styles.cellHover, selected && styles.cellSelected]}
             >
-              <TText variant="caption" tabular weight="medium" style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>
+              <TText variant="caption" tabular weight="medium" style={{ color: selected ? Colors.onInk : Colors.ink }}>
                 {formatDuration(m)}
               </TText>
             </Pressable>
@@ -231,8 +232,8 @@ function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferre
       />
 
       <View style={styles.summary}>
-        <Ionicons name="calendar-outline" size={16} color={slot ? Colors.accentWarm : Colors.textTertiary} />
-        <TText variant="bodySmall" color={slot ? 'primary' : 'tertiary'} style={{ flex: 1 }}>
+        <Ionicons name="calendar-outline" size={16} color={slot ? Colors.flameText : Colors.textTertiary} />
+        <TText variant="bodySmall" weight={slot ? 'medium' : 'regular'} color={slot ? 'primary' : 'tertiary'} tabular style={{ flex: 1 }}>
           {slot ? formatSlot(slot.start, slot.end) : pastTime ? 'Cet horaire est déjà passé.' : 'Choisissez un jour et une heure.'}
         </TText>
       </View>
@@ -327,7 +328,7 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
   if (!bookable && requestStatus !== 'completed') return null;
 
   if (items === null) {
-    return <TSkeleton height={compact ? 56 : 96} radius={Radius.lg} />;
+    return <TSkeleton height={compact ? 56 : 96} />;
   }
 
   const current = items.find((a) => a.status === 'proposed' || a.status === 'confirmed') ?? items.find((a) => a.status === 'completed');
@@ -335,16 +336,18 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
   const isArtist = viewAs === 'artist';
 
   return (
-    <Animated.View entering={enterUp(0)} style={[styles.card, compact && styles.cardCompact]}>
+    <View style={[styles.card, compact && styles.cardCompact]}>
       {loadError ? (
         <TText variant="bodySmall" color="secondary">{loadError}</TText>
       ) : current ? (
         <>
-          <View style={styles.statusRow}>
-            <View style={[styles.dot, { backgroundColor: STATUS[current.status].color }]} />
-            <TText variant="label" uppercase style={{ color: STATUS[current.status].color }}>{STATUS[current.status].label}</TText>
-          </View>
-          <TText variant={compact ? 'bodySmall' : 'title2'} serif={!compact} style={styles.slotText}>
+          <StatusDot tone={STATUS[current.status].tone} label={STATUS[current.status].label} />
+          <TText
+            variant={compact ? 'bodySmall' : 'displayS'}
+            weight={compact ? 'semibold' : undefined}
+            tabular
+            style={[styles.slotText, !compact && styles.slotTextLarge]}
+          >
             {formatSlot(current.starts_at, current.ends_at)}
           </TText>
           {!!current.notes && !compact && (
@@ -358,11 +361,8 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
         </>
       ) : (
         <>
-          <View style={styles.statusRow}>
-            <View style={[styles.dot, { backgroundColor: Colors.textTertiary }]} />
-            <TText variant="label" color="tertiary" uppercase>Rendez-vous</TText>
-          </View>
-          <TText variant="bodySmall" color="secondary" style={{ marginTop: 6 }}>
+          <StatusDot tone="closed" label="Rendez-vous" />
+          <TText variant="bodySmall" color="secondary" style={{ marginTop: 8 }}>
             {isArtist
               ? 'Proposez un créneau : le client pourra l’accepter en un geste.'
               : `${counterpart} vous proposera un créneau ici.`}
@@ -389,7 +389,7 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
             size="md"
             fullWidth={compact}
             onPress={() => setPicking(true)}
-            icon={<Ionicons name="calendar-outline" size={16} color={current ? Colors.textPrimary : Colors.textInverse} />}
+            icon={<Ionicons name="calendar-outline" size={16} color={current ? Colors.ink : Colors.paper} />}
           />
         )}
         {!isArtist && current?.status === 'proposed' && (
@@ -422,7 +422,7 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
               loading={busy === 'complete'}
               disabled={!!busy}
               onPress={() => run('complete', () => completeAppointment(current.id), 'Séance enregistrée comme réalisée')}
-              icon={<Ionicons name="checkmark-done-outline" size={16} color={Colors.textInverse} />}
+              icon={<Ionicons name="checkmark-done-outline" size={16} color={Colors.paper} />}
             />
           ) : (
             <TText variant="caption" color="tertiary">Vous pourrez marquer la séance comme réalisée une fois commencée.</TText>
@@ -435,7 +435,7 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
             size="md"
             fullWidth={compact}
             onPress={() => router.push({ pathname: '/review/new', params: { appointmentId: current.id } })}
-            icon={<Ionicons name="star-outline" size={16} color={Colors.textPrimary} />}
+            icon={<Ionicons name="star-outline" size={16} color={Colors.ink} />}
           />
         )}
       </View>
@@ -456,51 +456,59 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
           </ScrollView>
         </BottomSheet>
       </Modal>
-    </Animated.View>
+    </View>
   );
 }
+
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+  : null;
 
 const styles = StyleSheet.create({
   card: {
     padding: Spacing.md,
-    borderRadius: Radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    borderTopWidth: 2,
+    borderTopColor: Colors.ink,
+    backgroundColor: Colors.white,
   },
-  cardCompact: { padding: Spacing.sm, borderRadius: Radius.lg },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  slotText: { marginTop: 8, textTransform: 'none' },
+  cardCompact: { padding: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.line },
+  slotText: { marginTop: 8 },
+  slotTextLarge: { fontSize: 26, lineHeight: 29, letterSpacing: -0.4 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: Spacing.sm },
 
-  sheetTitle: { marginBottom: Spacing.sm },
+  sheetTitle: { marginTop: 8, marginBottom: Spacing.sm },
   preferred: { marginTop: Spacing.sm, gap: 6 },
   preferredList: { gap: 6, marginTop: 2 },
   preferredRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
   preferredChip: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     minHeight: 46, paddingHorizontal: 12, paddingVertical: 10,
-    borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    borderWidth: 1, borderColor: Colors.line,
+    backgroundColor: Colors.white,
+    ...webPointer,
   },
-  preferredChipActive: { backgroundColor: Colors.accentMuted },
+  preferredChipActive: { backgroundColor: Colors.flameSoft, borderColor: Colors.flame },
   pickLabel: { marginTop: Spacing.md, marginBottom: Spacing['2xs'] },
-  dayRow: { gap: 8, paddingRight: Spacing.sm },
+  dayRow: { gap: 6, paddingRight: Spacing.sm },
   dayCell: {
     width: 58, paddingVertical: 10, alignItems: 'center', gap: 2,
-    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    borderWidth: 1, borderColor: Colors.line,
+    ...webPointer,
   },
+  dayNum: { fontSize: 26, lineHeight: 28, letterSpacing: -0.4 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   timeCell: {
-    minWidth: 64, height: 36, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center',
-    borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    minWidth: 64, minHeight: 44, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.line,
+    ...webPointer,
   },
-  cellSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  cellHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  cellSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
   summary: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: Spacing.sm, marginBottom: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
 });

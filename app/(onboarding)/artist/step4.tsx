@@ -1,37 +1,33 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
-import { OnboardingScreen, OnboardingChip, RadioMark } from '@/components/OnboardingProgress';
-import { PressableScale } from '@/components/motion/PressableScale';
+import { Choice, Kicker } from '@/components/v5';
+import { OnboardingScreen, OnboardingChip, haptic } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
 const TOTAL = 5;
 const STEP = 4;
 
-// Status colors follow the design system: sage = open, amber = waiting, tertiary = closed.
 const BOOKING_STATUSES = [
   {
     value: 'open' as const,
     label: 'Disponible',
     description: 'J’accepte de nouveaux projets',
-    color: Colors.success,
   },
   {
     value: 'paused' as const,
     label: 'En pause',
     description: 'Temporairement indisponible',
-    color: Colors.warning,
   },
   {
     value: 'closed' as const,
     label: 'Fermé',
     description: 'Je ne prends pas de nouvelles demandes',
-    color: Colors.textTertiary,
   },
 ];
 
@@ -49,15 +45,13 @@ const EXCLUSION_OPTIONS = [
 ];
 
 function SectionLabel({ children }: { children: string }) {
-  return (
-    <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
-      {children}
-    </TText>
-  );
+  return <Kicker tone="muted" style={styles.sectionLabel}>{children}</Kicker>;
 }
 
 export default function ArtistStep4() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const threeUp = width >= 900;
   const { saveArtist } = useAuthStore();
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'open' | 'paused' | 'closed'>('open');
@@ -87,8 +81,10 @@ export default function ArtistStep4() {
 
   return (
     <OnboardingScreen
+      audience="artist"
       step={STEP}
       total={TOTAL}
+      label="Vos conditions"
       title="Vos conditions"
       accent="de réservation"
       lede="Réglez-les une fois. Vous pourrez les modifier à tout moment."
@@ -97,36 +93,28 @@ export default function ArtistStep4() {
       footer={<TButton title="Continuer" onPress={() => void handleContinue()} loading={saving} />}
     >
       {/* Booking status */}
-      <SectionLabel>Disponibilité</SectionLabel>
-      <View accessibilityRole="radiogroup" style={styles.statusList}>
-        {BOOKING_STATUSES.map((opt, i) => {
+      <SectionLabel>01 / Disponibilité</SectionLabel>
+      <View accessibilityRole="radiogroup" style={[styles.statusList, threeUp && styles.statusListWide]}>
+        {BOOKING_STATUSES.map((opt) => {
           const isSelected = status === opt.value;
           return (
-            <PressableScale
+            <Choice
               key={opt.value}
-              onPress={() => setStatus(opt.value)}
-              haptic={!isSelected}
-              pressedScale={0.985}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: isSelected }}
-              accessibilityLabel={`${opt.label}. ${opt.description}`}
-              style={[styles.statusRow, i > 0 && styles.statusDivider, isSelected && styles.statusRowSelected]}
-            >
-              <View style={[styles.statusDot, { backgroundColor: opt.color }]} />
-              <View style={styles.statusText}>
-                <TText variant="bodySmall" weight="medium" color={isSelected ? 'primary' : 'secondary'}>
-                  {opt.label}
-                </TText>
-                <TText variant="caption" color="tertiary">{opt.description}</TText>
-              </View>
-              <RadioMark selected={isSelected} />
-            </PressableScale>
+              title={opt.label}
+              hint={opt.description}
+              selected={isSelected}
+              onPress={() => {
+                if (!isSelected) haptic();
+                setStatus(opt.value);
+              }}
+              style={threeUp ? styles.statusCellWide : styles.statusCell}
+            />
           );
         })}
       </View>
 
       {/* Minimum budget */}
-      <SectionLabel>Budget minimum</SectionLabel>
+      <SectionLabel>02 / Budget minimum</SectionLabel>
       <TInput
         label="Montant minimum par projet"
         optional
@@ -136,13 +124,13 @@ export default function ArtistStep4() {
         keyboardType="number-pad"
         maxLength={6}
         inputStyle={styles.budgetInput}
-        rightElement={<TText variant="bodySmall" color="accentWarm" weight="medium">€</TText>}
+        rightElement={<TText variant="bodySmall" weight="semibold">€</TText>}
         helper="Laissez vide si vous n’avez pas de minimum."
         containerStyle={styles.budget}
       />
 
       {/* Exclusions */}
-      <SectionLabel>Ce que vous ne faites pas</SectionLabel>
+      <SectionLabel>03 / Ce que vous ne faites pas</SectionLabel>
       <TText variant="caption" color="tertiary" style={styles.sectionHint}>
         Touchez un type de projet pour l’exclure.
       </TText>
@@ -163,30 +151,15 @@ export default function ArtistStep4() {
 }
 
 const styles = StyleSheet.create({
-  sectionLabel: { marginBottom: Spacing.xs },
-  sectionHint: { marginTop: -4, marginBottom: Spacing.xs },
+  sectionLabel: { marginBottom: Spacing.sm },
+  sectionHint: { marginTop: -4, marginBottom: Spacing.sm },
 
-  statusList: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    marginBottom: Spacing.xl,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    minHeight: 60,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  statusDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault },
-  statusRowSelected: { backgroundColor: Colors.glassBg },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { flex: 1, gap: 2 },
+  statusList: { gap: Spacing['2xs'], marginBottom: Spacing.xl },
+  statusListWide: { flexDirection: 'row' },
+  statusCell: { minHeight: 64 },
+  statusCellWide: { flex: 1, minWidth: 0 },
 
-  budget: { marginBottom: Spacing.lg },
+  budget: { marginBottom: Spacing.xl },
   budgetInput: { fontVariant: ['tabular-nums'] },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

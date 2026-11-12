@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
-import { StyleSheet, View, Platform } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GlassSurface } from '@/components/motion';
+import { useShell } from '@/hooks/useContentDimensions';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming,
+  useSharedValue, useAnimatedStyle,
 } from 'react-native-reanimated';
 import { useAuthStore } from '@/store/auth-store';
 import { useRequestStore } from '@/store/request-store';
-import { Colors, Duration, Fonts } from '@/constants/theme';
+import { Colors, Fonts } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 
 function TabIcon({ name, color, focused, badge }: {
@@ -35,12 +35,12 @@ function TabIcon({ name, color, focused, badge }: {
       <Ionicons
         name={focused ? name : (`${name}-outline` as keyof typeof Ionicons.glyphMap)}
         size={22}
-        color={focused ? Colors.textPrimary : color}
+        color={focused ? '#FFFFFF' : color}
       />
       <Animated.View style={[styles.activeBar, dotStyle]} />
       {!!badge && badge > 0 && (
         <View style={styles.badge} accessibilityLabel={`${badge} nouvelles demandes`}>
-          <TText variant="micro" tabular style={{ fontSize: 9, lineHeight: 12, color: Colors.textInverse, letterSpacing: 0 }}>
+          <TText variant="micro" tabular style={{ fontSize: 9, lineHeight: 12, color: '#FFFFFF', letterSpacing: 0 }}>
             {badge > 9 ? '9+' : badge}
           </TText>
         </View>
@@ -67,29 +67,29 @@ export default function TabLayout() {
     : 0;
 
   const TAB_H = 62 + insets.bottom;
+  const { hasSidebar } = useShell();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: {
+        tabBarStyle: hasSidebar ? { display: 'none' } : {
           position: 'absolute',
           bottom: 0, left: 0, right: 0,
           height: TAB_H,
-          backgroundColor: 'transparent',
+          backgroundColor: Colors.inkPanel,
           borderTopWidth: 0,
           elevation: 0,
           shadowOpacity: 0,
         },
         tabBarBackground: () => (
-          <View style={StyleSheet.absoluteFill}>
-            <GlassSurface style={StyleSheet.absoluteFill} intensity={50} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.inkPanel }]}>
             <View style={styles.tabBarBorder} />
           </View>
         ),
-        tabBarActiveTintColor: Colors.textPrimary,
-        tabBarInactiveTintColor: Colors.textTertiary,
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: Colors.onInkMuted,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
           fontSize: 10.5,
@@ -178,24 +178,24 @@ const styles = StyleSheet.create({
   activeBar: {
     position: 'absolute',
     top: -8,
-    width: 18, height: 2, borderRadius: 1,
-    backgroundColor: Colors.accentWarm,
+    width: 22, height: 2,
+    backgroundColor: Colors.flame,
   },
   tabBarBorder: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.borderDefault,
+    height: 1,
+    backgroundColor: Colors.onInkLine,
   },
   badge: {
     position: 'absolute',
     top: -2, right: 6,
-    backgroundColor: Colors.accentWarm,
+    backgroundColor: Colors.flame,
     borderRadius: 8,
     minWidth: 16, height: 16,
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 3,
     borderWidth: 1.5,
-    borderColor: Colors.bgPrimary,
+    borderColor: Colors.inkPanel,
   },
 });

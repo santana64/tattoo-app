@@ -2,24 +2,30 @@ import React, { useCallback, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TSkeleton } from '@/components/ui/TSkeleton';
-import { PressableScale, RevealImage } from '@/components/motion';
-import { ArtPlaceholder, styleName } from '@/components/ArtistCard';
+import { PressableScale } from '@/components/motion';
+import { SectionHead } from '@/components/v5';
+import { styleName } from '@/components/ArtistCard';
 import { fetchArtistFlashes, fetchAvailableFlashes, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
+import { PlateMark, WorkPlate } from './WorkPlate';
 
 interface FlashRailProps {
   /** One artist's flashes; omitted = the latest flashes still available, across artists. */
   artistId?: string;
   title?: string;
+  /** Tracked-capitals line above the title. */
+  kicker?: string;
   /** The artist's own rail: adds a "new flash" tile and shows unpublished designs. */
   ownerActions?: boolean;
+  /** Side padding of the page the rail bleeds out of. */
+  gutter?: number;
 }
 
 type RailFlash = FlashDesign & { artist?: { id: string; blaze: string; city: string } | null };
 
-const TILE_W = 152;
+const TILE_W = 168;
 const PRINT_H = Math.round((TILE_W * 4) / 3);
 
 /** "Unique", "3 restants", "Épuisé". */
@@ -46,29 +52,26 @@ function FlashTile({ flash, showArtist, onPress }: { flash: RailFlash; showArtis
 
   return (
     <PressableScale onPress={onPress} accessibilityRole="link" accessibilityLabel={label} style={styles.tile}>
-      <View style={[styles.print, soldOut && styles.printSoldOut]}>
-        <RevealImage
-          uri={flash.image_url}
-          style={StyleSheet.absoluteFill}
-          fallback={<ArtPlaceholder name={artistName ?? flash.title} size={36} />}
-        />
-        <View style={[styles.badge, soldOut && styles.badgeSoldOut]}>
-          <TText variant="micro" uppercase style={{ color: soldOut ? Colors.textSecondary : Colors.accentGlow }}>{badge}</TText>
+      {/* A drawing on its sheet: contained, never cropped. */}
+      <WorkPlate
+        uri={flash.image_url}
+        contentFit="contain"
+        tone="bone"
+        style={[styles.print, soldOut && styles.printSoldOut]}
+      >
+        <PlateMark label={badge} />
+        {!flash.is_published && <PlateMark label="Non publié" tone="ink" style={styles.draft} />}
+      </WorkPlate>
+      <View style={styles.caption}>
+        <TText variant="title2" serif numberOfLines={1} style={styles.tileTitle}>{flash.title}</TText>
+        <View style={styles.tileMeta}>
+          <TText variant="caption" weight="semibold" tabular style={styles.price}>{formatPrice(flash.price)}</TText>
+          <TText variant="caption" color="tertiary" numberOfLines={1} style={styles.style}>{styleName(flash.style)}</TText>
         </View>
-        {!flash.is_published && (
-          <View style={styles.draft}>
-            <TText variant="micro" uppercase color="secondary">Non publié</TText>
-          </View>
+        {showArtist && !!artistName && (
+          <TText variant="micro" weight="bold" uppercase numberOfLines={1} style={styles.artist}>{artistName}</TText>
         )}
       </View>
-      <TText variant="bodySmall" weight="medium" numberOfLines={1} style={styles.tileTitle}>{flash.title}</TText>
-      <View style={styles.tileMeta}>
-        <TText variant="title2" serif tabular style={styles.price}>{formatPrice(flash.price)}</TText>
-        <TText variant="caption" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>{styleName(flash.style)}</TText>
-      </View>
-      {showArtist && !!artistName && (
-        <TText variant="caption" color="secondary" numberOfLines={1}>{artistName}</TText>
-      )}
     </PressableScale>
   );
 }
@@ -77,11 +80,11 @@ function NewFlashTile({ onPress }: { onPress: () => void }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel="Publier un nouveau flash" style={styles.tile}>
       <View style={[styles.print, styles.newPrint]}>
-        <View style={styles.newRing}>
-          <Ionicons name="add" size={20} color={Colors.accentWarm} />
+        <View style={styles.newMark}>
+          <Ionicons name="add" size={20} color={Colors.flameText} />
         </View>
-        <TText variant="bodySmall" weight="medium" style={styles.newLabel}>Nouveau flash</TText>
-        <TText variant="caption" color="tertiary" style={styles.newLabel}>Un dessin prêt à tatouer</TText>
+        <TText variant="label" weight="bold" uppercase style={styles.newLabel}>Nouveau flash</TText>
+        <TText variant="caption" color="secondary" style={styles.newLabel}>Un dessin prêt à tatouer</TText>
       </View>
     </PressableScale>
   );
@@ -90,15 +93,15 @@ function NewFlashTile({ onPress }: { onPress: () => void }) {
 function SkeletonTile() {
   return (
     <View style={styles.tile}>
-      <TSkeleton width={TILE_W} height={PRINT_H} radius={Radius.md} />
-      <TSkeleton width="80%" height={12} style={{ marginTop: 10 }} />
-      <TSkeleton width="45%" height={16} style={{ marginTop: 6 }} />
+      <TSkeleton width={TILE_W} height={PRINT_H} radius={0} />
+      <TSkeleton width="80%" height={14} radius={0} style={{ marginTop: 12 }} />
+      <TSkeleton width="45%" height={11} radius={0} style={{ marginTop: 8 }} />
     </View>
   );
 }
 
 /** A horizontal rail of ready-to-book flashes, one artist's or across artists. */
-export function FlashRail({ artistId, title = 'Flashs disponibles', ownerActions = false }: FlashRailProps) {
+export function FlashRail({ artistId, title = 'Flashs disponibles', kicker, ownerActions = false, gutter = Layout.gutter }: FlashRailProps) {
   const router = useRouter();
   const [items, setItems] = useState<RailFlash[] | null>(null);
   const request = useRef(0);
@@ -123,18 +126,18 @@ export function FlashRail({ artistId, title = 'Flashs disponibles', ownerActions
   if (!loading && list.length === 0 && !ownerActions) return null;
 
   const showArtist = !artistId;
+  const count = !loading && list.length > 0 ? `${list.length} flash${list.length > 1 ? 's' : ''}` : null;
+  const head = [kicker ?? 'Prêts à tatouer', count].filter(Boolean).join(' · ');
 
   return (
     <View>
-      <View style={styles.head}>
-        <TText variant="displayS" accessibilityRole="header">{title}</TText>
-        {!loading && list.length > 0 && (
-          <TText variant="caption" color="tertiary" tabular>
-            {list.length} flash{list.length > 1 ? 's' : ''}
-          </TText>
-        )}
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.rail}>
+      <SectionHead kicker={head} title={title} />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginHorizontal: -gutter }}
+        contentContainerStyle={[styles.rail, { paddingHorizontal: gutter }]}
+      >
         {ownerActions && <NewFlashTile onPress={() => router.push('/flash/new')} />}
         {loading
           ? [0, 1, 2].map((i) => <SkeletonTile key={i} />)
@@ -152,44 +155,32 @@ export function FlashRail({ artistId, title = 'Flashs disponibles', ownerActions
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: Spacing.sm },
-  // The rail bleeds to the screen edge while its first tile stays on the gutter.
-  scroller: { marginHorizontal: -Layout.gutter },
-  rail: { gap: Spacing.sm, paddingHorizontal: Layout.gutter },
+  rail: { gap: Spacing.sm },
 
   tile: { width: TILE_W },
-  // A 3:4 print on a raised plinth.
+  // A 3:4 drawing on a white sheet, framed by a hairline.
   print: {
-    width: TILE_W, height: PRINT_H, borderRadius: Radius.md, overflow: 'hidden',
-    backgroundColor: Colors.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderSubtle,
+    width: TILE_W, height: PRINT_H,
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.line,
   },
-  printSoldOut: { opacity: 0.55 },
-  badge: {
-    position: 'absolute', left: 8, top: 8,
-    paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.xs,
-    backgroundColor: 'rgba(11,10,9,0.72)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-  },
-  badgeSoldOut: { borderColor: Colors.borderDefault },
-  draft: {
-    position: 'absolute', left: 8, bottom: 8,
-    paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.xs,
-    backgroundColor: 'rgba(11,10,9,0.72)',
-  },
-  tileTitle: { marginTop: 10 },
-  tileMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 2 },
-  price: { color: Colors.textPrimary },
+  printSoldOut: { opacity: 0.5 },
+  draft: { top: 'auto', bottom: 10 },
+  caption: { paddingTop: 12 },
+  tileTitle: { fontSize: 21, lineHeight: 24, letterSpacing: -0.3 },
+  tileMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
+  price: { color: Colors.flameText },
+  style: { flexShrink: 1 },
+  artist: { marginTop: 6, color: Colors.textSecondary, letterSpacing: 1 },
 
   newPrint: {
-    alignItems: 'center', justifyContent: 'center', gap: 4, padding: Spacing.xs,
-    borderStyle: 'dashed', borderWidth: 1, borderColor: Colors.borderDefault,
+    alignItems: 'center', justifyContent: 'center', gap: 6, padding: Spacing.xs,
+    backgroundColor: 'transparent', borderStyle: 'dashed', borderColor: Colors.metal,
   },
-  newRing: {
-    width: 44, height: 44, borderRadius: 22, marginBottom: 8,
+  newMark: {
+    width: 44, height: 44, marginBottom: 6,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    borderWidth: 1, borderColor: Colors.flame,
   },
   newLabel: { textAlign: 'center' },
 });

@@ -1,117 +1,60 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, View, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
-import { EASE_OUT, MotionDuration, PressableScale } from '@/components/motion';
+import { Choice, PageWrap, Rule, SectionHead, SettingRow, StatusDot, Toggle } from '@/components/v5';
+import { PremiumHero } from '@/components/v5/premium';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
 
 const PRESETS = [
-  { id: 'minimal', label: 'Minimal', description: 'Épuré, centré sur le travail', accent: '#E8E0D0' },
-  { id: 'dark', label: 'Sombre', description: 'Contrasté et intense', accent: '#A0A0A0' },
-  { id: 'warm', label: 'Chaud', description: 'Tons dorés', accent: '#C8A882' },
-  { id: 'contrast', label: 'Contraste', description: 'Fort contraste, graphique', accent: '#FFFFFF' },
+  { id: 'minimal', label: 'Minimal', description: 'Épuré, centré sur le travail' },
+  { id: 'dark', label: 'Sombre', description: 'Contrasté et intense' },
+  { id: 'warm', label: 'Chaud', description: 'Tons dorés' },
+  { id: 'contrast', label: 'Contraste', description: 'Fort contraste, graphique' },
 ];
 
 const SECTIONS = [
-  { id: 'gallery', label: 'Galerie', icon: 'images-outline' as const, locked: false },
-  { id: 'bio', label: 'Bio', icon: 'person-outline' as const, locked: false },
-  { id: 'styles', label: 'Styles', icon: 'brush-outline' as const, locked: false },
-  { id: 'rules', label: 'Conditions et exclusions', icon: 'shield-outline' as const, locked: false },
-  { id: 'process', label: 'Ma méthode', icon: 'list-outline' as const, locked: true },
-  { id: 'faq', label: 'Questions fréquentes', icon: 'help-circle-outline' as const, locked: true },
+  { id: 'gallery', label: 'Galerie', locked: false },
+  { id: 'bio', label: 'Bio', locked: false },
+  { id: 'styles', label: 'Styles', locked: false },
+  { id: 'rules', label: 'Conditions et exclusions', locked: false },
+  { id: 'process', label: 'Ma méthode', locked: true },
+  { id: 'faq', label: 'Questions fréquentes', locked: true },
 ];
 
-// ─── Toggle: 180ms state transition, visual only (the row owns the press) ─────
-function Toggle({ value }: { value: boolean }) {
-  const p = useSharedValue(value ? 1 : 0);
-  useEffect(() => {
-    p.set(withTiming(value ? 1 : 0, { duration: MotionDuration.state, easing: EASE_OUT }));
-  }, [value, p]);
-  const onStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: p.get() * 18 }] }));
-  return (
-    <View style={toggleStyles.track} importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[StyleSheet.absoluteFill, toggleStyles.on, onStyle]} />
-      <Animated.View style={[toggleStyles.knob, knobStyle]} />
-    </View>
-  );
-}
+const tap = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
-const toggleStyles = StyleSheet.create({
-  track: {
-    width: 46, height: 28, borderRadius: 14,
-    backgroundColor: Colors.bgSubtle,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    overflow: 'hidden',
-  },
-  on: { backgroundColor: Colors.accentWarm, borderRadius: 14 },
-  knob: {
-    position: 'absolute', top: 2.5, left: 2.5,
-    width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.textPrimary,
-  },
-});
-
-function ToggleRow({ icon, label, value, onToggle, locked }: {
-  icon?: keyof typeof Ionicons.glyphMap; label: string; value: boolean; onToggle: () => void; locked?: boolean;
+function ToggleRow({ label, value, onToggle, locked }: {
+  label: string; value: boolean; onToggle: () => void; locked?: boolean;
 }) {
   return (
-    <Pressable
-      onPress={() => {
-        if (locked) return;
-        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onToggle();
-      }}
-      disabled={locked}
-      accessibilityRole="switch"
-      accessibilityLabel={locked ? `${label}, réservé à Premium` : label}
-      accessibilityState={{ checked: value, disabled: locked }}
-      style={styles.row}
-    >
-      {icon && <Ionicons name={icon} size={19} color={Colors.textSecondary} style={styles.rowIcon} />}
-      <TText variant="body" weight="medium" style={{ flex: 1 }}>{label}</TText>
-      {locked ? (
-        <View style={styles.lockedRow}>
+    <SettingRow
+      title={label}
+      right={locked ? (
+        <View style={styles.lockedRow} accessible accessibilityLabel={`${label}, réservé à Premium`}>
           <TBadge label="Premium" variant="premium" />
-          <Ionicons name="lock-closed" size={13} color={Colors.accentWarm} />
+          <Ionicons name="lock-closed" size={13} color={Colors.flameText} />
         </View>
       ) : (
-        <Toggle value={value} />
+        <Toggle value={value} label={label} onChange={() => { tap(); onToggle(); }} />
       )}
-    </Pressable>
-  );
-}
-
-function Group({ title, children, inset }: { title: string; children: React.ReactNode; inset?: number }) {
-  const items = React.Children.toArray(children);
-  return (
-    <View style={styles.group}>
-      <TText variant="label" color="tertiary" uppercase style={styles.groupTitle}>{title}</TText>
-      <View style={styles.groupBody}>
-        {items.map((child, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <TDivider inset={inset} />}
-            {child}
-          </React.Fragment>
-        ))}
-      </View>
-    </View>
+    />
   );
 }
 
 export default function CustomizationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { isWide } = useContentDimensions();
   const { user } = useAuthStore();
   const isPremium = user?.artistTier === 'premium';
   const artistId = user?.artistId;
@@ -150,95 +93,83 @@ export default function CustomizationScreen() {
     );
   };
 
-  const presetCols = width >= 720 ? 4 : 2;
-
   return (
     <View style={styles.container}>
       <THeader title="Personnalisation" showBack />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
       >
-        <View style={styles.hero}>
-          <TText variant="label" color="accentWarm" uppercase>Profil public</TText>
-          <TText variant="displayM" style={{ marginTop: 4 }} accessibilityRole="header">
-            Votre <TText variant="displayM" italic color="accentGlow">accrochage</TText>
-          </TText>
-          <TText variant="body" color="secondary" style={{ marginTop: Spacing.xs }}>
-            Choisissez ce que les visiteurs voient en premier sur votre profil.
-          </TText>
-        </View>
-
-        <View style={styles.notice}>
-          <Ionicons name="information-circle-outline" size={17} color={Colors.warning} />
-          <TText variant="caption" color="secondary" style={{ flex: 1 }}>
-            L’enregistrement de ces réglages n’est pas encore disponible : votre profil public n’est pas modifié pour l’instant.
-          </TText>
-        </View>
-
-        {/* Visual preset */}
-        <View style={styles.group}>
-          <TText variant="label" color="tertiary" uppercase style={styles.groupTitle}>Ambiance visuelle</TText>
-          <View style={styles.presetGrid} accessibilityRole="radiogroup">
-            {PRESETS.map((preset) => {
-              const isSelected = selectedPreset === preset.id;
-              return (
-                <PressableScale
-                  key={preset.id}
-                  onPress={() => setSelectedPreset(preset.id)}
-                  accessibilityRole="radio"
-                  accessibilityLabel={`${preset.label}, ${preset.description}`}
-                  accessibilityState={{ selected: isSelected }}
-                  style={[
-                    styles.presetCard,
-                    { width: `${100 / presetCols - 2}%` as `${number}%` },
-                    isSelected && styles.presetCardSelected,
-                  ]}
-                >
-                  <View style={[styles.presetSwatch, { backgroundColor: preset.accent }]} />
-                  <TText variant="bodySmall" weight="semibold" style={{ marginTop: Spacing.xs }}>{preset.label}</TText>
-                  <TText variant="caption" color="tertiary">{preset.description}</TText>
-                  {isSelected && (
-                    <Ionicons name="checkmark-circle" size={18} color={Colors.textPrimary} style={styles.presetCheck} />
-                  )}
-                </PressableScale>
-              );
-            })}
-          </View>
-        </View>
-
-        <Group title="Sections du profil" inset={34}>
-          {sections.map((section) => (
-            <ToggleRow
-              key={section.id}
-              icon={section.icon}
-              label={section.label}
-              value={section.enabled}
-              locked={section.locked}
-              onToggle={() => toggleSection(section.id)}
-            />
-          ))}
-        </Group>
-
-        <Group title="Informations affichées">
-          {[
-            { label: 'Disponibilité', value: showAvailability, setter: setShowAvailability },
-            { label: 'Statistiques (vues, demandes)', value: showStats, setter: setShowStats },
-            { label: 'Budget minimum', value: showMinBudget, setter: setShowMinBudget },
-          ].map((row) => (
-            <ToggleRow key={row.label} label={row.label} value={row.value} onToggle={() => row.setter(!row.value)} />
-          ))}
-        </Group>
-
-        <View style={styles.cta}>
-          <TButton
-            title="Voir mon profil public"
-            variant="secondary"
-            disabled={!artistId}
-            icon={<Ionicons name="eye-outline" size={17} color={Colors.textPrimary} />}
-            onPress={() => router.push(`/artist/${artistId}`)}
+        <PageWrap style={{ paddingTop: Spacing.lg }}>
+          <PremiumHero
+            size="page"
+            kicker="Profil public / Accrochage"
+            title="Votre espace."
+            emphasis="Votre signature."
+            body="Choisissez ce que les visiteurs voient en premier sur votre profil."
           />
-        </View>
+
+          <View style={styles.notice} accessibilityRole="text">
+            <StatusDot tone="wait" label="Aperçu" />
+            <TText variant="caption" color="secondary" style={{ flex: 1, minWidth: 200 }}>
+              L’enregistrement de ces réglages n’est pas encore disponible : votre profil public n’est pas modifié pour l’instant.
+            </TText>
+          </View>
+
+          <View style={[styles.columns, isWide && styles.columnsWide]}>
+            {/* Visual preset */}
+            <View style={isWide ? { flex: 1 } : undefined}>
+              <SectionHead kicker="01 / Ambiance visuelle" title="Le ton." />
+              <View style={styles.presetGrid} accessibilityRole="radiogroup">
+                {PRESETS.map((preset) => (
+                  <Choice
+                    key={preset.id}
+                    title={preset.label}
+                    hint={preset.description}
+                    selected={selectedPreset === preset.id}
+                    onPress={() => setSelectedPreset(preset.id)}
+                    style={styles.preset}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={isWide ? { flex: 1.2 } : undefined}>
+              <SectionHead kicker="02 / Sections du profil" title="L’accrochage." />
+              <Rule tone="ink" />
+              {sections.map((section) => (
+                <ToggleRow
+                  key={section.id}
+                  label={section.label}
+                  value={section.enabled}
+                  locked={section.locked}
+                  onToggle={() => toggleSection(section.id)}
+                />
+              ))}
+
+              <SectionHead kicker="03 / Informations affichées" title="Le cartel." style={{ marginTop: Spacing['2xl'] }} />
+              <Rule tone="ink" />
+              {[
+                { label: 'Disponibilité', value: showAvailability, setter: setShowAvailability },
+                { label: 'Statistiques (vues, demandes)', value: showStats, setter: setShowStats },
+                { label: 'Budget minimum', value: showMinBudget, setter: setShowMinBudget },
+              ].map((row) => (
+                <ToggleRow key={row.label} label={row.label} value={row.value} onToggle={() => row.setter(!row.value)} />
+              ))}
+
+              <View style={styles.cta}>
+                <TButton
+                  title="Voir mon profil public"
+                  variant="secondary"
+                  fullWidth={false}
+                  disabled={!artistId}
+                  icon={<Ionicons name="eye-outline" size={17} color={Colors.ink} />}
+                  onPress={() => router.push(`/artist/${artistId}`)}
+                />
+              </View>
+            </View>
+          </View>
+        </PageWrap>
       </ScrollView>
     </View>
   );
@@ -246,38 +177,17 @@ export default function CustomizationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xl,
-  },
-  hero: { marginBottom: Spacing.lg },
   notice: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(217,165,91,0.35)',
-    backgroundColor: 'rgba(217,165,91,0.06)',
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: Spacing.sm, marginTop: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  group: { marginTop: Spacing.xl },
-  groupTitle: { marginBottom: Spacing['2xs'] },
-  groupBody: {
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingVertical: 10,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  rowIcon: { width: 22 },
+  columns: { marginTop: Spacing['2xl'], gap: Spacing['2xl'] },
+  columnsWide: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['3xl'] },
   lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
   presetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  presetCard: {
-    borderRadius: Radius.md, padding: Spacing.sm, minHeight: 120,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  presetCardSelected: { borderColor: Colors.textPrimary, borderWidth: 1, backgroundColor: Colors.glassBg },
-  presetSwatch: { width: 32, height: 32, borderRadius: 16 },
-  presetCheck: { position: 'absolute', top: 10, right: 10 },
+  preset: { flexGrow: 1, flexBasis: '45%', minWidth: 140 },
 
   cta: { marginTop: Spacing['2xl'] },
 });

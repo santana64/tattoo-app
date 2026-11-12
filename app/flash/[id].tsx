@@ -1,19 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing, Radius, Layout, Gradients } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { BottomSheet, GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
-import { ArtPlaceholder, styleName } from '@/components/ArtistCard';
+import { BottomSheet, enterUp, fadeIn } from '@/components/motion';
+import { DetailRow, InkPanel, Kicker, StatusDot, TextLink } from '@/components/v5';
+import { PlateMark, WorkPlate } from '@/components/gallery/WorkPlate';
+import { styleName } from '@/components/ArtistCard';
 import { Seo } from '@/components/Seo';
 import { Lightbox, type LightboxItem } from '@/components/gallery/Lightbox';
 import { ShareButton } from '@/components/ui/ShareButton';
@@ -23,8 +25,7 @@ import { isUuid } from '@/lib/catalog';
 import { toDescription } from '@/lib/site';
 import { deleteFlash, fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 
-const WIDE = 900;
-const SIDE_W = 400;
+const SIDE_W = 440;
 
 type FlashArtist = Pick<Tables<'artists'>, 'id' | 'blaze' | 'city' | 'booking_status'>;
 
@@ -46,33 +47,31 @@ function flashAvailability(flash: Pick<FlashDesign, 'total_copies' | 'sold_copie
 
 const formatPrice = (euros: number) => `${euros.toLocaleString('fr-FR')} €`;
 
-/** The work gets the room; on wide screens the label sits beside it. */
+/** The drawing gets the room; on wide screens the ink cartel sits beside it. */
 function useFrame() {
-  const { width, height } = useWindowDimensions();
-  const wide = width >= WIDE;
+  const { width, height, isWide, gutter } = useContentDimensions();
   const frameW = Math.min(width, Layout.maxContent);
-  const artW = wide ? frameW - Layout.gutter * 2 - SIDE_W - Spacing['2xl'] : width;
-  const artH = wide
-    ? Math.round(Math.min(height - 160, (artW * 4) / 3, 860))
-    : Math.round(Math.min((width * 4) / 3, height * 0.66));
-  return { wide, artH };
+  const artW = isWide ? frameW - gutter * 2 - SIDE_W : width;
+  const artH = isWide
+    ? Math.round(Math.max(Math.min(height - 140, (artW * 4) / 3, 860), 560))
+    : Math.round(Math.min(width * 1.1, height * 0.55));
+  return { wide: isWide, artH, gutter };
 }
 
 function FlashSkeleton() {
-  const { wide, artH } = useFrame();
+  const { wide, artH, gutter } = useFrame();
   return (
     <View style={styles.container} accessibilityLabel="Chargement du flash">
-      <THeader showBack />
-      <View style={[styles.frame, wide && styles.frameWide]}>
+      <THeader showBack title="Flash" />
+      <View style={[styles.frame, wide && [styles.frameWide, { paddingHorizontal: gutter }]]}>
         <View style={wide ? styles.artColWide : undefined}>
-          <TSkeleton height={artH} radius={wide ? Radius.xl : 0} />
+          <TSkeleton height={artH} radius={0} />
         </View>
-        <View style={[styles.side, wide && styles.sideWide]}>
-          <TSkeleton width={110} height={11} />
-          <TSkeleton width="70%" height={28} style={{ marginTop: 10 }} />
-          <TSkeleton width="55%" height={13} style={{ marginTop: 10 }} />
-          <TSkeleton width={120} height={36} style={{ marginTop: Spacing.lg }} />
-        </View>
+        <InkPanel style={wide ? [styles.panelWide, { minHeight: artH }] : undefined}>
+          <View style={{ width: 120, height: 10, backgroundColor: Colors.inkRaised }} />
+          <View style={{ width: '70%', height: 44, marginTop: 16, backgroundColor: Colors.inkRaised }} />
+          <View style={{ width: '100%', height: 52, marginTop: Spacing.xl, backgroundColor: Colors.inkRaised }} />
+        </InkPanel>
       </View>
     </View>
   );
@@ -109,7 +108,7 @@ export default function FlashScreen() {
   if (!resource) {
     return (
       <View style={styles.container}>
-        <THeader showBack />
+        <THeader showBack title="Flash" />
         <EmptyState
           icon={error ? 'cloud-offline-outline' : 'image-outline'}
           title={error ? 'Flash inaccessible' : 'Flash introuvable'}
@@ -128,7 +127,7 @@ export default function FlashScreen() {
 function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArtist | null }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { wide, artH } = useFrame();
+  const { wide, artH, gutter } = useFrame();
   const { user, isAuthenticated } = useAuthStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -140,12 +139,12 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
   const availability = flashAvailability(flash);
   const blaze = artist?.blaze ?? 'un artiste Inkr';
   const style = styleName(flash.style);
-  const lines = [
-    style,
-    flash.is_color ? 'Couleur' : 'Noir et gris',
-    flash.body_zone?.trim() ? `Emplacement conseillé : ${flash.body_zone.trim()}` : null,
-    flash.estimated_duration ? `Environ ${formatDuration(flash.estimated_duration)} de séance` : null,
-  ].filter((l): l is string => !!l);
+  const facts: { label: string; value: string }[] = [
+    { label: 'Style', value: style },
+    { label: 'Rendu', value: flash.is_color ? 'Couleur' : 'Noir et gris' },
+  ];
+  if (flash.body_zone?.trim()) facts.push({ label: 'Emplacement conseillé', value: flash.body_zone.trim() });
+  if (flash.estimated_duration) facts.push({ label: 'Séance', value: `Environ ${formatDuration(flash.estimated_duration)}` });
   const viewerItems = useMemo<LightboxItem[]>(
     () => [{ id: flash.id, uri: flash.image_url, title: flash.title, subtitle: `Flash de ${blaze} · ${style}` }],
     [flash.id, flash.image_url, flash.title, blaze, style],
@@ -174,34 +173,25 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
     else router.replace({ pathname: '/artist/[id]', params: { id: flash.artist_id } });
   };
 
-  const action = isOwner ? (
+  /** The one action of the screen, drawn for the ground it sits on. */
+  const action = (onInk: boolean) => (isOwner ? (
     <TButton
       title="Supprimer le flash"
-      variant="destructive"
+      variant={onInk ? 'inverse' : 'destructive'}
       onPress={() => setConfirmOpen(true)}
-      icon={<Ionicons name="trash-outline" size={17} color={Colors.errorLight} />}
+      icon={<Ionicons name="trash-outline" size={16} color={onInk ? Colors.onInk : Colors.error} />}
     />
   ) : (
     <TButton
       title={soldOut ? 'Épuisé' : 'Réserver ce flash'}
+      variant={onInk ? 'glass' : 'primary'}
       onPress={handleBook}
       disabled={soldOut}
       accessibilityLabel={soldOut ? 'Ce flash est épuisé' : `Réserver ce flash, ${formatPrice(flash.price)}`}
     />
-  );
+  ));
 
-  const priceBlock = (
-    <View style={styles.priceRow}>
-      <TText variant="displayM" tabular accessibilityLabel={`Prix : ${formatPrice(flash.price)}`}>
-        {formatPrice(flash.price)}
-      </TText>
-      <View style={[styles.availability, soldOut && styles.availabilitySoldOut]}>
-        <TText variant="label" uppercase style={{ color: soldOut ? Colors.textTertiary : Colors.accentGlow }}>
-          {availability}
-        </TText>
-      </View>
-    </View>
-  );
+  const titleSize = wide ? 64 : 46;
 
   return (
     <View style={styles.container}>
@@ -216,6 +206,7 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
       />
       <THeader
         showBack
+        title="Flash"
         rightElement={flash.is_published ? (
           <ShareButton
             title={`${flash.title} — Flash de ${blaze}`}
@@ -227,12 +218,11 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: wide ? Spacing['3xl'] : insets.bottom + 120 }}
+        contentContainerStyle={{ paddingBottom: wide ? Spacing['4xl'] : insets.bottom + 120 }}
       >
-        <View style={[styles.frame, wide && styles.frameWide]}>
-          {/* ── The design, lit on the dark wall ── */}
-          <View style={[styles.art, { height: artH }, wide && [styles.artColWide, styles.artWide]]}>
-            <LinearGradient colors={Gradients.glowAmber} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.8 }} style={StyleSheet.absoluteFill} />
+        <View style={[styles.frame, wide && [styles.frameWide, { paddingHorizontal: gutter }]]}>
+          {/* ── The drawing on its sheet ── */}
+          <View style={[styles.art, { height: artH }, wide && styles.artColWide]}>
             <Pressable
               onPress={() => setViewerOpen(true)}
               accessibilityRole="button"
@@ -240,74 +230,86 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
               accessibilityHint="Ouvre la visionneuse plein écran"
               style={[styles.print, styles.zoomable]}
             >
-              <RevealImage
+              <WorkPlate
                 uri={flash.image_url}
                 contentFit="contain"
-                style={[StyleSheet.absoluteFill, styles.mat]}
+                tone="bone"
                 accessibilityLabel={`Flash « ${flash.title} » de ${blaze}`}
-                fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={88} />}
+                style={[StyleSheet.absoluteFill, styles.sheet]}
               />
             </Pressable>
+            <PlateMark label={flash.is_published ? 'Flash' : 'Flash · Non publié'} />
           </View>
 
-          {/* ── Wall label ── */}
-          <View style={[styles.side, wide && styles.sideWide]}>
-            <Animated.View entering={enterUp(0, 120)} style={styles.cartel}>
+          {/* ── Ink cartel ── */}
+          <InkPanel style={wide ? [styles.panelWide, { minHeight: artH }] : undefined}>
+            <Animated.View entering={enterUp(0, 120)}>
               {artist ? (
-                <PressableScale
+                <TextLink
+                  label={`${artist.blaze}${artist.city ? ` · ${artist.city}` : ''}`}
                   onPress={openArtist}
-                  accessibilityRole="link"
+                  onInk
                   accessibilityLabel={`Voir le profil de ${artist.blaze}`}
-                  hitSlop={6}
                   style={styles.artistLink}
-                >
-                  <TText variant="label" color="accentWarm" uppercase numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {artist.blaze}{artist.city ? ` · ${artist.city}` : ''}
-                  </TText>
-                  <Ionicons name="arrow-forward" size={11} color={Colors.accentWarm} />
-                </PressableScale>
+                />
               ) : (
-                <TText variant="label" color="accentWarm" uppercase>Flash</TText>
+                <Kicker tone="flameOnInk">Flash</Kicker>
               )}
-              <TText variant="displayS" italic accessibilityRole="header" style={styles.title}>{flash.title}</TText>
-              <TText variant="caption" color="secondary" style={styles.lines}>
-                {lines.map((line, i) => (
-                  <React.Fragment key={line}>
-                    {i > 0 && <TText variant="caption" color="tertiary">{'  ·  '}</TText>}
-                    {line}
-                  </React.Fragment>
-                ))}
+              <TText
+                variant="displayL"
+                italic
+                accessibilityRole="header"
+                style={[styles.title, { fontSize: titleSize, lineHeight: Math.round(titleSize * 0.96), letterSpacing: -titleSize * 0.035 }]}
+              >
+                {flash.title}
               </TText>
             </Animated.View>
 
-            <Animated.View entering={enterUp(1, 120)}>{priceBlock}</Animated.View>
+            <Animated.View entering={enterUp(1, 120)} style={styles.priceBlock}>
+              <Kicker tone="onInkMuted">Prix du flash</Kicker>
+              <TText
+                variant="displayL"
+                tabular
+                accessibilityLabel={`Prix : ${formatPrice(flash.price)}`}
+                style={styles.price}
+              >
+                {formatPrice(flash.price)}
+              </TText>
+              <StatusDot tone={soldOut ? 'closed' : 'open'} label={availability} onInk />
+            </Animated.View>
 
-            <Animated.View entering={enterUp(2, 120)} style={styles.note}>
-              <Ionicons name="information-circle-outline" size={16} color={Colors.textTertiary} />
-              <TText variant="caption" color="tertiary" style={{ flex: 1 }}>
+            <Animated.View entering={enterUp(2, 120)} style={styles.facts}>
+              {facts.map((f, i) => (
+                <DetailRow key={f.label} label={f.label} value={f.value} onInk last={i === facts.length - 1} />
+              ))}
+            </Animated.View>
+
+            <Animated.View entering={enterUp(3, 120)} style={styles.note}>
+              <Ionicons name="information-circle-outline" size={16} color={Colors.onInkMuted} />
+              <TText variant="caption" color="onInkMuted" style={{ flex: 1 }}>
                 {isOwner
                   ? (flash.is_published ? 'Ce flash est visible sur votre profil.' : 'Ce flash n’est pas publié : vous seul le voyez.')
                   : 'Le dessin est déjà prêt : votre demande indique ce flash à l’artiste, qui vous propose un rendez-vous.'}
               </TText>
             </Animated.View>
 
-            {wide && <Animated.View entering={enterUp(3, 120)} style={{ marginTop: Spacing.lg }}>{action}</Animated.View>}
-          </View>
+            {wide && <Animated.View entering={enterUp(4, 120)} style={{ marginTop: Spacing.xl }}>{action(true)}</Animated.View>}
+          </InkPanel>
         </View>
       </ScrollView>
 
       {/* Sticky action on phones and tablets */}
       {!wide && (
-        <Animated.View entering={fadeIn(250)} style={styles.stickyBar}>
-          <GlassSurface style={[styles.stickyGlass, { paddingBottom: insets.bottom + 12 }]}>
-            <View style={styles.stickyInner}>
-              <View style={styles.stickyPrice}>
-                <TText variant="title1" serif tabular>{formatPrice(flash.price)}</TText>
-                <TText variant="caption" color={soldOut ? 'tertiary' : 'accentGlow'} numberOfLines={1}>{availability}</TText>
-              </View>
-              <View style={styles.stickyAction}>{action}</View>
+        <Animated.View entering={fadeIn(250)} style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}>
+          <View style={styles.stickyInner}>
+            <View style={styles.stickyPrice}>
+              <TText variant="title1" serif tabular style={styles.stickyAmount}>{formatPrice(flash.price)}</TText>
+              <TText variant="micro" weight="bold" uppercase numberOfLines={1} style={{ color: soldOut ? Colors.textTertiary : Colors.flameText }}>
+                {availability}
+              </TText>
             </View>
-          </GlassSurface>
+            <View style={styles.stickyAction}>{action(false)}</View>
+          </View>
         </Animated.View>
       )}
 
@@ -338,54 +340,35 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
   frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
-  frameWide: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'],
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
+  frameWide: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: Spacing.xl },
 
-  art: { width: '100%', backgroundColor: Colors.bgInk, alignItems: 'center', justifyContent: 'center' },
-  artColWide: { flex: 1, width: undefined },
-  artWide: { borderRadius: Radius.xl, overflow: 'hidden' },
-  // The print hangs on the wall with a margin of darkness around it.
+  // The drawing hangs on a white sheet with a margin of paper around it.
+  art: { width: '100%', backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.line },
+  artColWide: { flex: 1, width: undefined, borderWidth: 1, borderColor: Colors.line, borderRightWidth: 0 },
   print: { position: 'absolute', top: Spacing.xl, bottom: Spacing.xl, left: Spacing.lg, right: Spacing.lg },
-  mat: { backgroundColor: 'transparent' },
+  sheet: { backgroundColor: Colors.white },
   zoomable: Platform.OS === 'web' ? ({ cursor: 'zoom-in' } as object) : {},
 
-  side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
-  sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
+  panelWide: { width: SIDE_W },
+  artistLink: { alignSelf: 'flex-start' },
+  title: { marginTop: Spacing.md, color: Colors.onInk },
 
-  cartel: {
-    borderLeftWidth: 1, borderLeftColor: Colors.accentWarm,
-    paddingLeft: Spacing.sm, paddingVertical: 2,
-  },
-  artistLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 24 },
-  title: { marginTop: 6 },
-  lines: { marginTop: 8, lineHeight: 19 },
-
-  priceRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm,
-    marginTop: Spacing.lg, paddingVertical: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  availability: {
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.xs,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
-  },
-  availabilitySoldOut: { borderColor: Colors.borderDefault, backgroundColor: 'transparent' },
-
+  priceBlock: { marginTop: Spacing.xl, gap: Spacing['2xs'] },
+  price: { color: Colors.onInk, fontSize: 52, lineHeight: 54, letterSpacing: -1.5 },
+  facts: { marginTop: Spacing.lg },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: Spacing.md },
 
-  stickyBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  stickyGlass: {
+  stickyBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: Layout.gutter, paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    backgroundColor: Colors.paper, borderTopWidth: 1, borderTopColor: Colors.ink,
   },
   stickyInner: {
     width: '100%', maxWidth: Layout.maxReading, alignSelf: 'center',
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
   },
   stickyPrice: { flexShrink: 1, minWidth: 92 },
+  stickyAmount: { fontSize: 26, lineHeight: 28 },
   stickyAction: { flex: 1 },
 
   sheetBody: { marginTop: 6, marginBottom: Spacing.md },

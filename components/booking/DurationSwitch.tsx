@@ -41,12 +41,13 @@ export function DurationSwitch({ durations, value, onChange, disabled, style }: 
             accessibilityRole="radio"
             accessibilityLabel={`Séance de ${label}`}
             accessibilityState={{ selected, checked: selected, disabled }}
+            hitSlop={4}
             style={(state) => {
               const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
               return [styles.chip, (pressed || hovered) && !selected && styles.chipHover, selected && styles.chipSelected, disabled && !selected && { opacity: 0.5 }];
             }}
           >
-            <TText variant="caption" weight="medium" tabular style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>
+            <TText variant="caption" weight="semibold" tabular style={{ fontSize: 12.5, lineHeight: 16, color: selected ? Colors.paper : Colors.ink }}>
               {label}
             </TText>
           </Pressable>
@@ -56,14 +57,17 @@ export function DurationSwitch({ durations, value, onChange, disabled, style }: 
   );
 }
 
+// Same drawing as TChip: a pill is the one rounded control v5 allows.
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    height: 32, paddingHorizontal: 12,
+    minHeight: 36, paddingHorizontal: 14,
     alignItems: 'center', justifyContent: 'center',
-    borderRadius: Radius.full, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.line,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+      : null),
   },
-  chipHover: { backgroundColor: Colors.glassBgMid },
-  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  chipHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  chipSelected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
 });

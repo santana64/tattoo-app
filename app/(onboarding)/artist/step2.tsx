@@ -48,8 +48,10 @@ export default function ArtistStep2() {
 
   return (
     <OnboardingScreen
+      audience="artist"
       step={STEP}
       total={TOTAL}
+      label="Vos styles"
       title="Les styles que"
       accent="vous maîtrisez"
       lede="Les clients vous trouveront à travers ces styles. Choisissez-en au moins un."

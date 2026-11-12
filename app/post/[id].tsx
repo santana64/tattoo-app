@@ -1,22 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, StyleSheet, Pressable, Platform, useWindowDimensions,
+  View,
+  StyleSheet,
+  Pressable,
+  Platform,
 } from 'react-native';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, useReducedMotion,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
-import { ArtPlaceholder, BOOKING_STATUS, styleName } from '@/components/ArtistCard';
+import { BOOKING_STATUS, styleName } from '@/components/ArtistCard';
 import { VideoPlaceholder, isVideoMedia, popScale } from '@/components/PostCard';
-import { BottomSheet, GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { BottomSheet, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { DetailRow, IconButton, Kicker, Rule, StatusDot, TextLink, type StatusTone } from '@/components/v5';
+import { PlateFill } from '@/components/gallery/WorkPlate';
 import { useFeedStore } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
@@ -26,14 +32,13 @@ import { Seo } from '@/components/Seo';
 import { toDescription } from '@/lib/site';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { ArtworkLabel } from '@/components/gallery/ArtworkLabel';
 import { Lightbox, type LightboxItem } from '@/components/gallery/Lightbox';
 import { ShareButton, sharePage } from '@/components/ui/ShareButton';
 import { ReactionBar } from '@/components/social/ReactionBar';
 import { artworkLabel } from '@/lib/studio';
 
-const WIDE = 900;
-const SIDE_W = 400;
+const SIDE_W = 420;
+const STATUS_TONE: Record<keyof typeof BOOKING_STATUS, StatusTone> = { open: 'open', paused: 'wait', closed: 'closed' };
 /** Enough siblings to browse a whole portfolio in the viewer. */
 const SIBLINGS_MAX = 120;
 
@@ -50,33 +55,33 @@ const REPORT_REASONS: { value: ReportReason; label: string }[] = [
   { value: 'fake', label: 'Faux contenu' },
 ];
 
-/** Shared layout maths: the work gets the room, the label sits beside it on wide screens. */
+/** Shared layout maths: the work gets the room, the cartel sits beside it on wide screens. */
 function useArtworkFrame() {
-  const { width, height } = useWindowDimensions();
-  const wide = width >= WIDE;
+  const { width, height, isWide, gutter } = useContentDimensions();
   const frameW = Math.min(width, Layout.maxContent);
-  const artW = wide ? frameW - Layout.gutter * 2 - SIDE_W - Spacing['2xl'] : width;
-  const artH = wide
-    ? Math.round(Math.min(height - 160, artW * 1.25, 860))
-    : Math.round(Math.min(width * 1.25, height * 0.72));
-  return { wide, artH };
+  const artW = isWide ? frameW - gutter * 2 - SIDE_W - Spacing['2xl'] : width;
+  const artH = isWide
+    ? Math.round(Math.min(height - 140, artW * 1.25, 900))
+    : Math.round(Math.min(width * 1.25, height * 0.68));
+  return { wide: isWide, artH, gutter };
 }
 
 function DetailSkeleton() {
-  const { wide, artH } = useArtworkFrame();
+  const { wide, artH, gutter } = useArtworkFrame();
   return (
     <View style={styles.container} accessibilityLabel="Chargement de la publication">
       <THeader showBack />
-      <View style={[styles.frame, wide && styles.frameWide]}>
+      <View style={[styles.frame, wide && [styles.frameWide, { paddingHorizontal: gutter }]]}>
         <View style={wide ? styles.artColWide : undefined}>
-          <TSkeleton height={artH} radius={wide ? Radius.xl : 0} />
+          <TSkeleton height={artH} radius={0} />
         </View>
-        <View style={[styles.side, wide && styles.sideWide]}>
-          <TSkeleton width={120} height={11} />
-          <TSkeleton width="75%" height={32} style={{ marginTop: 12 }} />
-          <TSkeleton height={44} radius={Radius.sm} style={{ marginTop: Spacing.lg }} />
-          <TSkeleton width="90%" height={14} style={{ marginTop: Spacing.lg }} />
-          <TSkeleton width="60%" height={14} style={{ marginTop: 8 }} />
+        <View style={[styles.side, { paddingHorizontal: gutter }, wide && styles.sideWide]}>
+          <TSkeleton width={140} height={10} radius={0} />
+          <TSkeleton width="80%" height={44} radius={0} style={{ marginTop: 14 }} />
+          <TSkeleton height={1} radius={0} style={{ marginTop: Spacing.lg }} />
+          {[0, 1, 2].map((i) => (
+            <TSkeleton key={i} height={14} radius={0} style={{ marginTop: Spacing.sm }} />
+          ))}
         </View>
       </View>
     </View>
@@ -144,7 +149,7 @@ function ActionButton({ label, onPress, active, count, haptic, children }: {
     >
       {children}
       {count !== undefined && (
-        <TText variant="bodySmall" weight="medium" color="secondary" tabular>{count.toLocaleString('fr-FR')}</TText>
+        <TText variant="caption" weight="semibold" tabular>{count.toLocaleString('fr-FR')}</TText>
       )}
     </PressableScale>
   );
@@ -155,8 +160,8 @@ function SheetRow({ icon, label, onPress, destructive }: {
 }) {
   return (
     <PressableScale onPress={onPress} pressedScale={0.98} accessibilityRole="button" accessibilityLabel={label} style={styles.sheetRow}>
-      <Ionicons name={icon} size={19} color={destructive ? Colors.errorLight : Colors.textSecondary} />
-      <TText variant="body" weight="medium" style={destructive ? { color: Colors.errorLight } : undefined}>{label}</TText>
+      <Ionicons name={icon} size={18} color={destructive ? Colors.error : Colors.ink} />
+      <TText variant="body" weight="medium" style={destructive ? { color: Colors.error } : undefined}>{label}</TText>
     </PressableScale>
   );
 }
@@ -166,7 +171,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
-  const { wide, artH } = useArtworkFrame();
+  const { wide, artH, gutter } = useArtworkFrame();
   const { user } = useAuthStore();
   const [isLiked, setLiked] = useState(false);
   const [isSaved, setSaved] = useState(false);
@@ -327,6 +332,19 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   ) : null;
   const seoArtist = artist ? `${artist.blaze}${artist.city ? `, ${artist.city}` : ''}` : 'un artiste Inkr';
 
+  // ── Cartel: only the facts the post really carries ──
+  const technique = post.styles.slice(0, 2).map(styleName).join(', ');
+  const zone = row.body_zone?.trim() || null;
+  const session = row.session_hours ? `${String(Number(row.session_hours)).replace('.', ',')} h` : null;
+  const publishedYear = row.published_at ? new Date(row.published_at).getFullYear() : NaN;
+  const facts: { label: string; value: string }[] = [];
+  if (technique) facts.push({ label: 'Technique', value: technique });
+  if (zone) facts.push({ label: 'Emplacement', value: zone });
+  if (session) facts.push({ label: 'Séance', value: session });
+  if (row.is_healed) facts.push({ label: 'État', value: 'Photographié cicatrisé' });
+  if (!Number.isNaN(publishedYear)) facts.push({ label: 'Année', value: String(publishedYear) });
+  const titleSize = wide ? 56 : 42;
+
   return (
     <View style={styles.container}>
       <Seo
@@ -337,30 +355,20 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       />
       <THeader
         showBack
-        rightElement={
-          <PressableScale
-            onPress={handleOptions}
-            pressedScale={0.92}
-            accessibilityRole="button"
-            accessibilityLabel="Plus d’options"
-            hitSlop={8}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color={Colors.textPrimary} />
-          </PressableScale>
-        }
+        title="Œuvre"
+        rightElement={<IconButton icon="ellipsis-horizontal" label="Plus d’options" onPress={handleOptions} />}
       />
 
       <Animated.ScrollView
         onScroll={onScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: wide ? Spacing['3xl'] : insets.bottom + (artist ? 110 : 40) }}
+        contentContainerStyle={{ paddingBottom: wide ? Spacing['4xl'] : insets.bottom + (artist ? 110 : 40) }}
       >
-        <View style={[styles.frame, wide && styles.frameWide]}>
-          {/* ── The work, matted like a print ── */}
+        <View style={[styles.frame, wide && [styles.frameWide, { paddingHorizontal: gutter }]]}>
+          {/* ── The work, on the ink wall ── */}
           <Animated.View
-            style={[styles.art, { height: artH }, wide ? [styles.artColWide, styles.artWide] : null, artMotion]}
+            style={[styles.art, { height: artH }, wide ? styles.artColWide : null, artMotion]}
           >
             {isVideo ? (
               <PressableScale
@@ -384,35 +392,51 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                   contentFit="contain"
                   style={[StyleSheet.absoluteFill, styles.mat]}
                   accessibilityLabel={pieceTitle ?? post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
-                  fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={96} />}
+                  fallback={<PlateFill />}
                 />
               </Pressable>
             )}
           </Animated.View>
 
-          {/* ── Wall label ── */}
-          <View style={[styles.side, wide && styles.sideWide]}>
+          {/* ── Museum cartel ── */}
+          <View style={[styles.side, { paddingHorizontal: gutter }, wide && styles.sideWide]}>
             <Animated.View entering={enterUp(0, 120)}>
-              <ArtworkLabel
-                post={row}
-                artistName={artist?.blaze ?? 'Artiste Inkr'}
-                onPressArtist={artist ? openArtist : undefined}
-              />
-              {series && (
-                <PressableScale
-                  onPress={openSeries}
-                  accessibilityRole="link"
-                  accessibilityLabel={`Voir la série ${series.title}`}
-                  hitSlop={6}
-                  style={styles.seriesLink}
-                >
-                  <Ionicons name="albums-outline" size={14} color={Colors.accentGlow} />
-                  <TText variant="caption" weight="medium" color="accentGlow" numberOfLines={1} style={styles.seriesText}>
-                    Série · {series.title}
-                  </TText>
-                  <Ionicons name="arrow-forward" size={13} color={Colors.accentGlow} />
-                </PressableScale>
+              {artist ? (
+                <TextLink
+                  label={`${artist.blaze}${artist.city ? ` · ${artist.city}` : ''}`}
+                  onPress={openArtist}
+                  accessibilityLabel={`Voir le profil de ${artist.blaze}`}
+                  style={styles.artistLink}
+                />
+              ) : (
+                <Kicker tone="flame">Artiste Inkr</Kicker>
               )}
+              <TText
+                variant="displayL"
+                italic={!pieceTitle}
+                accessibilityRole="header"
+                style={[
+                  styles.title,
+                  { fontSize: titleSize, lineHeight: Math.round(titleSize * 0.98), letterSpacing: -titleSize * 0.035 },
+                  !pieceTitle && { color: Colors.textSecondary },
+                ]}
+              >
+                {label.title}
+              </TText>
+              <Rule tone="ink" style={styles.titleRule} />
+              <DetailRow label="Artiste" value={artist?.blaze ?? 'Artiste Inkr'} />
+              {facts.map((f) => <DetailRow key={f.label} label={f.label} value={f.value} />)}
+              {series && (
+                <DetailRow label="Série">
+                  <TextLink
+                    label={series.title}
+                    onPress={openSeries}
+                    accessibilityLabel={`Voir la série ${series.title}`}
+                    style={styles.seriesLink}
+                  />
+                </DetailRow>
+              )}
+              <Rule />
             </Animated.View>
 
             {/* Actions */}
@@ -426,7 +450,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                   haptic
                 >
                   <Animated.View style={heartStyle}>
-                    <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={21} color={isLiked ? Colors.accentGlow : Colors.textSecondary} />
+                    <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={20} color={isLiked ? Colors.flame : Colors.ink} />
                   </Animated.View>
                 </ActionButton>
                 <ActionButton
@@ -436,13 +460,13 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                   haptic
                 >
                   <Animated.View style={saveStyle}>
-                    <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={isSaved ? Colors.accentGlow : Colors.textSecondary} />
+                    <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={19} color={isSaved ? Colors.flame : Colors.ink} />
                   </Animated.View>
                 </ActionButton>
                 <ShareButton title={shareTitle} text={shareText} path={`/post/${id}`} framed={false} />
                 <View style={{ flex: 1 }} />
                 <ActionButton label="Signaler cette publication" onPress={handleReport}>
-                  <Ionicons name="flag-outline" size={18} color={Colors.textTertiary} />
+                  <Ionicons name="flag-outline" size={17} color={Colors.textTertiary} />
                 </ActionButton>
               </View>
               <View style={styles.reactions}>
@@ -453,17 +477,18 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
             {/* The artist's note */}
             {!!post.caption && (
               <Animated.View entering={enterUp(2, 120)} style={styles.note}>
-                <TText variant="label" color="tertiary" uppercase>Note de l’artiste</TText>
-                <TText variant="body" color="secondary" style={styles.caption}>{post.caption}</TText>
+                <Kicker tone="muted">Note de l’artiste</Kicker>
+                <TText variant="title2" serif style={styles.caption}>{post.caption}</TText>
               </Animated.View>
             )}
 
             {/* Artist */}
             {artist && status && (
               <Animated.View entering={enterUp(3, 120)} style={styles.artistSection}>
-                <TText variant="label" color="tertiary" uppercase style={{ marginBottom: Spacing.sm }}>L’artiste</TText>
+                <Kicker style={{ marginBottom: Spacing.sm }}>L’artiste</Kicker>
                 <PressableScale
                   onPress={openArtist}
+                  pressedScale={0.99}
                   accessibilityRole="link"
                   accessibilityLabel={`Voir le profil de ${artist.blaze}, ${artist.city}, ${status.label}`}
                   style={styles.artistRow}
@@ -471,22 +496,21 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                   <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
                   <View style={styles.artistInfo}>
                     <View style={styles.nameRow}>
-                      <TText variant="title1" serif numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
+                      <TText variant="displayS" numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
                       {artist.isVerified && (
-                        <Ionicons name="checkmark-circle" size={15} color={Colors.accentWarm} accessibilityLabel="Profil vérifié" />
+                        <Ionicons name="checkmark-circle" size={15} color={Colors.flameText} accessibilityLabel="Profil vérifié" />
                       )}
                     </View>
                     <TText variant="caption" color="secondary" numberOfLines={1}>
                       {artist.city}{artist.styles.length ? ` · ${artist.styles.slice(0, 2).map(styleName).join(' · ')}` : ''}
                     </TText>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+                  <Ionicons name="arrow-forward" size={16} color={Colors.ink} />
                 </PressableScale>
                 <View style={styles.statusRow}>
-                  <View style={[styles.dot, { backgroundColor: status.color }]} />
-                  <TText variant="caption" color="secondary">{status.label}</TText>
+                  <StatusDot tone={STATUS_TONE[artist.bookingStatus]} label={status.label} />
                   {artist.minBudget > 0 && (
-                    <TText variant="caption" tabular style={styles.budget}>
+                    <TText variant="caption" weight="semibold" tabular style={styles.budget}>
                       dès {artist.minBudget.toLocaleString('fr-FR')} €
                     </TText>
                   )}
@@ -499,12 +523,10 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
         </View>
       </Animated.ScrollView>
 
-      {/* Sticky CTA on phones and tablets, frosted over the work */}
+      {/* Sticky CTA on phones and tablets */}
       {!wide && cta && (
-        <Animated.View entering={fadeIn(250)} style={styles.stickyBar}>
-          <GlassSurface style={[styles.stickyGlass, { paddingBottom: insets.bottom + 12 }]}>
-            <View style={styles.stickyInner}>{cta}</View>
-          </GlassSurface>
+        <Animated.View entering={fadeIn(250)} style={[styles.stickyBar, { paddingBottom: insets.bottom + 12 }]}>
+          <View style={styles.stickyInner}>{cta}</View>
         </Animated.View>
       )}
 
@@ -516,7 +538,8 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       >
         {sheet === 'report' ? (
           <View>
-            <TText variant="displayS">Signaler ce contenu</TText>
+            <Kicker tone="flame">Modération</Kicker>
+            <TText variant="displayS" style={styles.sheetTitle}>Signaler ce contenu</TText>
             <TText variant="bodySmall" color="secondary" style={styles.sheetLead}>
               Pourquoi signalez-vous cette publication ?
             </TText>
@@ -553,67 +576,56 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
-  headerBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-
   frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
-  frameWide: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'],
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
+  frameWide: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'], paddingTop: Spacing.xl },
 
-  // Phones: no clipping, so the stretch can grow above the fold; the label below is opaque.
-  art: { width: '100%', backgroundColor: Colors.bgInk },
-  artColWide: { flex: 1, width: undefined },
-  artWide: { borderRadius: Radius.xl, overflow: 'hidden', backgroundColor: Colors.bgElevated },
+  // Phones: no clipping, so the stretch can grow above the fold; the cartel below is opaque.
+  art: { width: '100%', backgroundColor: Colors.inkPanel },
+  artColWide: { flex: 1, width: undefined, overflow: 'hidden' },
   mat: { backgroundColor: 'transparent' },
   zoomable: Platform.OS === 'web' ? ({ cursor: 'zoom-in' } as object) : {},
 
-  side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
-  sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
+  side: { paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
+  sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: 0 },
 
-  seriesLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, marginTop: Spacing.xs },
-  seriesText: { flexShrink: 1 },
+  artistLink: { alignSelf: 'flex-start' },
+  title: { marginTop: Spacing.sm, color: Colors.ink },
+  titleRule: { marginTop: Spacing.lg },
+  seriesLink: { flexShrink: 1, minHeight: 20 },
 
   actions: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'],
-    marginTop: Spacing.lg, paddingVertical: 4,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing['3xs'],
+    marginTop: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  action: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 44, height: 44, paddingHorizontal: 6 },
-  reactions: { marginTop: Spacing.xs },
+  action: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 44, height: 48, paddingHorizontal: 8 },
+  reactions: { marginTop: Spacing.sm },
 
-  note: { marginTop: Spacing.lg },
-  caption: { marginTop: Spacing['2xs'], maxWidth: Layout.maxReading },
+  note: { marginTop: Spacing.xl },
+  caption: { marginTop: Spacing.xs, maxWidth: Layout.maxReading, fontSize: 21, lineHeight: 28 },
 
   artistSection: {
     marginTop: Spacing.xl, paddingTop: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
-  artistRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  artistInfo: { flex: 1, gap: 2 },
+  artistRow: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 48 },
+  artistInfo: { flex: 1, gap: 4, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  artistName: { fontSize: 24, lineHeight: 28, flexShrink: 1 },
+  artistName: { fontSize: 26, lineHeight: 28, flexShrink: 1 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: Spacing.sm },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  budget: { marginLeft: 'auto', color: Colors.accentGlow },
+  budget: { marginLeft: 'auto', color: Colors.flameText },
 
-  stickyBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  stickyGlass: {
+  stickyBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: Layout.gutter, paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    backgroundColor: Colors.paper, borderTopWidth: 1, borderTopColor: Colors.ink,
   },
   stickyInner: { width: '100%', maxWidth: Layout.maxReading, alignSelf: 'center' },
 
-  sheetTitle: { marginBottom: Spacing.xs },
+  sheetTitle: { marginTop: 6, marginBottom: Spacing.xs },
   sheetLead: { marginTop: 4, marginBottom: Spacing.xs },
   sheetRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     minHeight: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
 });

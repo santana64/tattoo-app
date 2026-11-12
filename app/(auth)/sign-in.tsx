@@ -6,38 +6,78 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
-import { enterUp, fadeIn } from '@/components/motion/tokens';
-import { PressableScale } from '@/components/motion/PressableScale';
+import { Colors, Spacing } from '@/constants/theme';
+import { fadeIn } from '@/components/motion/tokens';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
-import { Logo } from '@/components/ui/Logo';
+import { IconButton, Kicker, Rule, StatusDot } from '@/components/v5';
+import { StageAside, StageBand, StageTitle, useStage } from '@/components/v5/Stage';
 import { enabledOAuthProviders } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 import { Captcha, CAPTCHA_REQUIRED } from '@/components/auth/Captcha';
 
-const FORM_MAX_WIDTH = 480;
+const FORM_MAX_WIDTH = 440;
 const MIN_PASSWORD = 8;
 type AuthMode = 'signin' | 'signup' | 'magic';
 // Format check only: the provider remains the source of truth.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-// Entrance rhythm matches welcome.tsx: masthead fades, then a short rising stagger.
-const STAGGER_BASE = 120;
+const STATEMENT = {
+  kicker: 'Identité / Accès',
+  title: 'Entrez dans',
+  emphasis: 'l’atelier.',
+  copy: 'Un seul compte pour suivre vos artistes, confier vos projets et retrouver vos rendez-vous.',
+};
+
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null;
+
+/**
+ * Apple / Google: white sheet, ink hairline, the provider's own glyph in ink.
+ * Hover takes a wash fill so the glyph stays legible (a filled hover would hide it).
+ */
+function ProviderButton({ title, icon, onPress, loading, disabled }: {
+  title: string; icon: React.ReactNode; onPress: () => void; loading: boolean; disabled: boolean;
+}) {
+  const inactive = disabled || loading;
+  return (
+    <Pressable
+      onPress={inactive ? undefined : onPress}
+      disabled={inactive}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: inactive, busy: loading }}
+      style={(state) => [
+        styles.provider,
+        webPointer,
+        ((state as Hover).hovered || (state as Hover).pressed) && !inactive && styles.providerActive,
+        inactive && styles.providerInactive,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={Colors.ink} size="small" />
+      ) : (
+        <>
+          {icon}
+          <TText variant="label" weight="bold" uppercase style={styles.providerLabel} numberOfLines={1}>{title}</TText>
+        </>
+      )}
+    </Pressable>
+  );
+}
 
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { wide, height, asideWidth } = useStage();
   const {
     signInWithEmail, signInWithPassword, signUpWithPassword, signInWithApple, signInWithGoogle,
     error: profileError, refreshProfile, signOut,
@@ -147,299 +187,296 @@ export default function SignInScreen() {
   };
 
   const canGoBack = router.canGoBack();
+  const back = canGoBack ? (
+    <IconButton icon="arrow-back" label="Retour" onInk onPress={() => router.back()} />
+  ) : null;
+
+  // ── The form column (paper) ─────────────────────────────────
+  const form = (
+    <View style={styles.column}>
+      <Kicker tone="muted" style={styles.formKicker}>Inkr / Authentification</Kicker>
+
+      {/* Profile could not be loaded after sign-in */}
+      {profileError ? (
+        <View style={styles.notice} accessibilityLiveRegion="polite">
+          <StatusDot tone="wait" label="Profil indisponible" />
+          <TText variant="caption" color="secondary" style={styles.noticeText}>{profileError}</TText>
+          <View style={styles.noticeActions}>
+            <TButton
+              title="Réessayer"
+              variant="secondary"
+              size="sm"
+              fullWidth={false}
+              onPress={() => void refreshProfile()}
+            />
+            <TButton
+              title="Utiliser un autre compte"
+              variant="ghost"
+              size="sm"
+              fullWidth={false}
+              onPress={() => void signOut().catch(() => Toast.error('Déconnexion impossible. Réessayez.'))}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {emailSent ? (
+        // ── Link sent ───────────────────────────────────────
+        <View style={styles.sentPanel} accessibilityLiveRegion="polite">
+          <View style={styles.iconFrame}>
+            <Ionicons name="mail-open-outline" size={20} color={Colors.ink} />
+          </View>
+          <StageTitle size={wide ? 44 : 38} emphasis="boîte mail.">Vérifiez votre</StageTitle>
+          <TText variant="bodySmall" color="secondary" style={styles.sentText}>
+            {emailSent === 'confirm' ? 'Votre compte est créé. Confirmez l’adresse ' : 'Nous avons envoyé un lien de connexion à '}
+            <TText variant="bodySmall" weight="semibold">{email.trim()}</TText>
+            {emailSent === 'confirm' ? ' grâce au lien reçu, puis connectez-vous.' : '.'}
+          </TText>
+          <TText variant="caption" color="tertiary" style={styles.sentText}>
+            Ouvrez-le depuis cet appareil pour terminer la connexion. Pensez à vérifier
+            vos courriers indésirables.
+          </TText>
+          {emailSent === 'magic' && CAPTCHA_REQUIRED ? (
+            <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} style={styles.sentCaptcha} />
+          ) : null}
+          <View style={styles.sentActions}>
+            {emailSent === 'magic' ? (
+              <TButton
+                title="Renvoyer le lien"
+                variant="secondary"
+                size="md"
+                fullWidth={false}
+                loading={loading === 'email'}
+                disabled={captchaPending}
+                onPress={handleEmail}
+              />
+            ) : (
+              <TButton
+                title="J’ai confirmé, me connecter"
+                variant="secondary"
+                size="md"
+                fullWidth={false}
+                onPress={() => { setEmailSent(false); switchMode('signin'); }}
+              />
+            )}
+            <TButton
+              title="Changer d’adresse"
+              variant="ghost"
+              size="md"
+              fullWidth={false}
+              disabled={loading === 'email'}
+              onPress={() => setEmailSent(false)}
+            />
+          </View>
+        </View>
+      ) : (
+        <>
+          {/* ── Mode switch ─────────────────────────────────── */}
+          {mode !== 'magic' ? (
+            <View style={styles.tabs} accessibilityRole="tablist">
+              {(['signin', 'signup'] as const).map((m) => {
+                const selected = mode === m;
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => switchMode(m)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    style={[styles.tab, webPointer, selected && styles.tabSelected]}
+                  >
+                    <TText
+                      variant="label"
+                      weight="bold"
+                      uppercase
+                      style={{ color: selected ? Colors.ink : Colors.textTertiary, letterSpacing: 1.2 }}
+                    >
+                      {m === 'signin' ? 'Se connecter' : 'Créer un compte'}
+                    </TText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.magicHead}>
+              <StageTitle size={wide ? 40 : 34} emphasis="de connexion.">Recevoir un lien</StageTitle>
+            </View>
+          )}
+
+          <TInput
+            label="Adresse e-mail"
+            value={email}
+            onChangeText={setEmail}
+            onBlur={() => { if (email.trim()) setEmailTouched(true); }}
+            placeholder="vous@exemple.fr"
+            error={emailError}
+            helper={mode === 'magic' ? 'Nous vous envoyons un lien de connexion par e-mail.' : undefined}
+            keyboardType="email-address"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType={mode === 'magic' ? 'send' : 'next'}
+            onSubmitEditing={mode === 'magic' ? submitEmail : undefined}
+            editable={!loading}
+          />
+
+          {mode !== 'magic' && (
+            <TInput
+              label="Mot de passe"
+              value={password}
+              onChangeText={setPassword}
+              onBlur={() => { if (password) setPasswordTouched(true); }}
+              placeholder={mode === 'signup' ? `${MIN_PASSWORD} caractères minimum` : 'Votre mot de passe'}
+              error={passwordError}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+              textContentType={mode === 'signup' ? 'newPassword' : 'password'}
+              returnKeyType="go"
+              onSubmitEditing={() => void handlePassword()}
+              editable={!loading}
+              rightElement={
+                <Pressable
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  style={styles.eye}
+                >
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={Colors.textSecondary} />
+                </Pressable>
+              }
+            />
+          )}
+
+          <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} />
+
+          {mode === 'magic' ? (
+            <TButton
+              title="Recevoir le lien de connexion"
+              onPress={submitEmail}
+              loading={loading === 'email'}
+              disabled={(!!loading && loading !== 'email') || captchaPending}
+            />
+          ) : (
+            <TButton
+              title={mode === 'signup' ? 'Créer mon compte' : 'Se connecter'}
+              onPress={() => void handlePassword()}
+              loading={loading === 'password'}
+              disabled={(!!loading && loading !== 'password') || captchaPending}
+            />
+          )}
+
+          <Pressable
+            onPress={() => switchMode(mode === 'magic' ? 'signin' : 'magic')}
+            accessibilityRole="button"
+            hitSlop={8}
+            style={[styles.altLink, webPointer]}
+          >
+            <TText variant="bodySmall" color="secondary" style={styles.underline}>
+              {mode === 'magic'
+                ? 'Utiliser plutôt un mot de passe'
+                : mode === 'signin' ? 'Mot de passe oublié ? Recevoir un lien de connexion' : 'Recevoir plutôt un lien par e-mail'}
+            </TText>
+          </Pressable>
+
+          {/* ── Providers (only those enabled on the Supabase project) ── */}
+          {oauth.size > 0 && (
+            <>
+              <View style={styles.dividerRow}>
+                <Rule style={styles.dividerLine} />
+                <Kicker tone="muted">Ou continuer avec</Kicker>
+                <Rule style={styles.dividerLine} />
+              </View>
+              <View style={[styles.providers, wide && styles.providersWide]}>
+                {oauth.has('apple') && (
+                  <View style={wide ? styles.providerCell : undefined}>
+                    <ProviderButton
+                      title="Continuer avec Apple"
+                      onPress={handleApple}
+                      loading={loading === 'apple'}
+                      disabled={!!loading}
+                      icon={<Ionicons name="logo-apple" size={19} color={Colors.ink} />}
+                    />
+                  </View>
+                )}
+                {oauth.has('google') && (
+                  <View style={wide ? styles.providerCell : undefined}>
+                    <ProviderButton
+                      title="Continuer avec Google"
+                      onPress={handleGoogle}
+                      loading={loading === 'google'}
+                      disabled={!!loading}
+                      icon={<Ionicons name="logo-google" size={17} color={Colors.ink} />}
+                    />
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Legal */}
+      <View style={styles.legalRow}>
+        <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
+        <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" hitSlop={8}>
+          <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
+        </Pressable>
+        <TText variant="caption" color="tertiary"> et la </TText>
+        <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" hitSlop={8}>
+          <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
+        </Pressable>
+        <TText variant="caption" color="tertiary">.</TText>
+      </View>
+    </View>
+  );
+
+  if (wide) {
+    return (
+      <View style={[styles.container, styles.split]}>
+        <StageAside
+          width={asideWidth}
+          leading={back}
+          kicker={STATEMENT.kicker}
+          title={STATEMENT.title}
+          emphasis={STATEMENT.emphasis}
+          copy={STATEMENT.copy}
+          footer={<Kicker tone="onInkMuted">Art under skin.</Kicker>}
+        />
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.mainWide,
+              { minHeight: height, paddingTop: insets.top + Spacing['3xl'], paddingBottom: insets.bottom + Spacing['3xl'] },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {form}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {/* A single warm spotlight from above — no orbs, no glow loops. */}
-      <LinearGradient
-        colors={['rgba(201,164,106,0.10)', 'rgba(201,164,106,0.03)', 'rgba(11,10,9,0)']}
-        locations={[0, 0.4, 1]}
-        style={styles.spotlight}
-        pointerEvents="none"
-      />
-
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
-          contentContainerStyle={[
-            styles.scroll,
-            { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
-          ]}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + Spacing.xl }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.column}>
-            {/* Masthead */}
-            <Animated.View entering={fadeIn()} style={styles.topBar}>
-              {canGoBack ? (
-                <PressableScale
-                  onPress={() => router.back()}
-                  pressedScale={0.92}
-                  accessibilityRole="button"
-                  accessibilityLabel="Retour"
-                  hitSlop={8}
-                  style={styles.backButton}
-                >
-                  <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                </PressableScale>
-              ) : null}
-              <Logo size="sm" variant="wordmark" />
+          <StageBand leading={back} meta={STATEMENT.kicker}>
+            <Animated.View entering={fadeIn()} style={styles.bandStatement}>
+              <StageTitle size={42} emphasis={STATEMENT.emphasis} onInk breakEmphasis>{STATEMENT.title}</StageTitle>
+              <TText variant="bodySmall" color="onInkMuted" style={styles.bandCopy}>{STATEMENT.copy}</TText>
             </Animated.View>
-
-            <View style={styles.spacer} />
-
-            {/* Editorial block */}
-            <Animated.View entering={enterUp(0, STAGGER_BASE)} style={styles.kicker}>
-              <View style={styles.kickerRule} />
-              <TText variant="label" color="accentWarm" uppercase>Connexion · Inscription</TText>
-            </Animated.View>
-
-            <Animated.View entering={enterUp(1, STAGGER_BASE)}>
-              <TText variant="displayL" style={styles.headline} accessibilityRole="header">
-                Entrez dans{'\n'}
-                <TText variant="displayL" italic color="accentGlow">l’atelier.</TText>
-              </TText>
-              <TText variant="body" color="secondary" style={styles.lede}>
-                Un seul compte pour suivre vos artistes, confier vos projets et retrouver vos
-                rendez-vous.
-              </TText>
-            </Animated.View>
-
-            {/* Profile could not be loaded after sign-in */}
-            {profileError ? (
-              <Animated.View entering={enterUp(0)} style={styles.notice} accessibilityLiveRegion="polite">
-                <View style={styles.noticeHead}>
-                  <View style={styles.noticeDot} />
-                  <TText variant="bodySmall" weight="medium">Profil indisponible</TText>
-                </View>
-                <TText variant="caption" color="secondary" style={styles.noticeText}>{profileError}</TText>
-                <View style={styles.noticeActions}>
-                  <TButton
-                    title="Réessayer"
-                    variant="secondary"
-                    size="sm"
-                    fullWidth={false}
-                    onPress={() => void refreshProfile()}
-                  />
-                  <TButton
-                    title="Utiliser un autre compte"
-                    variant="ghost"
-                    size="sm"
-                    fullWidth={false}
-                    onPress={() => void signOut().catch(() => Toast.error('Déconnexion impossible. Réessayez.'))}
-                  />
-                </View>
-              </Animated.View>
-            ) : null}
-
-            {emailSent ? (
-              // ── Link sent ───────────────────────────────────────
-              <Animated.View entering={enterUp(0)} style={styles.sentPanel} accessibilityLiveRegion="polite">
-                <View style={styles.iconRing}>
-                  <Ionicons name="mail-open-outline" size={20} color={Colors.accentWarm} />
-                </View>
-                <TText variant="displayS" style={styles.sentTitle} accessibilityRole="header">
-                  Vérifiez votre{' '}
-                  <TText variant="displayS" italic color="accentGlow">boîte mail</TText>
-                </TText>
-                <TText variant="bodySmall" color="secondary" style={styles.sentText}>
-                  {emailSent === 'confirm' ? 'Votre compte est créé. Confirmez l’adresse ' : 'Nous avons envoyé un lien de connexion à '}
-                  <TText variant="bodySmall" weight="medium">{email.trim()}</TText>
-                  {emailSent === 'confirm' ? ' grâce au lien reçu, puis connectez-vous.' : '.'}
-                </TText>
-                <TText variant="caption" color="tertiary" style={styles.sentText}>
-                  Ouvrez-le depuis cet appareil pour terminer la connexion. Pensez à vérifier
-                  vos courriers indésirables.
-                </TText>
-                {emailSent === 'magic' && CAPTCHA_REQUIRED ? (
-                  <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} style={styles.sentCaptcha} />
-                ) : null}
-                <View style={styles.sentActions}>
-                  {emailSent === 'magic' ? (
-                    <TButton
-                      title="Renvoyer le lien"
-                      variant="secondary"
-                      size="md"
-                      fullWidth={false}
-                      loading={loading === 'email'}
-                      disabled={captchaPending}
-                      onPress={handleEmail}
-                    />
-                  ) : (
-                    <TButton
-                      title="J’ai confirmé, me connecter"
-                      variant="secondary"
-                      size="md"
-                      fullWidth={false}
-                      onPress={() => { setEmailSent(false); switchMode('signin'); }}
-                    />
-                  )}
-                  <TButton
-                    title="Changer d’adresse"
-                    variant="ghost"
-                    size="md"
-                    fullWidth={false}
-                    disabled={loading === 'email'}
-                    onPress={() => setEmailSent(false)}
-                  />
-                </View>
-              </Animated.View>
-            ) : (
-              <>
-                {/* ── Providers (only those enabled on the Supabase project) ── */}
-                {oauth.size > 0 && (
-                  <>
-                    <Animated.View entering={enterUp(2, STAGGER_BASE)} style={styles.providers}>
-                      {oauth.has('apple') && (
-                        <TButton
-                          title="Continuer avec Apple"
-                          variant="secondary"
-                          onPress={handleApple}
-                          loading={loading === 'apple'}
-                          disabled={!!loading}
-                          icon={<Ionicons name="logo-apple" size={19} color={Colors.textPrimary} />}
-                        />
-                      )}
-                      {oauth.has('google') && (
-                        <TButton
-                          title="Continuer avec Google"
-                          variant="secondary"
-                          onPress={handleGoogle}
-                          loading={loading === 'google'}
-                          disabled={!!loading}
-                          icon={<Ionicons name="logo-google" size={17} color={Colors.textPrimary} />}
-                        />
-                      )}
-                    </Animated.View>
-
-                    <Animated.View entering={enterUp(3, STAGGER_BASE)} style={styles.dividerRow}>
-                      <View style={styles.dividerLine} />
-                      <TText variant="caption" color="tertiary">ou par e-mail</TText>
-                      <View style={styles.dividerLine} />
-                    </Animated.View>
-                  </>
-                )}
-
-                {/* ── Mode switch ─────────────────────────────────── */}
-                {mode !== 'magic' && (
-                  <Animated.View entering={enterUp(4, STAGGER_BASE)} style={styles.segment} accessibilityRole="tablist">
-                    {(['signin', 'signup'] as const).map((m) => (
-                      <Pressable
-                        key={m}
-                        onPress={() => switchMode(m)}
-                        accessibilityRole="tab"
-                        accessibilityState={{ selected: mode === m }}
-                        style={[styles.segmentItem, mode === m && styles.segmentItemActive]}
-                      >
-                        <TText variant="bodySmall" weight="medium" style={{ color: mode === m ? Colors.textInverse : Colors.textSecondary }}>
-                          {m === 'signin' ? 'Se connecter' : 'Créer un compte'}
-                        </TText>
-                      </Pressable>
-                    ))}
-                  </Animated.View>
-                )}
-
-                <Animated.View entering={enterUp(5, STAGGER_BASE)}>
-                  <TInput
-                    label="Adresse e-mail"
-                    value={email}
-                    onChangeText={setEmail}
-                    onBlur={() => { if (email.trim()) setEmailTouched(true); }}
-                    placeholder="vous@exemple.fr"
-                    error={emailError}
-                    helper={mode === 'magic' ? 'Nous vous envoyons un lien de connexion par e-mail.' : undefined}
-                    keyboardType="email-address"
-                    inputMode="email"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="email"
-                    textContentType="emailAddress"
-                    returnKeyType={mode === 'magic' ? 'send' : 'next'}
-                    onSubmitEditing={mode === 'magic' ? submitEmail : undefined}
-                    editable={!loading}
-                  />
-
-                  {mode !== 'magic' && (
-                    <TInput
-                      label="Mot de passe"
-                      value={password}
-                      onChangeText={setPassword}
-                      onBlur={() => { if (password) setPasswordTouched(true); }}
-                      placeholder={mode === 'signup' ? `${MIN_PASSWORD} caractères minimum` : 'Votre mot de passe'}
-                      error={passwordError}
-                      secureTextEntry={!showPassword}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                      textContentType={mode === 'signup' ? 'newPassword' : 'password'}
-                      returnKeyType="go"
-                      onSubmitEditing={() => void handlePassword()}
-                      editable={!loading}
-                      rightElement={
-                        <Pressable
-                          onPress={() => setShowPassword((v) => !v)}
-                          hitSlop={10}
-                          accessibilityRole="button"
-                          accessibilityLabel={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
-                        >
-                          <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={Colors.textTertiary} />
-                        </Pressable>
-                      }
-                    />
-                  )}
-
-                  <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} />
-
-                  {mode === 'magic' ? (
-                    <TButton
-                      title="Recevoir le lien de connexion"
-                      onPress={submitEmail}
-                      loading={loading === 'email'}
-                      disabled={(!!loading && loading !== 'email') || captchaPending}
-                    />
-                  ) : (
-                    <TButton
-                      title={mode === 'signup' ? 'Créer mon compte' : 'Se connecter'}
-                      onPress={() => void handlePassword()}
-                      loading={loading === 'password'}
-                      disabled={(!!loading && loading !== 'password') || captchaPending}
-                    />
-                  )}
-
-                  <Pressable
-                    onPress={() => switchMode(mode === 'magic' ? 'signin' : 'magic')}
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    style={styles.altLink}
-                  >
-                    <TText variant="bodySmall" color="secondary" style={styles.underline}>
-                      {mode === 'magic'
-                        ? 'Utiliser plutôt un mot de passe'
-                        : mode === 'signin' ? 'Mot de passe oublié ? Recevoir un lien de connexion' : 'Recevoir plutôt un lien par e-mail'}
-                    </TText>
-                  </Pressable>
-                </Animated.View>
-              </>
-            )}
-
-            {/* Legal */}
-            <Animated.View
-              entering={fadeIn(700)}
-              style={styles.legalRow}
-            >
-              <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
-              <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" hitSlop={6}>
-                <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
-              </Pressable>
-              <TText variant="caption" color="tertiary"> et la </TText>
-              <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" hitSlop={6}>
-                <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
-              </Pressable>
-              <TText variant="caption" color="tertiary">.</TText>
-            </Animated.View>
-          </View>
+          </StageBand>
+          <View style={styles.mainNarrow}>{form}</View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -447,83 +484,101 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  container: { flex: 1, backgroundColor: Colors.paper },
+  split: { flexDirection: 'row' },
   flex: { flex: 1 },
-  spotlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 420 },
 
-  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
-  column: { flex: 1, width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
+  mainWide: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: Spacing['3xl'] },
+  mainNarrow: { paddingHorizontal: 20, paddingTop: Spacing.xl },
+  column: { width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
 
-  topBar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, minHeight: 40 },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
+  bandStatement: { marginTop: Spacing.lg },
+  bandCopy: { marginTop: Spacing.sm, maxWidth: 420, lineHeight: 21 },
 
-  spacer: { flex: 1, minHeight: Spacing['2xl'], maxHeight: 160 },
-
-  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
-  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
-  headline: { marginBottom: Spacing.sm },
-  lede: { maxWidth: 440, marginBottom: Spacing.xl },
+  formKicker: { marginBottom: Spacing.lg },
 
   notice: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    borderRadius: Radius.lg,
-    padding: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
+    paddingVertical: Spacing.sm,
     marginBottom: Spacing.lg,
-    backgroundColor: Colors.bgElevated,
   },
-  noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  noticeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.warning },
-  noticeText: { marginTop: 6 },
+  noticeText: { marginTop: 8 },
   noticeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: Spacing.xs },
 
-  providers: { gap: 10 },
+  tabs: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
+    marginBottom: Spacing.lg,
+  },
+  tab: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+    marginBottom: -1,
+  },
+  tabSelected: { borderBottomColor: Colors.flame },
+  magicHead: { marginBottom: Spacing.lg },
+
+  eye: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: -10 },
+
+  altLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', marginTop: Spacing['2xs'] },
+  underline: { textDecorationLine: 'underline' },
 
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    marginVertical: Spacing.lg,
-  },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
-
-  sentPanel: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
-  },
-  iconRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    marginTop: Spacing.lg,
     marginBottom: Spacing.md,
   },
-  sentTitle: { textAlign: 'center', marginBottom: Spacing['2xs'] },
-  sentText: { textAlign: 'center', maxWidth: 360, marginBottom: Spacing['2xs'] },
-  sentCaptcha: { maxWidth: 360, marginTop: Spacing.xs, marginBottom: 0 },
+  dividerLine: { flex: 1, alignSelf: 'center' },
+
+  providers: { gap: 10 },
+  providersWide: { flexDirection: 'row' },
+  providerCell: { flex: 1, minWidth: 0 },
+  provider: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.ink,
+    backgroundColor: Colors.white,
+  },
+  providerActive: { backgroundColor: Colors.wash },
+  providerInactive: { opacity: 0.42 },
+  providerLabel: { color: Colors.ink, letterSpacing: 0.8, fontSize: 11, lineHeight: 16, flexShrink: 1 },
+
+  sentPanel: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
+    paddingTop: Spacing.lg,
+  },
+  iconFrame: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.line,
+    marginBottom: Spacing.md,
+  },
+  sentText: { maxWidth: 400, marginTop: Spacing.xs },
+  sentCaptcha: { maxWidth: 400, marginTop: Spacing.sm, marginBottom: 0 },
   sentActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
     gap: 8,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.lg,
   },
 
   legalRow: {
@@ -531,26 +586,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     marginTop: Spacing.xl,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.line,
   },
-  underline: { textDecorationLine: 'underline' },
-
-  segment: {
-    flexDirection: 'row',
-    padding: 4,
-    gap: 4,
-    borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
-    marginBottom: Spacing.lg,
-  },
-  segmentItem: {
-    flex: 1,
-    height: 40,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentItemActive: { backgroundColor: Colors.accentAction },
-  altLink: { alignSelf: 'center', marginTop: Spacing.md, paddingVertical: 4 },
 });

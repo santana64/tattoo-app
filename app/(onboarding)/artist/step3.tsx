@@ -3,8 +3,9 @@ import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { Kicker } from '@/components/v5';
 import { TButton } from '@/components/ui/TButton';
 import { OnboardingScreen, haptic } from '@/components/OnboardingProgress';
 import { PressableScale } from '@/components/motion/PressableScale';
@@ -82,8 +83,10 @@ export default function ArtistStep3() {
 
   return (
     <OnboardingScreen
+      audience="artist"
       step={STEP}
       total={TOTAL}
+      label="Votre portrait"
       title="Votre"
       accent="portrait"
       lede="Une photo de vous ou de votre poste de travail aide les clients à savoir à qui ils s’adressent."
@@ -102,32 +105,32 @@ export default function ArtistStep3() {
               variant="ghost"
               onPress={() => router.push('/(onboarding)/artist/step4')}
               disabled={saving}
-              style={{ marginTop: 8 }}
             />
           )}
         </>
       }
     >
       {/* Profile photo */}
+      <Kicker tone="muted" style={styles.kicker}>01 / Photo de profil</Kicker>
       <View style={styles.avatarBlock}>
         <PressableScale
           onPress={pickAvatar}
           accessibilityRole="button"
           accessibilityLabel={avatarUri ? 'Changer la photo de profil' : 'Ajouter une photo de profil'}
-          style={[styles.avatar, !avatarUri && styles.avatarEmpty]}
+          style={styles.avatar}
         >
           {avatarUri ? (
-            <RevealImage key={avatarUri} uri={avatarUri} style={styles.avatarImage} accessibilityLabel="Votre photo de profil" />
+            <RevealImage key={avatarUri} uri={avatarUri} style={StyleSheet.absoluteFill} accessibilityLabel="Votre photo de profil" />
           ) : (
-            <Ionicons name="person-outline" size={30} color={Colors.textTertiary} />
+            <Ionicons name="person-outline" size={30} color={Colors.textSecondary} />
           )}
           <View style={styles.avatarBadge}>
-            <Ionicons name={avatarUri ? 'pencil' : 'add'} size={avatarUri ? 13 : 16} color={Colors.textInverse} />
+            <Ionicons name={avatarUri ? 'pencil' : 'add'} size={avatarUri ? 13 : 16} color={Colors.paper} />
           </View>
         </PressableScale>
         <View style={styles.avatarText}>
-          <TText variant="bodySmall" weight="medium">Photo de profil</TText>
-          <TText variant="caption" color="tertiary">
+          <TText variant="bodySmall" weight="semibold">Photo de profil</TText>
+          <TText variant="caption" color="secondary">
             {avatarUri ? 'Touchez la photo pour la changer.' : 'Format carré, visage ou atelier bien éclairé.'}
           </TText>
         </View>
@@ -135,29 +138,29 @@ export default function ArtistStep3() {
 
       {/* Cover photo */}
       <View style={styles.coverLabel}>
-        <TText variant="caption" weight="medium" color="secondary">Photo de couverture</TText>
+        <Kicker tone="muted">02 / Photo de couverture</Kicker>
         <TText variant="caption" color="tertiary">Optionnel</TText>
       </View>
       <PressableScale
         onPress={pickCover}
         accessibilityRole="button"
         accessibilityLabel={coverUri ? 'Changer la photo de couverture' : 'Ajouter une photo de couverture'}
-        style={[styles.cover, !coverUri && styles.coverEmpty]}
+        style={styles.cover}
       >
         {coverUri ? (
           <>
             <RevealImage key={coverUri} uri={coverUri} style={StyleSheet.absoluteFill} accessibilityLabel="Votre photo de couverture" />
             <View style={styles.coverEdit}>
-              <Ionicons name="pencil" size={12} color={Colors.textPrimary} />
-              <TText variant="caption" weight="medium">Modifier</TText>
+              <Ionicons name="pencil" size={12} color={Colors.ink} />
+              <TText variant="label" weight="bold" uppercase style={styles.coverEditLabel}>Modifier</TText>
             </View>
           </>
         ) : (
           <View style={styles.coverPlaceholder}>
-            <View style={styles.iconRing}>
-              <Ionicons name="image-outline" size={18} color={Colors.accentWarm} />
+            <View style={styles.iconFrame}>
+              <Ionicons name="image-outline" size={18} color={Colors.ink} />
             </View>
-            <TText variant="caption" color="tertiary">Une pièce récente, au format paysage</TText>
+            <TText variant="caption" color="secondary">Une pièce récente, au format paysage</TText>
           </View>
         )}
       </PressableScale>
@@ -166,60 +169,53 @@ export default function ArtistStep3() {
 }
 
 const styles = StyleSheet.create({
+  kicker: { marginBottom: Spacing.sm },
   avatarBlock: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   avatar: {
     width: AVATAR,
     height: AVATAR,
-    borderRadius: AVATAR / 2,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.bgElevated,
+    borderColor: Colors.line,
+    backgroundColor: Colors.white,
   },
-  avatarEmpty: { borderStyle: 'dashed', borderColor: Colors.borderDefault },
-  avatarImage: { width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2 },
   avatarBadge: {
     position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    right: 0,
+    bottom: 0,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.accentAction,
-    borderWidth: 2,
-    borderColor: Colors.bgPrimary,
+    backgroundColor: Colors.ink,
   },
   avatarText: { flex: 1, gap: 4 },
 
   coverLabel: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: Spacing.xl,
-    marginBottom: 8,
+    marginBottom: Spacing.sm,
   },
   cover: {
     width: '100%',
     aspectRatio: 16 / 9,
-    borderRadius: Radius.lg,
     overflow: 'hidden',
-    backgroundColor: Colors.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.line,
   },
-  coverEmpty: { borderWidth: 1, borderStyle: 'dashed' },
-  coverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: Spacing.sm },
-  iconRing: {
+  coverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: Spacing.sm },
+  iconFrame: {
     width: 44,
     height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    borderWidth: 1,
+    borderColor: Colors.line,
   },
   coverEdit: {
     position: 'absolute',
@@ -228,11 +224,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 30,
+    minHeight: 32,
     paddingHorizontal: 12,
-    borderRadius: 15,
-    backgroundColor: 'rgba(11,10,9,0.65)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.glassBorderBright,
+    backgroundColor: Colors.paper,
   },
+  coverEditLabel: { color: Colors.ink, letterSpacing: 1 },
 });

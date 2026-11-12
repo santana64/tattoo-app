@@ -41,18 +41,21 @@ export function CrashFallback({ onRetry, onHome }: CrashFallbackProps) {
   return (
     <View style={styles.screen} accessibilityLiveRegion="assertive">
       <View style={styles.column}>
-        <View style={styles.iconFrame}>
-          <Ionicons name="alert-circle-outline" size={22} color={Colors.accentWarm} />
+        <View style={styles.head}>
+          <View style={styles.iconFrame}>
+            <Ionicons name="alert-outline" size={20} color={Colors.ink} />
+          </View>
+          <TText variant="label" weight="bold" uppercase style={styles.kicker}>Inkr / Incident</TText>
         </View>
-        <TText variant="displayS" style={styles.title} accessibilityRole="header">
+        <TText variant="displayM" style={styles.title} accessibilityRole="header">
           Quelque chose s’est mal passé
         </TText>
         <TText variant="bodySmall" color="secondary" style={styles.text}>
           Cet écran a rencontré un problème inattendu : réessayez, ou revenez à l’accueil.
         </TText>
         <View style={styles.actions}>
-          <TButton title="Réessayer" size="md" onPress={onRetry} />
-          <TButton title="Retour à l’accueil" variant="secondary" size="md" onPress={onHome} />
+          <TButton title="Réessayer" size="md" fullWidth={false} onPress={onRetry} />
+          <TButton title="Retour à l’accueil" variant="secondary" size="md" fullWidth={false} onPress={onHome} />
         </View>
       </View>
     </View>
@@ -132,25 +135,30 @@ export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Colors.bgPrimary,
+    backgroundColor: Colors.paper,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing['3xl'],
   },
-  column: { width: '100%', maxWidth: 420, alignItems: 'center' },
+  column: {
+    width: '100%',
+    maxWidth: 480,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
+    paddingTop: Spacing.md,
+  },
+  head: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.lg },
   iconFrame: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
-    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.line,
   },
-  title: { textAlign: 'center', marginBottom: Spacing['2xs'] },
-  text: { textAlign: 'center', maxWidth: 360, marginBottom: Spacing.lg },
-  actions: { width: '100%', maxWidth: 320, gap: 10 },
+  kicker: { color: Colors.flameText },
+  title: { fontSize: 40, lineHeight: 42, marginBottom: Spacing.sm },
+  text: { maxWidth: 400, lineHeight: 22, marginBottom: Spacing.lg },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 });

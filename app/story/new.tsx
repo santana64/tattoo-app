@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, useWindowDimensions,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated from 'react-native-reanimated';
-import { Colors, Layout, Radius, Spacing } from '@/constants/theme';
+import { Colors, Gradients, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -15,14 +19,18 @@ import { THeader } from '@/components/ui/THeader';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale, enterUp, fadeIn } from '@/components/motion';
+import { Kicker, Masthead, PageWrap, Rule } from '@/components/v5';
+import { Panel } from '@/components/v5/studio';
 import { StoryMedia } from '@/components/social/StoryViewer';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { pickFromCamera, pickImage, uploadPostMedia } from '@/lib/storage';
 import { publishStory } from '@/lib/care';
 
 const CAPTION_MAX = 200;
 const FRAME_MAX_W = 340;
+
+type Hover = { pressed: boolean; hovered?: boolean };
 
 export default function NewStoryScreen() {
   const router = useRouter();
@@ -51,8 +59,7 @@ export default function NewStoryScreen() {
 function StoryForm({ artistId }: { artistId: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const wide = width >= 860;
+  const { width, isWide, gutter } = useContentDimensions();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
@@ -90,50 +97,57 @@ function StoryForm({ artistId }: { artistId: string }) {
     }
   };
 
-  const frameW = Math.min(FRAME_MAX_W, width - Layout.gutter * 2);
+  const frameW = Math.min(FRAME_MAX_W, width - gutter * 2);
   const trimmed = caption.trim();
 
   const preview = (
-    <View style={{ width: frameW, alignSelf: wide ? 'flex-start' : 'center' }}>
-      <PressableScale
+    <View style={{ width: frameW, alignSelf: isWide ? 'flex-start' : 'center' }}>
+      <Kicker tone="muted" style={{ marginBottom: Spacing.sm }}>Aperçu / Story</Kicker>
+      <Pressable
         onPress={() => { void choose('library'); }}
         disabled={publishing}
         accessibilityRole="button"
         accessibilityLabel={imageUri ? 'Changer l’image' : 'Choisir une image'}
-        style={[styles.frame, { width: frameW, height: Math.round(frameW * 16 / 9) }, !imageUri && styles.frameEmpty]}
+        style={(state) => [
+          styles.frame,
+          { width: frameW, height: Math.round(frameW * 16 / 9) },
+          !imageUri && styles.frameEmpty,
+          !imageUri && (state as Hover).hovered && { backgroundColor: Colors.wash },
+          Platform.OS === 'web' && ({ cursor: 'pointer' } as object),
+        ]}
       >
         {imageUri ? (
           <>
             <StoryMedia uri={imageUri} label="Aperçu de la story" />
             {!!trimmed && (
               <>
-                <LinearGradient colors={['rgba(7,6,5,0)', 'rgba(7,6,5,0.85)']} style={styles.previewShade} pointerEvents="none" />
-                <TText variant="bodySmall" style={styles.previewCaption} numberOfLines={5}>{trimmed}</TText>
+                <LinearGradient colors={Gradients.cardBottom} style={styles.previewShade} pointerEvents="none" />
+                <TText variant="bodySmall" color="onInk" style={styles.previewCaption} numberOfLines={5}>{trimmed}</TText>
               </>
             )}
-            <View style={styles.changePill}>
-              <Ionicons name="images-outline" size={14} color={Colors.textPrimary} />
-              <TText variant="caption" weight="medium">Changer</TText>
+            <View style={styles.changePlate}>
+              <Ionicons name="images-outline" size={14} color={Colors.ink} />
+              <TText variant="label" weight="bold" uppercase style={styles.plateText}>Changer</TText>
             </View>
           </>
         ) : (
           <View style={styles.emptyContent}>
-            <View style={styles.iconRing}>
-              <Ionicons name="add" size={22} color={Colors.accentWarm} />
+            <View style={styles.iconFrame}>
+              <Ionicons name="add" size={22} color={Colors.ink} />
             </View>
-            <TText variant="bodySmall" color="secondary" style={styles.center}>Choisir une image</TText>
-            <TText variant="caption" color="tertiary" style={styles.center}>Format vertical 9:16 conseillé</TText>
+            <TText variant="bodySmall" weight="semibold" style={styles.center}>Choisir une image</TText>
+            <TText variant="caption" color="secondary" style={styles.center}>Format vertical 9:16 conseillé</TText>
           </View>
         )}
-      </PressableScale>
+      </Pressable>
       {Platform.OS !== 'web' && (
         <TButton
           title="Prendre une photo"
-          variant="ghost"
+          variant="secondary"
           size="md"
           onPress={() => { void choose('camera'); }}
           disabled={publishing}
-          icon={<Ionicons name="camera-outline" size={16} color={Colors.textSecondary} />}
+          icon={<Ionicons name="camera-outline" size={16} color={Colors.ink} />}
           style={{ marginTop: Spacing['2xs'] }}
         />
       )}
@@ -142,10 +156,7 @@ function StoryForm({ artistId }: { artistId: string }) {
 
   const form = (
     <View>
-      <TText variant="label" color="accentWarm" uppercase>Story</TText>
-      <TText variant="displayS" accessibilityRole="header" style={styles.title}>
-        Un instant de l’atelier, <TText variant="displayS" italic color="accentGlow">pour 24 h</TText>
-      </TText>
+      <Kicker>Story / 24 heures</Kicker>
       <TText variant="bodySmall" color="secondary" style={styles.lede}>
         Une image, visible par tous pendant 24 heures, puis elle disparaît d’elle-même.
       </TText>
@@ -163,13 +174,15 @@ function StoryForm({ artistId }: { artistId: string }) {
         editable={!publishing}
       />
 
+      <Rule tone="ink" style={{ marginBottom: Spacing.md }} />
+
       {publishing && (
-        <Animated.View entering={fadeIn()} style={styles.progressWrap}>
-          <TProgressBar progress={progress} color={Colors.accentWarm} />
-          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
+        <View style={styles.progressWrap}>
+          <TProgressBar progress={progress} color={Colors.flame} />
+          <TText variant="caption" color="secondary" tabular style={{ marginTop: 6 }}>
             Envoi en cours… {Math.round(progress * 100)} %
           </TText>
-        </Animated.View>
+        </View>
       )}
 
       {!!formError && (
@@ -184,6 +197,11 @@ function StoryForm({ artistId }: { artistId: string }) {
         loading={publishing}
         disabled={publishing || !imageUri}
       />
+      {!imageUri && (
+        <TText variant="caption" color="secondary" style={{ textAlign: 'center', marginTop: Spacing['2xs'] }}>
+          Choisissez une image pour publier.
+        </TText>
+      )}
     </View>
   );
 
@@ -191,14 +209,29 @@ function StoryForm({ artistId }: { artistId: string }) {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <THeader title="Nouvelle story" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={wide ? styles.columns : undefined}>
-          <Animated.View entering={enterUp(0)}>{preview}</Animated.View>
-          <Animated.View entering={enterUp(1)} style={wide ? styles.colForm : styles.formStacked}>{form}</Animated.View>
-        </View>
+        <PageWrap>
+          <Masthead
+            kicker="Story / Nouvelle"
+            title="Le geste"
+            emphasis="du jour."
+            description="Un instant de l’atelier, visible 24 heures : une image et, si vous le souhaitez, une légende."
+          />
+          {isWide ? (
+            <View style={styles.columns}>
+              <Panel style={styles.colForm}>{form}</Panel>
+              {preview}
+            </View>
+          ) : (
+            <>
+              {preview}
+              <View style={styles.formStacked}>{form}</View>
+            </>
+          )}
+        </PageWrap>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -206,40 +239,34 @@ function StoryForm({ artistId }: { artistId: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
-  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start', justifyContent: 'center' },
-  colForm: { flex: 1, maxWidth: Layout.maxReading },
+  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
+  colForm: { flex: 1, minWidth: 0, maxWidth: 640 },
   formStacked: { marginTop: Spacing.xl },
   center: { textAlign: 'center' },
 
-  frame: { borderRadius: Radius.xl, overflow: 'hidden', backgroundColor: Colors.bgInk },
+  frame: { overflow: 'hidden', backgroundColor: Colors.inkPanel },
   frameEmpty: {
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.bgElevated,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.borderDefault,
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.ink,
   },
   emptyContent: { alignItems: 'center', gap: 8, paddingHorizontal: Spacing.lg },
-  iconRing: {
-    width: 48, height: 48, borderRadius: 24, marginBottom: 4,
+  iconFrame: {
+    width: 48, height: 48, marginBottom: 4,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    borderWidth: 1, borderColor: Colors.ink,
   },
   previewShade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 160 },
   previewCaption: { position: 'absolute', left: Spacing.sm, right: Spacing.sm, bottom: Spacing.lg, textAlign: 'center' },
-  changePill: {
+  changePlate: {
     position: 'absolute', top: Spacing['2xs'], right: Spacing['2xs'],
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    height: 30, paddingHorizontal: 12, borderRadius: 15,
-    backgroundColor: 'rgba(11,10,9,0.65)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
+    minHeight: 32, paddingHorizontal: 10,
+    backgroundColor: Colors.paper,
   },
+  plateText: { color: Colors.ink, letterSpacing: 0.8 },
 
-  title: { marginTop: 6 },
-  lede: { marginTop: Spacing['2xs'], marginBottom: Spacing.lg, maxWidth: 460 },
+  lede: { marginTop: Spacing.xs, marginBottom: Spacing.lg, maxWidth: 460 },
   captionInput: { minHeight: 96, textAlignVertical: 'top', paddingTop: 14 },
   progressWrap: { marginBottom: Spacing.md },
   formError: { marginBottom: Spacing.sm },

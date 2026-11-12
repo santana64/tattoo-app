@@ -4,20 +4,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { TButton } from '@/components/ui/TButton';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { RequestCard, REQUEST_STATUS } from '@/components/RequestCard';
+import { IconButton, Masthead, Rule } from '@/components/v5';
+import { RequestCard, RequestLedgerHead } from '@/components/RequestCard';
 import { supabase } from '@/lib/supabase';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import { enterUp } from '@/components/motion';
-
-const LIST_MAX = 760;
+import { useContentDimensions, useShell } from '@/hooks/useContentDimensions';
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 /** 'inquiry': questions written without a project, whatever their status. */
@@ -31,8 +29,11 @@ const STATUS_FILTERS: { value: RequestStatus | 'all'; artistLabel: string; clien
   { value: 'archived',             artistLabel: 'Archivées',  clientLabel: 'Archivées' },
 ];
 
-function FilterChip({ label, active, dot, count, onPress }: {
-  label: string; active: boolean; dot?: string; count?: number; onPress: () => void;
+type Hover = { pressed: boolean; hovered?: boolean };
+
+/** Filter pill (same drawing as TChip) carrying a tab role and a count. */
+function FilterChip({ label, active, count, onPress }: {
+  label: string; active: boolean; count?: number; onPress: () => void;
 }) {
   return (
     <Pressable
@@ -40,17 +41,17 @@ function FilterChip({ label, active, dot, count, onPress }: {
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={count ? `${label}, ${count}` : label}
+      hitSlop={4}
       style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+        const { pressed, hovered } = state as Hover;
         return [styles.chip, (pressed || hovered) && !active && styles.chipHover, active && styles.chipActive];
       }}
     >
-      {dot && <View style={[styles.chipDot, { backgroundColor: dot }]} />}
-      <TText variant="caption" weight="medium" style={{ fontSize: 13, color: active ? Colors.textInverse : Colors.textSecondary }}>
+      <TText variant="caption" weight="semibold" style={{ fontSize: 12.5, lineHeight: 16, color: active ? Colors.paper : Colors.ink }}>
         {label}
       </TText>
       {!!count && (
-        <TText variant="caption" tabular style={{ fontSize: 12, color: active ? Colors.textInverse : Colors.textTertiary, opacity: active ? 0.7 : 1 }}>
+        <TText variant="caption" tabular style={{ fontSize: 12, lineHeight: 16, color: active ? Colors.onInkMuted : Colors.textTertiary }}>
           {count > 99 ? '99+' : count}
         </TText>
       )}
@@ -63,15 +64,14 @@ function InboxSkeleton() {
     <View accessibilityLabel="Chargement des demandes">
       {[0, 1, 2, 3].map((i) => (
         <View key={i} style={styles.skeletonRow}>
-          <TSkeleton width={48} height={48} radius={24} />
-          <View style={{ flex: 1, gap: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <TSkeleton width="42%" height={18} />
-              <TSkeleton width={44} height={12} />
+          <TSkeleton width={90} height={10} />
+          <View style={{ flexDirection: 'row', gap: Spacing.xs }}>
+            <TSkeleton width={48} height={48} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <TSkeleton width="50%" height={22} />
+              <TSkeleton width="70%" height={12} />
+              <TSkeleton width="90%" height={12} />
             </View>
-            <TSkeleton width="60%" height={12} />
-            <TSkeleton width="90%" height={12} />
-            <TSkeleton width="35%" height={12} style={{ marginTop: 4 }} />
           </View>
         </View>
       ))}
@@ -83,6 +83,8 @@ function InboxSkeleton() {
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { gutter, isWide } = useContentDimensions();
+  const { hasSidebar } = useShell();
   const { user } = useAuthStore();
   const { requests, fetchRequests, isLoading, error } = useRequestStore();
   const isArtist = user?.role === 'artist';
@@ -136,14 +138,13 @@ export default function InboxScreen() {
 
   // The "Questions" chip only exists while there are questions (or while it is selected).
   const filters = useMemo(() => {
-    const list: { value: FilterValue; label: string; dot?: string; count?: number }[] = STATUS_FILTERS.map((f) => ({
+    const list: { value: FilterValue; label: string; count?: number }[] = STATUS_FILTERS.map((f) => ({
       value: f.value,
       label: isArtist ? f.artistLabel : f.clientLabel,
-      dot: f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color,
       count: f.value === 'all' ? undefined : counts[f.value],
     }));
     if ((counts.inquiry ?? 0) > 0 || activeFilter === 'inquiry') {
-      list.splice(1, 0, { value: 'inquiry', label: 'Questions', dot: Colors.accentWarm, count: counts.inquiry });
+      list.splice(1, 0, { value: 'inquiry', label: 'Questions', count: counts.inquiry });
     }
     return list;
   }, [counts, isArtist, activeFilter]);
@@ -169,7 +170,7 @@ export default function InboxScreen() {
   }, [activeFilter, isArtist, router]);
 
   const renderRequest = useCallback(
-    // Virtualized rows never animate in; only the masthead and filters do.
+    // Virtualized rows never animate in.
     ({ item }: { item: TattooRequest }) => <RequestCard request={item} viewAs={viewAs} />,
     [viewAs],
   );
@@ -220,63 +221,73 @@ export default function InboxScreen() {
     />
   );
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.frame}>
-        {/* Masthead */}
-        <Animated.View entering={enterUp(0)} style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <TText variant="displayM" accessibilityRole="header">
-              {isArtist ? 'Boîte de ' : 'Vos '}
-              <TText variant="displayM" italic color="accentGlow">{isArtist ? 'réception' : 'demandes'}</TText>
-            </TText>
-            <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }} accessibilityLiveRegion="polite">
-              {subtitle}
-            </TText>
-          </View>
-          <Pressable
-            onPress={() => (isArtist ? router.push('/settings') : router.push('/(tabs)/explore'))}
-            accessibilityRole="button"
-            accessibilityLabel={isArtist ? 'Réglages' : 'Nouvelle demande : trouver un artiste'}
-            hitSlop={6}
-            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name={isArtist ? 'settings-outline' : 'add'} size={20} color={Colors.textPrimary} />
-          </Pressable>
-        </Animated.View>
+  const header = (
+    <View>
+      <Masthead
+        kicker={isArtist ? 'Atelier · Demandes' : 'Votre parcours · Projets'}
+        title={isArtist ? 'Boîte de' : 'Vos'}
+        emphasis={isArtist ? 'réception.' : 'projets.'}
+        description={isArtist
+          ? 'Les demandes de vos clients, de la première question au rendez-vous.'
+          : 'Chaque projet garde son brief, ses échanges et ses rendez-vous au même endroit.'}
+        action={isArtist ? (
+          <IconButton icon="settings-outline" label="Réglages" onPress={() => router.push('/settings')} />
+        ) : (
+          <TButton
+            title="Nouveau projet"
+            variant="secondary"
+            size="md"
+            fullWidth={false}
+            onPress={() => router.push('/(tabs)/explore')}
+            accessibilityLabel="Nouvelle demande : trouver un artiste"
+          />
+        )}
+        style={styles.masthead}
+      />
 
-        {/* Filters */}
+      <View style={styles.toolbar}>
+        <TText variant="label" weight="bold" uppercase tabular color="tertiary" accessibilityLiveRegion="polite" style={styles.count}>
+          {subtitle}
+        </TText>
         {!!user && total > 0 && (
-          <Animated.View entering={enterUp(1)}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filters}
-              style={styles.filterScroller}
-              accessibilityRole="tablist"
-            >
-              {filters.map((f) => (
-                <FilterChip
-                  key={f.value}
-                  label={f.label}
-                  dot={f.dot}
-                  count={f.count}
-                  active={activeFilter === f.value}
-                  onPress={() => setActiveFilter(f.value)}
-                />
-              ))}
-            </ScrollView>
-          </Animated.View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}
+            style={styles.filterScroller}
+            accessibilityRole="tablist"
+          >
+            {filters.map((f) => (
+              <FilterChip
+                key={f.value}
+                label={f.label}
+                count={f.count}
+                active={activeFilter === f.value}
+                onPress={() => setActiveFilter(f.value)}
+              />
+            ))}
+          </ScrollView>
         )}
       </View>
+      {isWide && !!user && !showSkeleton && filtered.length > 0 && <RequestLedgerHead viewAs={viewAs} />}
+      <Rule tone="ink" />
+    </View>
+  );
 
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <FlatList
         data={showSkeleton || !user ? [] : filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderRequest}
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 110 }, (filtered.length === 0 || !user) && { flexGrow: 1 }]}
+        contentContainerStyle={[
+          styles.list,
+          { paddingHorizontal: gutter, paddingBottom: insets.bottom + (hasSidebar ? Spacing['2xl'] : 110) },
+          (filtered.length === 0 || !user) && { flexGrow: 1 },
+        ]}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={header}
         refreshControl={
           user ? (
             <RefreshControl
@@ -296,58 +307,35 @@ export default function InboxScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  frame: { width: '100%', maxWidth: LIST_MAX + Layout.gutter * 2, alignSelf: 'center' },
+  list: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-    paddingHorizontal: Layout.gutter,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-  },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    marginTop: 4,
-  },
+  masthead: { borderBottomWidth: 0, marginBottom: 0 },
+  toolbar: { gap: Spacing.xs, paddingBottom: Spacing.sm },
+  count: { marginBottom: 2 },
 
   filterScroller: { flexGrow: 0 },
-  filters: { paddingHorizontal: Layout.gutter, paddingBottom: Spacing.sm, gap: 8 },
+  filters: { gap: 8, paddingRight: Spacing.sm },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    height: 36,
+    minHeight: 36,
     paddingHorizontal: 14,
-    borderRadius: 18,
+    borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    borderColor: Colors.line,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+      : null),
   },
-  chipHover: { backgroundColor: Colors.glassBgMid },
-  chipActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  chipDot: { width: 6, height: 6, borderRadius: 3 },
+  chipHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  chipActive: { backgroundColor: Colors.ink, borderColor: Colors.ink },
 
-  list: {
-    width: '100%',
-    maxWidth: LIST_MAX + Layout.gutter * 2,
-    alignSelf: 'center',
-    paddingHorizontal: Layout.gutter - Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderSubtle,
-  },
   skeletonRow: {
-    flexDirection: 'row',
     gap: Spacing.xs,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing['2xs'],
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderDefault,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
   },
 });

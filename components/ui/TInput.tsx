@@ -39,7 +39,7 @@ export function TInput({
     <View style={[styles.container, containerStyle]}>
       {label && (
         <View style={styles.labelRow}>
-          <TText variant="caption" weight="medium" color="secondary">
+          <TText variant="caption" weight="semibold" style={{ fontSize: 12 }}>
             {label}
           </TText>
           {optional && (
@@ -59,7 +59,7 @@ export function TInput({
         <TextInput
           style={[styles.input, inputStyle]}
           placeholderTextColor={Colors.textTertiary}
-          selectionColor={Colors.accentWarm}
+          selectionColor={Colors.flame}
           accessibilityLabel={label ?? props.placeholder}
           onFocus={(e) => { setFocused(true); onFocus?.(e); }}
           onBlur={(e) => { setFocused(false); onBlur?.(e); }}
@@ -95,13 +95,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bgElevated,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: Colors.borderDefault,
-    paddingHorizontal: Spacing.sm,
-    minHeight: 54,
+    borderColor: Colors.line,
+    paddingHorizontal: 15,
+    minHeight: 50,
   },
   inputFocused: {
-    borderColor: Colors.borderFocus,
-    backgroundColor: Colors.bgSurface,
+    borderColor: Colors.flame,
   },
   inputError: {
     borderColor: Colors.error,

@@ -8,55 +8,35 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { TBadge } from '@/components/ui/TBadge';
 import { TButton } from '@/components/ui/TButton';
-import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale } from '@/components/motion';
+import {
+  InkPanel, Kicker, Masthead, Rule, SettingRow, StatusDot, type StatusTone,
+} from '@/components/v5';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useAuthStore } from '@/store/auth-store';
 import { requestVerification } from '@/lib/moderation';
 
-const ICON_COL = 34;
 const APP_VERSION = Constants.expoConfig?.version;
 
-function SettingRow({ icon, label, subtitle, detail, accent, onPress }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; subtitle?: string; detail?: string;
-  accent?: boolean; onPress: () => void;
-}) {
+/** Ruled list: numbered kicker, ink rule, then the rows. */
+function Section({ number, title, children }: { number: string; title: string; children: React.ReactNode }) {
   return (
-    <PressableScale
-      onPress={onPress}
-      pressedScale={0.985}
-      accessibilityRole="button"
-      accessibilityLabel={[label, subtitle, detail].filter(Boolean).join(', ')}
-      style={styles.row}
-    >
-      <Ionicons name={icon} size={19} color={accent ? Colors.accentWarm : Colors.textSecondary} style={styles.rowIcon} />
-      <View style={styles.rowText}>
-        <TText variant="body" weight="medium" numberOfLines={1}>{label}</TText>
-        {!!subtitle && <TText variant="caption" color="tertiary" numberOfLines={1}>{subtitle}</TText>}
-      </View>
-      {!!detail && <TText variant="bodySmall" color={accent ? 'accentWarm' : 'tertiary'}>{detail}</TText>}
-      <Ionicons name="chevron-forward" size={15} color={Colors.textTertiary} />
-    </PressableScale>
+    <View style={styles.section}>
+      <Kicker style={styles.sectionKicker}>{`${number} / ${title}`}</Kicker>
+      <Rule tone="ink" />
+      {children}
+    </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const items = React.Children.toArray(children);
+/** Trailing detail of a row (plan, verification state) followed by the arrow. */
+function Detail({ children }: { children: React.ReactNode }) {
   return (
-    <View style={styles.section}>
-      <TText variant="label" color="tertiary" uppercase style={styles.sectionTitle}>{title}</TText>
-      <View style={styles.sectionBody}>
-        {items.map((child, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <TDivider inset={ICON_COL} />}
-            {child}
-          </React.Fragment>
-        ))}
-      </View>
+    <View style={styles.detail}>
+      {children}
+      <Ionicons name="arrow-forward" size={16} color={Colors.ink} />
     </View>
   );
 }
@@ -64,18 +44,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isWide, gutter } = useContentDimensions();
   const { user, signOut, refreshProfile } = useAuthStore();
   const isArtist = user?.role === 'artist';
   const isPremium = isArtist && user?.artistTier === 'premium';
   const name = (isArtist ? user?.artistBlaze : undefined) ?? user?.displayName ?? 'Votre compte';
 
-  const verification = user?.artistIsVerified
-    ? { detail: 'Vérifié', subtitle: 'Votre profil affiche le badge vérifié' }
+  const verification: { detail: string; subtitle: string; tone: StatusTone } = user?.artistIsVerified
+    ? { detail: 'Vérifié', subtitle: 'Votre profil affiche le badge vérifié', tone: 'open' }
     : user?.artistVerificationStatus === 'submitted'
-      ? { detail: 'En cours', subtitle: 'Votre demande est en cours d’examen' }
+      ? { detail: 'En cours', subtitle: 'Votre demande est en cours d’examen', tone: 'wait' }
       : user?.artistVerificationStatus === 'rejected'
-        ? { detail: 'Refusée', subtitle: 'Complétez votre profil puis renouvelez la demande' }
-        : { detail: 'Demander', subtitle: 'Obtenez le badge vérifié' };
+        ? { detail: 'Refusée', subtitle: 'Complétez votre profil puis renouvelez la demande', tone: 'alert' }
+        : { detail: 'Demander', subtitle: 'Obtenez le badge vérifié', tone: 'closed' };
   const canRequestVerification = isArtist && !user?.artistIsVerified && user?.artistVerificationStatus !== 'submitted';
 
   const handleVerification = async () => {
@@ -94,109 +75,147 @@ export default function SettingsScreen() {
     signOut().catch(() => Toast.error('Déconnexion impossible. Réessayez.'));
   };
 
-  return (
-    <View style={styles.container}>
-      <THeader title="Paramètres" showBack />
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Identity */}
-        <View style={styles.identity}>
-          <TAvatar uri={user?.avatarUrl} name={name} size="xl" isPremium={isPremium} showBadge />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={styles.nameRow}>
-              <TText variant="displayS" numberOfLines={1} style={{ flexShrink: 1 }}>{name}</TText>
-              {isPremium && <TBadge label="Premium" variant="premium" />}
-            </View>
-            <TText variant="bodySmall" color="tertiary" numberOfLines={1}>
-              {[user?.email, user?.city].filter(Boolean).join(' · ') || '—'}
-            </TText>
-          </View>
+  const contact = [user?.email, user?.city].filter(Boolean).join(' · ') || '—';
+
+  // ── Identity: ink panel (right column on wide screens, top on phones) ──
+  const identity = (
+    <InkPanel style={isWide ? styles.identityWide : styles.identity}>
+      <Kicker tone="flameOnInk">Inkr / Compte</Kicker>
+      <View style={styles.identityRow}>
+        <TAvatar uri={user?.avatarUrl} name={name} size="xl" isPremium={isPremium} showBadge />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <TText variant="displayS" numberOfLines={2} style={styles.identityName}>{name}</TText>
+          <TText variant="caption" color="onInkMuted" numberOfLines={2}>{contact}</TText>
         </View>
+      </View>
+      {isArtist ? (
+        <StatusDot
+          onInk
+          tone={isPremium ? 'open' : 'closed'}
+          label={isPremium ? 'Formule Premium' : 'Formule gratuite'}
+          style={styles.identityStatus}
+        />
+      ) : null}
 
-        {/* Premium upsell — artists on the free plan only */}
-        {isArtist && !isPremium && (
-          <View>
-            <GlassCard variant="premium" radius={14} style={styles.upsell}>
-              <TText variant="label" color="accentWarm" uppercase>INKR Premium</TText>
-              <TText variant="title2" serif style={styles.upsellTitle}>
-                Un profil <TText variant="title2" serif italic color="accentGlow" style={styles.upsellTitle}>mis en avant</TText>
-              </TText>
-              <TText variant="bodySmall" color="secondary" style={{ marginBottom: Spacing.md }}>
-                Statistiques détaillées, publications illimitées et personnalisation du profil.
-              </TText>
-              <TButton
-                title="Découvrir Premium"
-                variant="glow"
-                size="sm"
-                fullWidth={false}
-                onPress={() => router.push('/settings/subscription')}
-              />
-            </GlassCard>
-          </View>
-        )}
+      {/* Premium upsell — artists on the free plan only */}
+      {isArtist && !isPremium ? (
+        <View style={styles.upsell}>
+          <Rule tone="onInk" />
+          <TText variant="displayS" style={styles.upsellTitle}>
+            Un profil{' '}
+            <TText variant="displayS" italic color="flameOnInk" style={styles.upsellTitle}>mis en avant.</TText>
+          </TText>
+          <TText variant="bodySmall" color="onInkMuted" style={styles.upsellCopy}>
+            Statistiques détaillées, publications illimitées et personnalisation du profil.
+          </TText>
+          <TButton
+            title="Découvrir Premium"
+            variant="glow"
+            size="md"
+            fullWidth={!isWide}
+            onPress={() => router.push('/settings/subscription')}
+          />
+        </View>
+      ) : null}
 
-        <Section title="Compte">
-          <SettingRow icon="person-outline" label="Informations personnelles" subtitle="Nom, e-mail, ville" onPress={() => router.push('/settings/account')} />
-          <SettingRow icon="notifications-outline" label="Notifications" subtitle="Push et e-mails" onPress={() => router.push('/settings/notifications')} />
-          <SettingRow icon="shield-outline" label="Confidentialité" subtitle="Visibilité et données" onPress={() => router.push('/settings/privacy')} />
+      {!!APP_VERSION && (
+        <Kicker tone="onInkMuted" style={styles.version}>{`Inkr ${APP_VERSION}`}</Kicker>
+      )}
+    </InkPanel>
+  );
+
+  const lists = (
+    <View style={isWide ? styles.listsWide : undefined}>
+      <Section number="01" title="Compte">
+        <SettingRow title="Informations personnelles" description="Nom, e-mail, ville" accessibilityLabel="Informations personnelles, Nom, e-mail, ville" onPress={() => router.push('/settings/account')} />
+        <SettingRow title="Notifications" description="Push et e-mails" accessibilityLabel="Notifications, Push et e-mails" onPress={() => router.push('/settings/notifications')} />
+        <SettingRow title="Confidentialité" description="Visibilité et données" accessibilityLabel="Confidentialité, Visibilité et données" onPress={() => router.push('/settings/privacy')} />
+      </Section>
+
+      {isArtist && (
+        <Section number="02" title="Espace artiste">
+          <SettingRow
+            title="Abonnement"
+            accessibilityLabel={`Abonnement, ${isPremium ? 'Premium' : 'Gratuit'}`}
+            right={(
+              <Detail>
+                <TText variant="label" weight="bold" uppercase style={{ color: isPremium ? Colors.ink : Colors.flameText, letterSpacing: 1 }}>
+                  {isPremium ? 'Premium' : 'Gratuit'}
+                </TText>
+              </Detail>
+            )}
+            onPress={() => router.push('/settings/subscription')}
+          />
+          <SettingRow title="Personnalisation" description="Sections et informations du profil" accessibilityLabel="Personnalisation, Sections et informations du profil" onPress={() => router.push('/customization')} />
+          <SettingRow title="Statistiques" description="Vues, demandes, acceptation" accessibilityLabel="Statistiques, Vues, demandes, acceptation" onPress={() => router.push('/analytics')} />
+          <SettingRow
+            title="Vérification du profil"
+            description={verification.subtitle}
+            accessibilityLabel={`Vérification du profil, ${verification.subtitle}, ${verification.detail}`}
+            right={<Detail><StatusDot tone={verification.tone} label={verification.detail} /></Detail>}
+            onPress={() => { void handleVerification(); }}
+          />
         </Section>
+      )}
 
-        {isArtist && (
-          <Section title="Espace artiste">
-            <SettingRow
-              icon="card-outline"
-              label="Abonnement"
-              detail={isPremium ? 'Premium' : 'Gratuit'}
-              accent={!isPremium}
-              onPress={() => router.push('/settings/subscription')}
-            />
-            <SettingRow icon="color-palette-outline" label="Personnalisation" subtitle="Sections et informations du profil" onPress={() => router.push('/customization')} />
-            <SettingRow icon="analytics-outline" label="Statistiques" subtitle="Vues, demandes, acceptation" onPress={() => router.push('/analytics')} />
-            <SettingRow
-              icon="ribbon-outline"
-              label="Vérification du profil"
-              subtitle={verification.subtitle}
-              detail={verification.detail}
-              accent={canRequestVerification}
-              onPress={() => { void handleVerification(); }}
-            />
-          </Section>
-        )}
-
-        {user?.isAdmin && (
-          <Section title="Équipe">
-            <SettingRow icon="shield-checkmark-outline" label="Modération" subtitle="Signalements et vérifications" onPress={() => router.push('/admin')} />
-          </Section>
-        )}
-
-        <Section title="Assistance">
-          <SettingRow icon="help-circle-outline" label="Aide et support" onPress={() => router.push('/settings/support')} />
-          <SettingRow icon="document-text-outline" label="Conditions d’utilisation" onPress={() => router.push('/legal/terms')} />
-          <SettingRow icon="lock-closed-outline" label="Politique de confidentialité" onPress={() => router.push('/legal/privacy-policy')} />
+      {user?.isAdmin && (
+        <Section number={isArtist ? '03' : '02'} title="Équipe">
+          <SettingRow title="Modération" description="Signalements et vérifications" accessibilityLabel="Modération, Signalements et vérifications" onPress={() => router.push('/admin')} />
         </Section>
+      )}
 
-        {/* Session and destructive actions, kept apart from everyday settings */}
-        <View style={styles.dangerZone}>
+      <Section number={String(2 + (isArtist ? 1 : 0) + (user?.isAdmin ? 1 : 0)).padStart(2, '0')} title="Assistance">
+        <SettingRow title="Aide et support" onPress={() => router.push('/settings/support')} />
+        <SettingRow title="Conditions d’utilisation" onPress={() => router.push('/legal/terms')} />
+        <SettingRow title="Politique de confidentialité" onPress={() => router.push('/legal/privacy-policy')} />
+      </Section>
+
+      {/* Session and destructive actions, kept apart from everyday settings */}
+      <View style={styles.dangerZone}>
+        <Kicker tone="muted" style={styles.sectionKicker}>Session</Kicker>
+        <View style={[styles.dangerActions, isWide && styles.dangerActionsWide]}>
           <TButton
             title="Se déconnecter"
             variant="secondary"
             size="md"
+            fullWidth={!isWide}
             onPress={handleSignOut}
-            icon={<Ionicons name="log-out-outline" size={17} color={Colors.textPrimary} />}
           />
           <TButton
             title="Supprimer mon compte"
             variant="destructive"
             size="md"
+            fullWidth={!isWide}
             onPress={() => router.push('/settings/delete-account')}
-            icon={<Ionicons name="trash-outline" size={17} color={Colors.errorLight} />}
           />
         </View>
+      </View>
+    </View>
+  );
 
-        {!!APP_VERSION && (
-          <TText variant="caption" color="tertiary" tabular style={styles.version}>INKR {APP_VERSION}</TText>
+  return (
+    <View style={styles.container}>
+      <THeader title="Paramètres" showBack />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingHorizontal: gutter, paddingBottom: insets.bottom + Spacing['3xl'] }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <Masthead
+          kicker="Votre compte / Réglages"
+          title="Tout sous"
+          emphasis="votre contrôle."
+          description="Les réglages du quotidien d’un côté, les actions sensibles de l’autre, toujours explicites."
+        />
+        {isWide ? (
+          <View style={styles.board}>
+            {lists}
+            <View style={styles.aside}>{identity}</View>
+          </View>
+        ) : (
+          <>
+            {identity}
+            {lists}
+          </>
         )}
       </ScrollView>
     </View>
@@ -204,33 +223,30 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
-  identity: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.lg },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 2 },
+  container: { flex: 1, backgroundColor: Colors.paper },
+  content: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  upsell: { marginBottom: Spacing.sm },
-  upsellTitle: { fontSize: 24, lineHeight: 28 },
+  board: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'] },
+  listsWide: { flex: 1.6, minWidth: 0 },
+  aside: { flex: 1, minWidth: 0, maxWidth: 420 },
+
+  identity: { marginBottom: Spacing.md },
+  identityWide: {},
+  identityRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md },
+  identityName: { color: Colors.onInk, marginBottom: 4 },
+  identityStatus: { marginTop: Spacing.md },
+
+  upsell: { marginTop: Spacing.lg },
+  upsellTitle: { color: Colors.onInk, fontSize: 30, lineHeight: 32, marginTop: Spacing.md },
+  upsellCopy: { marginTop: Spacing.xs, marginBottom: Spacing.md, lineHeight: 21 },
+  version: { marginTop: Spacing.lg },
 
   section: { marginTop: Spacing.xl },
-  sectionTitle: { marginBottom: Spacing['2xs'] },
-  sectionBody: {
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    minHeight: 56, paddingVertical: 10,
-  },
-  rowIcon: { width: ICON_COL - 12 },
-  rowText: { flex: 1, minWidth: 0, gap: 1 },
+  sectionKicker: { marginBottom: Spacing.xs },
 
-  dangerZone: {
-    marginTop: Spacing['2xl'], paddingTop: Spacing.lg, gap: 10,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
-  },
-  version: { textAlign: 'center', marginTop: Spacing.xl },
+  detail: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+
+  dangerZone: { marginTop: Spacing['2xl'] },
+  dangerActions: { gap: 10, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.line },
+  dangerActionsWide: { flexDirection: 'row', flexWrap: 'wrap' },
 });

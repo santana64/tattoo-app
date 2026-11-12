@@ -10,7 +10,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Layout, Spacing } from '@/constants/theme';
@@ -41,7 +40,6 @@ const SWIPE_RATIO = 0.3;
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 900;
 const WIDE = 768;
-const WALL = '#050403';
 
 // Pan modes, decided by the first movement of a one-finger drag.
 const MODE_NONE = 0;
@@ -79,7 +77,7 @@ function anchoredTranslation(t0: number, s0: number, s: number, focalStart: numb
 }
 
 /**
- * Full-screen viewer on a near-black wall: pinch, double-tap and wheel zoom,
+ * Full-screen viewer on the ink wall: pinch, double-tap and wheel zoom,
  * swipe between works, swipe down to leave. The chrome steps back after a
  * moment so only the work remains.
  */
@@ -558,21 +556,14 @@ function LightboxStage({ items, index, onIndexChange, onClose, reduced }: StageP
 
       {/* ── Chrome ── */}
       <Animated.View style={[StyleSheet.absoluteFill, chromeStyle]} pointerEvents={chromeShown ? 'box-none' : 'none'}>
-        <LinearGradient
-          colors={['rgba(5,4,3,0.55)', 'rgba(5,4,3,0)']}
-          style={[styles.shade, { top: 0, height: insets.top + 96 }]}
-          pointerEvents="none"
-        />
-        <LinearGradient
-          colors={['rgba(5,4,3,0)', 'rgba(5,4,3,0.72)']}
-          style={[styles.shade, { bottom: 0, height: insets.bottom + 180 }]}
-          pointerEvents="none"
-        />
-
         <View style={[styles.topBar, { top: insets.top + Spacing['2xs'], left: insets.left + Layout.gutter, right: insets.right + Layout.gutter }]} pointerEvents="box-none">
-          <TText variant="label" color="secondary" tabular accessibilityLabel={`Œuvre ${current + 1} sur ${count}`}>
-            {count > 1 ? counter : ''}
-          </TText>
+          {count > 1 ? (
+            <View style={styles.counter}>
+              <TText variant="label" weight="bold" tabular color="onInk" accessibilityLabel={`Œuvre ${current + 1} sur ${count}`}>
+                {counter}
+              </TText>
+            </View>
+          ) : <View />}
           <ChromeButton icon="close" label="Fermer la visionneuse" onPress={onClose} onFocus={poke} />
         </View>
 
@@ -603,10 +594,10 @@ function LightboxStage({ items, index, onIndexChange, onClose, reduced }: StageP
             pointerEvents="none"
           >
             {!!item?.title && (
-              <TText variant="title1" serif italic numberOfLines={2} style={styles.labelTitle}>{item.title}</TText>
+              <TText variant="title1" serif italic color="onInk" numberOfLines={2} style={styles.labelTitle}>{item.title}</TText>
             )}
             {!!item?.subtitle && (
-              <TText variant="caption" color="secondary" numberOfLines={2} style={styles.labelSub}>{item.subtitle}</TText>
+              <TText variant="caption" color="onInkMuted" numberOfLines={2} style={styles.labelSub}>{item.subtitle}</TText>
             )}
           </View>
         )}
@@ -640,19 +631,22 @@ function Slide({ item, reduced, onSize }: {
       )}
       {state === 'loading' && (
         <View style={styles.center} pointerEvents="none">
-          <ActivityIndicator color={Colors.textTertiary} />
+          <ActivityIndicator color={Colors.onInkMuted} />
         </View>
       )}
       {state === 'failed' && (
         <View style={styles.center} pointerEvents="none">
-          <Ionicons name="image-outline" size={28} color={Colors.textTertiary} />
-          <TText variant="caption" color="tertiary" style={{ marginTop: Spacing['2xs'] }}>Image indisponible</TText>
+          <Ionicons name="image-outline" size={28} color={Colors.onInkMuted} />
+          <TText variant="caption" color="onInkMuted" style={{ marginTop: Spacing['2xs'] }}>Image indisponible</TText>
         </View>
       )}
     </View>
   );
 }
 
+type Interaction = { pressed: boolean; hovered?: boolean };
+
+/** Square ink plate: stays legible over any photograph. */
 function ChromeButton({ icon, label, onPress, onFocus, disabled, style }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -670,40 +664,50 @@ function ChromeButton({ icon, label, onPress, onFocus, disabled, style }: {
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled }}
       hitSlop={8}
-      style={({ pressed }) => [
-        styles.chromeButton,
-        style,
-        pressed && styles.chromeButtonPressed,
-        disabled && styles.chromeButtonDisabled,
-      ]}
+      style={(state) => {
+        const { pressed, hovered } = state as Interaction;
+        return [
+          styles.chromeButton,
+          style,
+          (pressed || hovered) && !disabled && styles.chromeButtonLit,
+          disabled && styles.chromeButtonDisabled,
+        ];
+      }}
     >
-      <Ionicons name={icon} size={22} color={Colors.textPrimary} />
+      {(state) => {
+        const { pressed, hovered } = state as Interaction;
+        return <Ionicons name={icon} size={22} color={(pressed || hovered) && !disabled ? '#FFFFFF' : Colors.onInk} />;
+      }}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden' },
-  wall: { backgroundColor: WALL },
+  wall: { backgroundColor: Colors.inkPanel },
   track: { position: 'absolute', top: 0, left: 0 },
   slide: { position: 'absolute', top: 0, overflow: 'hidden' },
   center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  shade: { position: 'absolute', left: 0, right: 0 },
   topBar: { position: 'absolute', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
+  counter: { backgroundColor: Colors.inkPanel, paddingHorizontal: 10, paddingVertical: 6 },
   chromeButton: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 44, height: 44,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(11,10,9,0.55)',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as ViewStyle) : null),
+    backgroundColor: Colors.inkPanel,
+    borderWidth: 1, borderColor: Colors.onInkLine,
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as ViewStyle)
+      : null),
   },
-  chromeButtonPressed: { opacity: 0.7 },
-  chromeButtonDisabled: { opacity: 0.25 },
+  chromeButtonLit: { backgroundColor: Colors.flame, borderColor: Colors.flame },
+  chromeButtonDisabled: { opacity: 0.3 },
   arrow: { position: 'absolute', top: '50%', marginTop: -22 },
+  // The cartel sits on its own ink plate, never on a gradient over the work.
   label: {
-    position: 'absolute', maxWidth: 560,
-    borderLeftWidth: 1, borderLeftColor: Colors.accentWarm,
-    paddingLeft: Spacing.sm, paddingVertical: 2,
+    position: 'absolute', maxWidth: 560, alignSelf: 'flex-start',
+    backgroundColor: Colors.inkPanel,
+    borderLeftWidth: 2, borderLeftColor: Colors.flame,
+    paddingLeft: Spacing.sm, paddingRight: Spacing.md, paddingVertical: Spacing.xs,
   },
   labelTitle: { fontSize: 24, lineHeight: 29 },
   labelSub: { marginTop: 4, lineHeight: 18 },

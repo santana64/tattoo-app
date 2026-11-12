@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle, Pressable } from 'react-native';
-import { Colors, Radius, Shadow } from '@/constants/theme';
+import { Colors, Radius } from '@/constants/theme';
 
 interface TCardProps {
   children: React.ReactNode;
@@ -40,16 +40,16 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.bgCard,
     borderRadius: Radius.xl,
-    padding: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: Colors.line,
   },
   elevated: {
-    ...Shadow.md,
-    backgroundColor: Colors.bgElevated,
+    borderColor: Colors.ink,
   },
   active: {
     backgroundColor: Colors.bgSurface,
+    borderColor: Colors.ink,
   },
   noPadding: {
     padding: 0,

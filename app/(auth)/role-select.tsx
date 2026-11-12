@@ -1,100 +1,101 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
   ActivityIndicator,
   ScrollView,
-  useWindowDimensions,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
-import { EASE_OUT, MotionDuration, enterUp, fadeIn } from '@/components/motion/tokens';
-import { PressableScale } from '@/components/motion/PressableScale';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { Logo } from '@/components/ui/Logo';
+import { Kicker, Masthead, PageWrap } from '@/components/v5';
+import { StageTitle, useStage } from '@/components/v5/Stage';
+import { haptic } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
 
-const FORM_MAX_WIDTH = 480;
-
 type Role = 'user' | 'artist';
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color, opacity', transitionDuration: '180ms' } as object)
+  : null;
 
-// ── Role option: hairline card, paper ring fades in when chosen ─────────────
-function RoleOption({
-  icon,
+// ── Role panel: a large selectable cell, numbered like a cartel ─────────────
+function RolePanel({
+  number,
+  audience,
+  label,
   title,
+  emphasis,
   description,
+  cta,
   state,
   disabled,
+  wide,
   onPress,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  number: string;
+  audience: string;
+  /** Spoken title, unchanged from the plain-text version. */
+  label: string;
   title: string;
+  emphasis: string;
   description: string;
+  cta: string;
   /** idle: nothing chosen · selected: this one is saving · dimmed: the other one was chosen */
   state: 'idle' | 'selected' | 'dimmed';
   disabled: boolean;
+  wide: boolean;
   onPress: () => void;
 }) {
-  const selected = useSharedValue(state === 'selected' ? 1 : 0);
-  const opacity = useSharedValue(state === 'dimmed' ? 0.45 : 1);
-
-  useEffect(() => {
-    const timing = { duration: MotionDuration.state, easing: EASE_OUT };
-    selected.set(withTiming(state === 'selected' ? 1 : 0, timing));
-    opacity.set(withTiming(state === 'dimmed' ? 0.45 : 1, timing));
-  }, [state, selected, opacity]);
-
-  const cardStyle = useAnimatedStyle(() => ({ opacity: opacity.get() }));
-  const ringStyle = useAnimatedStyle(() => ({ opacity: selected.get() }));
-
+  const selected = state === 'selected';
   return (
-    <Animated.View style={cardStyle}>
-      <PressableScale
-        onPress={onPress}
-        disabled={disabled}
-        haptic
-        accessibilityRole="button"
-        accessibilityLabel={`${title}. ${description}`}
-        accessibilityState={{ disabled, busy: state === 'selected', selected: state === 'selected' }}
-        style={styles.card}
-      >
-        {/* Selection ring: opacity-only transition, no layout shift. */}
-        <Animated.View pointerEvents="none" style={[styles.cardRing, ringStyle]} />
-
-        <View style={styles.iconRing}>
-          <Ionicons name={icon} size={20} color={Colors.accentWarm} />
-        </View>
-
-        <View style={styles.cardText}>
-          <TText variant="title2" weight="semibold">{title}</TText>
-          <TText variant="bodySmall" color="secondary">{description}</TText>
-        </View>
-
-        <View style={styles.cardTrailing}>
-          {state === 'selected' ? (
-            <ActivityIndicator color={Colors.textPrimary} size="small" />
-          ) : (
-            <Ionicons name="arrow-forward" size={18} color={Colors.textTertiary} />
-          )}
-        </View>
-      </PressableScale>
-    </Animated.View>
+    <Pressable
+      onPress={() => {
+        haptic();
+        onPress();
+      }}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. ${description}`}
+      accessibilityState={{ disabled, busy: selected, selected }}
+      style={(s) => {
+        const { hovered, pressed } = s as Hover;
+        return [
+          styles.panel,
+          wide && styles.panelWide,
+          webPointer,
+          ((hovered || pressed) && !disabled) || selected ? styles.panelActive : null,
+          state === 'dimmed' && styles.panelDimmed,
+        ];
+      }}
+    >
+      {selected ? <View style={styles.panelMark} /> : null}
+      <Kicker tone="flame">{`${number} / ${audience}`}</Kicker>
+      <StageTitle size={wide ? 58 : 40} emphasis={emphasis} style={styles.panelTitle}>{title}</StageTitle>
+      <TText variant="bodySmall" color="secondary" style={styles.panelCopy}>{description}</TText>
+      <View style={styles.panelSpacer} />
+      <View style={styles.panelFoot}>
+        <TText variant="label" weight="bold" uppercase style={styles.panelCta} numberOfLines={1}>{cta}</TText>
+        {selected ? (
+          <ActivityIndicator color={Colors.ink} size="small" />
+        ) : (
+          <Ionicons name="arrow-forward" size={16} color={Colors.ink} />
+        )}
+      </View>
+    </Pressable>
   );
 }
 
 export default function RoleSelectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { wide } = useStage();
   const { setRole, saveArtist, session, refreshProfile } = useAuthStore();
   const [loading, setLoading] = useState<'user' | 'artist' | null>(null);
 
@@ -126,117 +127,96 @@ export default function RoleSelectScreen() {
 
   return (
     <View style={styles.container}>
-      {/* One warm spotlight from above. */}
-      <LinearGradient
-        colors={['rgba(201,164,106,0.09)', 'rgba(201,164,106,0.02)', 'rgba(11,10,9,0)']}
-        locations={[0, 0.4, 1]}
-        style={styles.spotlight}
-        pointerEvents="none"
-      />
-
       <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
-        ]}
+        contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 10, paddingBottom: insets.bottom + Spacing['2xl'] }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.column}>
-          <Animated.View entering={fadeIn()} style={styles.topBar}>
+        <PageWrap>
+          <View style={styles.topBar}>
             <Logo size="sm" variant="wordmark" />
-          </Animated.View>
-
-          <View style={styles.spacer} />
-
-          <Animated.View entering={enterUp(0, 80)} style={styles.kicker}>
-            <View style={styles.kickerRule} />
-            <TText variant="label" color="accentWarm" uppercase>Bienvenue</TText>
-          </Animated.View>
-
-          <Animated.View entering={enterUp(1, 80)}>
-            <TText variant="displayL" style={styles.headline} accessibilityRole="header">
-              Comment utiliserez-vous{' '}
-              <TText variant="displayL" italic color="accentGlow">Inkr ?</TText>
-            </TText>
-          </Animated.View>
-
-          <Animated.View entering={enterUp(2, 80)}>
-            <TText variant="body" color="secondary" style={styles.lede}>
-              Choisissez votre profil : nous adaptons l’expérience à votre usage.
-            </TText>
-          </Animated.View>
-
-          <View style={styles.cards}>
-            <Animated.View entering={enterUp(3, 80)}>
-              <RoleOption
-                icon="search-outline"
-                title="Je cherche un artiste"
-                description="Explorez les portfolios, enregistrez vos artistes et envoyez des demandes détaillées."
-                state={stateFor('user')}
-                disabled={!!loading}
-                onPress={() => selectRole('user')}
-              />
-            </Animated.View>
-            <Animated.View entering={enterUp(4, 80)}>
-              <RoleOption
-                icon="brush-outline"
-                title="Je suis tatoueur·se"
-                description="Présentez votre travail, recevez des demandes qualifiées et organisez vos rendez-vous."
-                state={stateFor('artist')}
-                disabled={!!loading}
-                onPress={() => selectRole('artist')}
-              />
-            </Animated.View>
+            <Kicker tone="muted">Inkr / Votre profil</Kicker>
           </View>
-        </View>
+
+          <Masthead
+            kicker="Bienvenue"
+            title="Comment utiliserez-vous"
+            emphasis="Inkr ?"
+            description="Choisissez votre profil : nous adaptons l’expérience à votre usage."
+          />
+
+          <View style={[styles.panels, wide && styles.panelsWide]}>
+            <RolePanel
+              number="01"
+              audience="Client"
+              label="Je cherche un artiste"
+              title="Je cherche"
+              emphasis="un artiste."
+              description="Explorez les portfolios, enregistrez vos artistes et envoyez des demandes détaillées."
+              cta="Continuer comme client"
+              state={stateFor('user')}
+              disabled={!!loading}
+              wide={wide}
+              onPress={() => selectRole('user')}
+            />
+            <RolePanel
+              number="02"
+              audience="Artiste"
+              label="Je suis tatoueur·se"
+              title="Je suis"
+              emphasis="tatoueur·se."
+              description="Présentez votre travail, recevez des demandes qualifiées et organisez vos rendez-vous."
+              cta="Continuer comme artiste"
+              state={stateFor('artist')}
+              disabled={!!loading}
+              wide={wide}
+              onPress={() => selectRole('artist')}
+            />
+          </View>
+        </PageWrap>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  spotlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 420 },
+  container: { flex: 1, backgroundColor: Colors.paper },
 
-  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
-  column: { flex: 1, width: '100%', maxWidth: FORM_MAX_WIDTH, alignSelf: 'center' },
-
-  topBar: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
-  spacer: { flex: 1, minHeight: Spacing['2xl'], maxHeight: 160 },
-
-  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
-  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
-  headline: { marginBottom: Spacing.sm },
-  lede: { maxWidth: 440, marginBottom: Spacing.xl },
-
-  cards: { gap: Spacing.xs },
-  card: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: Radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgCard,
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+    minHeight: 44,
   },
-  cardRing: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: Radius.xl,
+
+  panels: { gap: Spacing.xs },
+  panelsWide: { flexDirection: 'row', gap: Spacing.sm },
+
+  panel: {
+    minHeight: 260,
+    padding: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.accent,
-    backgroundColor: Colors.glassBg,
+    borderColor: Colors.line,
+    backgroundColor: Colors.white,
   },
-  iconRing: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  panelWide: { flex: 1, minWidth: 0, minHeight: 380, padding: Spacing['2xl'] },
+  panelActive: { borderColor: Colors.flame, backgroundColor: Colors.flameSoft },
+  panelDimmed: { opacity: 0.45 },
+  panelMark: { position: 'absolute', top: 0, right: 0, width: 12, height: 12, backgroundColor: Colors.flame },
+
+  panelTitle: { marginTop: Spacing.lg },
+  panelCopy: { marginTop: Spacing.sm, maxWidth: 380, lineHeight: 22 },
+  panelSpacer: { flexGrow: 1, minHeight: Spacing.lg },
+  panelFoot: {
+    paddingTop: Spacing.md,
+    minHeight: 44,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
+    justifyContent: 'space-between',
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink,
   },
-  cardText: { flex: 1, gap: 4 },
-  cardTrailing: { width: 24, alignItems: 'center' },
+  panelCta: { color: Colors.ink, letterSpacing: 1, flexShrink: 1 },
 });

@@ -44,10 +44,10 @@ const ICONS: Record<ToastType, keyof typeof Ionicons.glyphMap> = {
 };
 
 const COLORS: Record<ToastType, string> = {
-  success: Colors.success,
-  error: Colors.error,
-  info: Colors.accent,
-  warning: '#F59E0B',
+  success: '#A9C9A0',
+  error: Colors.flameOnInk,
+  info: Colors.onInk,
+  warning: '#E6BC7E',
 };
 
 // ─── Toast Provider component ─────────────────────────────────────────────────
@@ -86,7 +86,7 @@ export function ToastProvider() {
 
   return (
     <Animated.View style={[styles.toast, animStyle]}>
-      <View style={[styles.iconWrap, { backgroundColor: color + '22' }]}>
+      <View style={styles.iconWrap}>
         <Ionicons name={ICONS[type]} size={18} color={color} />
       </View>
       <Text style={styles.message} numberOfLines={2}>{state.config.message}</Text>
@@ -103,30 +103,27 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     maxWidth: Layout.maxReading,
     zIndex: 100,
-    backgroundColor: Colors.bgSubtle,
+    backgroundColor: Colors.inkPanel,
     borderRadius: Radius.lg,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 30,
     elevation: 10,
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
   },
   iconWrap: {
     width: 32,
     height: 32,
-    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
   },
   message: {
     flex: 1,
-    color: Colors.textPrimary,
+    color: Colors.onInk,
     fontFamily: Fonts.sansMedium,
     fontSize: 14,
     lineHeight: 20,

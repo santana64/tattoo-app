@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
-import { enterUp } from '@/components/motion';
+import { Kicker, SectionHead, StatusDot, TextLink } from '@/components/v5';
+import { OptionChip, Panel } from '@/components/v5/studio';
 import { supabase } from '@/lib/supabase';
 import {
   DURATION_CHOICES, NOTICE_CHOICES, TIMEZONE_CHOICES, bookingSettingsError, durationLabel, fetchBookingSettings,
@@ -20,7 +20,7 @@ interface BookingSettingsSectionProps {
   artistId: string;
   /** Called once the settings are known (null when they could not be read) and after each save. */
   onSettings?: (settings: BookingSettings | null) => void;
-  /** Entrance order in the page. */
+  /** Position of the section in the page (kept for callers; the studio has no entrance motion). */
   index?: number;
 }
 
@@ -33,39 +33,18 @@ const draftFrom = (s: BookingSettings): Draft => ({
   notice: s.cancelNoticeHours,
 });
 
-const tap = () => { if (Platform.OS !== 'web') Haptics.selectionAsync(); };
-
-function Chip({ label, selected, onPress, role }: { label: string; selected: boolean; onPress: () => void; role: 'radio' | 'checkbox' }) {
+function Field({ label, helper, children }: { label: string; helper?: string; children: React.ReactNode }) {
   return (
-    <Pressable
-      onPress={() => { tap(); onPress(); }}
-      accessibilityRole={role}
-      accessibilityLabel={label}
-      accessibilityState={role === 'checkbox' ? { checked: selected } : { selected, checked: selected }}
-      style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-        return [styles.chip, (pressed || hovered) && !selected && styles.chipHover, selected && styles.chipSelected];
-      }}
-    >
-      <TText variant="caption" weight="medium" style={{ fontSize: 13, color: selected ? Colors.textInverse : Colors.textSecondary }}>
-        {label}
-      </TText>
-    </Pressable>
-  );
-}
-
-function Field({ label, helper, children, last }: { label: string; helper?: string; children: React.ReactNode; last?: boolean }) {
-  return (
-    <View style={[styles.field, !last && styles.fieldDivider]}>
-      <TText variant="bodySmall" weight="semibold">{label}</TText>
+    <View style={styles.field}>
+      <TText variant="displayS" style={styles.fieldTitle}>{label}</TText>
       {children}
-      {!!helper && <TText variant="caption" color="tertiary">{helper}</TText>}
+      {!!helper && <TText variant="caption" color="secondary">{helper}</TText>}
     </View>
   );
 }
 
 /** Time zone, session lengths, cancellation notice and approximate location of an artist. */
-export function BookingSettingsSection({ artistId, onSettings, index = 1 }: BookingSettingsSectionProps) {
+export function BookingSettingsSection({ artistId, onSettings }: BookingSettingsSectionProps) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState<BookingSettings | null>(null);
@@ -111,22 +90,22 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
 
   if (state !== 'ready' || !draft || !saved) {
     return (
-      <Animated.View entering={enterUp(index)} style={styles.section}>
-        <SectionHead />
+      <Panel>
+        <Head />
         {state === 'error' ? (
           <View style={styles.inlineError} accessibilityRole="alert">
             <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>Vos réglages de réservation n’ont pas pu être chargés.</TText>
-            <TButton title="Réessayer" variant="secondary" size="sm" fullWidth={false} onPress={() => setAttempt((n) => n + 1)} />
+            <TextLink label="Réessayer" icon="refresh" onPress={() => setAttempt((n) => n + 1)} />
           </View>
         ) : (
-          <View style={[styles.card, { gap: Spacing.sm, paddingVertical: Spacing.sm }]}>
-            <TSkeleton width="40%" height={14} />
-            <TSkeleton height={36} radius={Radius.full} />
-            <TSkeleton width="50%" height={14} />
-            <TSkeleton height={36} radius={Radius.full} />
+          <View style={{ gap: Spacing.sm, paddingVertical: Spacing.md }}>
+            <TSkeleton width="40%" height={20} />
+            <TSkeleton height={36} />
+            <TSkeleton width="50%" height={20} />
+            <TSkeleton height={36} />
           </View>
         )}
-      </Animated.View>
+      </Panel>
     );
   }
 
@@ -196,14 +175,14 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
   };
 
   return (
-    <Animated.View entering={enterUp(index)} style={styles.section}>
-      <SectionHead />
+    <Panel>
+      <Head />
 
-      <View style={styles.card}>
+      <View>
         <Field label="Fuseau horaire" helper="Vos horaires d’ouverture et vos créneaux sont lus dans ce fuseau.">
           <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Fuseau horaire">
             {timezones.map((t) => (
-              <Chip key={t.id} role="radio" label={t.label} selected={draft.timezone === t.id} onPress={() => update({ timezone: t.id })} />
+              <OptionChip key={t.id} role="radio" label={t.label} selected={draft.timezone === t.id} onPress={() => update({ timezone: t.id })} />
             ))}
           </View>
         </Field>
@@ -214,13 +193,12 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
         >
           <View style={styles.wrap}>
             {DURATION_CHOICES.map((m) => (
-              <Chip key={m} role="checkbox" label={durationLabel(m)} selected={draft.durations.includes(m)} onPress={() => toggleDuration(m)} />
+              <OptionChip key={m} role="checkbox" label={durationLabel(m)} selected={draft.durations.includes(m)} onPress={() => toggleDuration(m)} />
             ))}
           </View>
         </Field>
 
         <Field
-          last
           label="Délai d’annulation"
           helper={draft.notice > 0
             ? `Un client peut annuler ou déplacer une séance confirmée jusqu’à ${noticeDeadline(draft.notice)}. Passé ce délai, il doit vous écrire.`
@@ -228,7 +206,7 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
         >
           <View style={styles.wrap} accessibilityRole="radiogroup" accessibilityLabel="Délai d’annulation">
             {NOTICE_CHOICES.map((h) => (
-              <Chip key={h} role="radio" label={noticeLabel(h)} selected={draft.notice === h} onPress={() => update({ notice: h })} />
+              <OptionChip key={h} role="radio" label={noticeLabel(h)} selected={draft.notice === h} onPress={() => update({ notice: h })} />
             ))}
           </View>
         </Field>
@@ -236,8 +214,8 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
         <View style={styles.saveRow}>
           {!!(saveError ?? (dirty ? validation : null)) && (
             <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
-              <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
-              <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{saveError ?? validation}</TText>
+              <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
+              <TText variant="caption" color="error" style={{ flex: 1 }}>{saveError ?? validation}</TText>
             </View>
           )}
           <TButton
@@ -251,18 +229,18 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
       </View>
 
       {/* ── Location ── */}
-      <View style={[styles.card, styles.locationCard]}>
-        <View style={styles.locationHead}>
-          <View style={[styles.dot, { backgroundColor: located ? Colors.success : Colors.textTertiary }]} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <TText variant="bodySmall" weight="semibold" accessibilityLiveRegion="polite">
-              {located ? 'Visible dans la recherche à proximité' : 'Non localisé'}
-            </TText>
-            <TText variant="caption" color="tertiary" numberOfLines={1}>
-              {placeLabel ?? (city ? `Ville du profil : ${city}` : 'Aucune ville indiquée dans votre profil')}
-            </TText>
-          </View>
+      <View style={styles.location}>
+        <Kicker tone="muted">Recherche à proximité</Kicker>
+        <TText variant="displayS" style={styles.fieldTitle}>Localiser ma ville.</TText>
+        <View accessibilityLiveRegion="polite">
+          <StatusDot
+            tone={located ? 'open' : 'closed'}
+            label={located ? 'Visible dans la recherche à proximité' : 'Non localisé'}
+          />
         </View>
+        <TText variant="caption" color="secondary" numberOfLines={1}>
+          {placeLabel ?? (city ? `Ville du profil : ${city}` : 'Aucune ville indiquée dans votre profil')}
+        </TText>
         <TText variant="caption" color="secondary">
           Seule la position approximative de votre ville est enregistrée, jamais une adresse.
         </TText>
@@ -273,18 +251,18 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
           <TButton
             title={located ? 'Relocaliser ma ville' : 'Localiser ma ville'}
             variant="secondary"
-            size="sm"
+            size="md"
             fullWidth={false}
             disabled={!city || !!locating}
             loading={locating === 'locate'}
             onPress={locate}
-            icon={<Ionicons name="location-outline" size={15} color={Colors.textPrimary} />}
+            icon={<Ionicons name="location-outline" size={15} color={Colors.ink} />}
           />
           {located && (
             <TButton
               title="Retirer"
               variant="ghost"
-              size="sm"
+              size="md"
               fullWidth={false}
               disabled={!!locating}
               loading={locating === 'clear'}
@@ -294,57 +272,34 @@ export function BookingSettingsSection({ artistId, onSettings, index = 1 }: Book
           )}
         </View>
       </View>
-    </Animated.View>
+    </Panel>
   );
 }
 
-function SectionHead() {
+function Head() {
   return (
-    <View style={styles.sectionHead}>
-      <TText variant="label" color="accentWarm" uppercase>Réservation</TText>
-      <TText variant="title2" serif accessibilityRole="header" style={styles.sectionTitle}>Réglages de réservation</TText>
-      <TText variant="bodySmall" color="secondary" style={{ marginTop: 4 }}>
-        Durées proposées, délai d’annulation et visibilité près de chez vos clients.
-      </TText>
-    </View>
+    <SectionHead
+      kicker="02 / Réservation"
+      title="Vos réglages."
+      description="Fuseau horaire, durées proposées, délai d’annulation et visibilité près de chez vos clients."
+      style={{ marginBottom: Spacing.md }}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  section: { paddingTop: Spacing.lg },
-  sectionHead: { marginBottom: Spacing.sm },
-  sectionTitle: { fontSize: 24, lineHeight: 28, marginTop: 4 },
-
-  card: {
-    borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated, paddingHorizontal: Spacing.sm,
-  },
-  field: { paddingVertical: Spacing.sm, gap: Spacing['2xs'] },
-  fieldDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle },
+  field: { paddingVertical: Spacing.md, gap: Spacing.xs, borderTopWidth: 1, borderTopColor: Colors.line },
+  fieldTitle: { fontSize: 24, lineHeight: 27, letterSpacing: -0.4 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    minHeight: 36, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  chipHover: { backgroundColor: Colors.glassBgMid },
-  chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
 
-  saveRow: {
-    paddingVertical: Spacing.sm, gap: Spacing['2xs'],
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderSubtle,
-  },
+  saveRow: { paddingVertical: Spacing.md, gap: Spacing['2xs'], borderTopWidth: 1, borderTopColor: Colors.line },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
-  locationCard: { marginTop: Spacing.sm, paddingVertical: Spacing.sm, gap: Spacing['2xs'] },
-  locationHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  locationActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing['2xs'], marginTop: Spacing['3xs'] },
+  location: { paddingTop: Spacing.md, gap: Spacing['2xs'], borderTopWidth: 1, borderTopColor: Colors.ink },
+  locationActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing['2xs'], marginTop: Spacing.xs },
 
   inlineError: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    padding: Spacing.sm, borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.xs,
+    paddingVertical: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.ink,
   },
 });

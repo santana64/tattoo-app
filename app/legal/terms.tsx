@@ -1,18 +1,7 @@
 import React from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
-import { TText } from '@/components/ui/TText';
-import { THeader } from '@/components/ui/THeader';
-import { enterUp } from '@/components/motion';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { LegalDocument, type LegalSection } from '@/components/v5/LegalDocument';
 
-interface Section {
-  title: string;
-  body: string;
-}
-
-const SECTIONS: Section[] = [
+const SECTIONS: LegalSection[] = [
   {
     title: 'Objet',
     body: 'INKR est une plateforme de mise en relation entre tatoueurs professionnels et clients. L’application permet la découverte d’artistes, l’envoi de demandes de tatouage et la gestion de rendez-vous.',
@@ -48,56 +37,14 @@ const SECTIONS: Section[] = [
 ];
 
 export default function TermsScreen() {
-  const insets = useSafeAreaInsets();
-
   return (
-    <View style={styles.container}>
-      <THeader title="Conditions d’utilisation" showBack />
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['3xl'] }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View entering={enterUp(0)}>
-          <TText variant="label" color="accentWarm" uppercase>Informations légales</TText>
-          <TText variant="displayL" style={styles.title} accessibilityRole="header">
-            Conditions <TText variant="displayL" italic color="accentGlow">d’utilisation</TText>
-          </TText>
-          <TText variant="caption" color="tertiary" tabular style={styles.lastUpdated}>
-            Dernière mise à jour : 1er avril 2026
-          </TText>
-        </Animated.View>
-
-        {SECTIONS.map((section, index) => (
-          <View key={section.title} style={styles.section}>
-            <TText variant="label" color="accentWarm" tabular style={styles.sectionNum}>
-              {String(index + 1).padStart(2, '0')}
-            </TText>
-            <TText variant="displayS" style={styles.sectionTitle} accessibilityRole="header">
-              {section.title}
-            </TText>
-            <TText variant="body" color="secondary" selectable style={styles.sectionBody}>
-              {section.body}
-            </TText>
-          </View>
-        ))}
-      </ScrollView>
-    </View>
+    <LegalDocument
+      headerTitle="Conditions d’utilisation"
+      kicker="Informations légales"
+      title="Conditions"
+      emphasis="d’utilisation"
+      updated="Dernière mise à jour : 1er avril 2026"
+      sections={SECTIONS}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xl,
-  },
-  title: { marginTop: Spacing['2xs'] },
-  lastUpdated: { marginTop: Spacing.xs, marginBottom: Spacing.lg },
-  section: {
-    paddingTop: Spacing.lg, marginTop: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
-  },
-  sectionNum: { marginBottom: 6 },
-  sectionTitle: { fontSize: 26, lineHeight: 30, marginBottom: Spacing.xs },
-  sectionBody: { lineHeight: 27 },
-});

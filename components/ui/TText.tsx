@@ -18,7 +18,9 @@ type Variant =
 type Color =
   | 'primary' | 'secondary' | 'tertiary' | 'inverse'
   | 'accent' | 'accentWarm' | 'accentGlow'
-  | 'error' | 'success' | 'warning' | 'info';
+  | 'error' | 'success' | 'warning' | 'info'
+  /** On ink panels and over photography. */
+  | 'onInk' | 'onInkMuted' | 'flameOnInk';
 
 interface TTextProps extends TextProps {
   variant?: Variant;
@@ -37,17 +39,17 @@ interface TTextProps extends TextProps {
 const DISPLAY: ReadonlySet<Variant> = new Set(['displayXL', 'displayL', 'displayM', 'displayS']);
 
 const variantStyles: Record<Variant, TextStyle> = {
-  displayXL: { fontSize: FontSize.displayXL, letterSpacing: LetterSpacing.hero, lineHeight: 60 },
-  displayL:  { fontSize: FontSize.displayL, letterSpacing: LetterSpacing.tight, lineHeight: 48 },
-  displayM:  { fontSize: FontSize.displayM, letterSpacing: LetterSpacing.tighter, lineHeight: 39 },
-  displayS:  { fontSize: FontSize.displayS, letterSpacing: LetterSpacing.tighter, lineHeight: 33 },
+  displayXL: { fontSize: FontSize.displayXL, letterSpacing: LetterSpacing.hero, lineHeight: 64 },
+  displayL:  { fontSize: FontSize.displayL, letterSpacing: LetterSpacing.tight, lineHeight: 50 },
+  displayM:  { fontSize: FontSize.displayM, letterSpacing: LetterSpacing.tighter, lineHeight: 42 },
+  displayS:  { fontSize: FontSize.displayS, letterSpacing: -0.8, lineHeight: 32 },
   title1:    { fontSize: FontSize.title1, fontWeight: '600', letterSpacing: -0.5, lineHeight: 28 },
   title2:    { fontSize: FontSize.title2, fontWeight: '600', letterSpacing: -0.25, lineHeight: 24 },
   body:      { fontSize: FontSize.body, fontWeight: '400', letterSpacing: -0.1, lineHeight: 25 },
   bodySmall: { fontSize: FontSize.bodySmall, fontWeight: '400', letterSpacing: -0.05, lineHeight: 21 },
   caption:   { fontSize: FontSize.caption, fontWeight: '400', letterSpacing: 0, lineHeight: 17 },
-  label:     { fontSize: FontSize.label, fontWeight: '500', letterSpacing: LetterSpacing.caps, lineHeight: 15 },
-  micro:     { fontSize: FontSize.micro, fontWeight: '500', letterSpacing: LetterSpacing.wider, lineHeight: 13 },
+  label:     { fontSize: FontSize.label, fontWeight: '700', letterSpacing: LetterSpacing.caps, lineHeight: 15 },
+  micro:     { fontSize: FontSize.micro, fontWeight: '600', letterSpacing: LetterSpacing.wider, lineHeight: 13 },
 };
 
 const colorMap: Record<Color, string> = {
@@ -62,6 +64,9 @@ const colorMap: Record<Color, string> = {
   success:    Colors.success,
   warning:    Colors.warning,
   info:       Colors.info,
+  onInk:      Colors.onInk,
+  onInkMuted: Colors.onInkMuted,
+  flameOnInk: Colors.flameOnInk,
 };
 
 const weightMap: Record<NonNullable<TTextProps['weight']>, TextStyle['fontWeight']> = {

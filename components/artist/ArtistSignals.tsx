@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors } from '@/constants/theme';
+import { Colors, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { formatCount, formatNextSlot, formatRating, type ArtistStats } from '@/lib/studio';
 
@@ -93,5 +93,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 16, rowGap: 4 },
   rowCompact: { columnGap: 12, rowGap: 2 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.success },
+  dot: { width: 6, height: 6, borderRadius: Radius.full, backgroundColor: Colors.moss },
 });

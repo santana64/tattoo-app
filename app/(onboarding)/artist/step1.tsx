@@ -41,8 +41,10 @@ export default function ArtistStep1() {
 
   return (
     <OnboardingScreen
+      audience="artist"
       step={CURRENT_STEP}
       total={TOTAL_STEPS}
+      label="Votre identité"
       title="Votre nom"
       accent="d’artiste"
       lede="Il apparaît sur votre profil et dans les recherches des clients."

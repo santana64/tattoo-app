@@ -3,7 +3,6 @@ import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { format } from 'date-fns/format';
 import { isValid } from 'date-fns/isValid';
@@ -16,19 +15,22 @@ import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { DetailRow, InkPanel, Kicker, Masthead, PageWrap } from '@/components/v5';
 import { styleName } from '@/components/ArtistCard';
 import {
   RequestStatusLine, StatusTimeline, SIZE_RANGE, COLOR_LABEL, FLEX_LABEL,
   formatBudget, projectTypeLabel, type TimelineStep, type RequestViewer,
 } from '@/components/RequestCard';
-import { BottomSheet, GlassSurface, RevealImage, enterUp } from '@/components/motion';
+import { BottomSheet, GlassSurface, RevealImage } from '@/components/motion';
 import { useRequestStore, type TattooRequest, type RequestStatus } from '@/store/request-store';
 import { AppointmentPanel, formatPreferredSlot, upcomingPreferredSlots } from '@/components/AppointmentPanel';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/tattoo';
 
-const DOSSIER_MAX = 720;
+const ASIDE_W = 380;
+const BAR_MAX = 760;
 
 function formatLong(iso: string | null | undefined, withTime = false): string | undefined {
   if (!iso) return undefined;
@@ -45,28 +47,28 @@ function buildTimeline(r: TattooRequest, viewAs: RequestViewer): TimelineStep[] 
   const reply = viewAs === 'artist' ? 'Votre réponse' : 'Réponse de l’artiste';
   switch (r.status) {
     case 'submitted':
-      return [sent, { key: 'reply', label: reply, detail: 'En attente', state: 'current', color: Colors.warning }, appointment, session];
+      return [sent, { key: 'reply', label: reply, detail: 'En attente', state: 'current' }, appointment, session];
     case 'clarification_needed':
       return [sent, {
         key: 'reply', label: 'Précision demandée',
         detail: viewAs === 'artist' ? 'En attente du client' : 'L’artiste attend des précisions',
-        state: 'current', color: Colors.warning,
+        state: 'current',
       }, appointment, session];
     case 'accepted':
-      return [sent, accepted, { ...appointment, detail: 'À convenir avec l’artiste', state: 'current', color: Colors.success }, session];
+      return [sent, accepted, { ...appointment, detail: 'À convenir avec l’artiste', state: 'current' }, session];
     case 'confirmed':
-      return [sent, accepted, { ...appointment, label: 'Rendez-vous confirmé', state: 'current', color: Colors.success }, session];
+      return [sent, accepted, { ...appointment, label: 'Rendez-vous confirmé', state: 'current' }, session];
     case 'completed':
       return [sent, accepted, { ...appointment, label: 'Rendez-vous confirmé', state: 'done' }, { ...session, state: 'done' }];
     case 'declined':
       return [sent, {
         key: 'declined', label: 'Demande refusée',
         detail: r.declineReason ? DECLINE_REASONS[r.declineReason] ?? r.declineReason : undefined,
-        state: 'ended', color: Colors.error,
+        state: 'ended',
       }];
     case 'archived':
     default:
-      return [sent, { key: 'archived', label: 'Demande archivée', state: 'ended', color: Colors.textTertiary }];
+      return [sent, { key: 'archived', label: 'Demande archivée', state: 'ended' }];
   }
 }
 
@@ -92,38 +94,30 @@ function nextStepCopy(r: TattooRequest, viewAs: RequestViewer, counterpart: stri
 }
 
 // ─── Pieces ───────────────────────────────────────────────────────────────────
-function Section({ title, index, children }: { title: string; index: number; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Animated.View entering={enterUp(index, 80)} style={styles.section}>
-      <TText variant="label" color="accentWarm" uppercase style={styles.sectionTitle}>{title}</TText>
+    <View style={styles.section}>
+      <Kicker tone="flame" style={styles.sectionTitle}>{title}</Kicker>
       {children}
-    </Animated.View>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.fact}>
-      <TText variant="bodySmall" color="tertiary" style={styles.factLabel}>{label}</TText>
-      <TText variant="bodySmall" weight="medium" tabular style={{ flex: 1 }}>{value}</TText>
     </View>
   );
 }
 
 function DossierSkeleton() {
   return (
-    <View style={[styles.body, { gap: 12, paddingTop: Spacing.lg }]}>
-      <TSkeleton width="35%" height={11} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        <TSkeleton width={64} height={64} radius={32} />
+    <PageWrap style={{ gap: 12, paddingTop: Spacing.xl }}>
+      <TSkeleton width="30%" height={11} />
+      <TSkeleton width="70%" height={44} />
+      <TSkeleton width="45%" height={14} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: Spacing.lg }}>
+        <TSkeleton width={64} height={64} />
         <View style={{ flex: 1, gap: 8 }}>
-          <TSkeleton width="60%" height={28} />
-          <TSkeleton width="35%" height={12} />
+          <TSkeleton width="50%" height={24} />
+          <TSkeleton width="30%" height={12} />
         </View>
       </View>
-      <TSkeleton height={150} radius={Radius.md} style={{ marginTop: Spacing.lg }} />
-      <TSkeleton height={200} radius={Radius.md} style={{ marginTop: Spacing.sm }} />
-    </View>
+      <TSkeleton height={180} style={{ marginTop: Spacing.lg }} />
+    </PageWrap>
   );
 }
 
@@ -132,6 +126,7 @@ export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { isWide, gutter } = useContentDimensions();
   const { user } = useAuthStore();
   const { fetchRequest, updateStatus } = useRequestStore();
   const [request, setRequest] = useState<TattooRequest | null>(null);
@@ -225,41 +220,67 @@ export default function RequestDetailScreen() {
   const awaitingAnswer = !inquiry && (request.status === 'submitted' || request.status === 'clarification_needed');
   const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
 
-  return (
-    <View style={styles.container}>
-      <THeader showBack title={inquiry ? 'Question' : 'Demande'} />
+  const kicker = `${inquiry ? (isArtist ? 'Question reçue' : 'Votre question') : isArtist ? 'Demande reçue' : 'Votre demande'}${submitted ? ` · ${submitted}` : ''}`;
+  const zone = request.bodyZone?.trim();
+  const title = inquiry ? 'Une question' : projectTypeLabel(request.projectType);
+  const emphasis = inquiry
+    ? `${isArtist ? 'de' : 'à'} ${counterpart || (isArtist ? 'votre client' : 'l’artiste')}.`
+    : zone ? `${zone.toLowerCase()}.` : undefined;
 
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + (hasBar ? 190 : Spacing['2xl']) }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Identity ── */}
-        <Animated.View entering={enterUp(0)} style={styles.hero}>
-          <TText variant="label" color="tertiary" uppercase tabular>
-            {inquiry ? (isArtist ? 'Question reçue' : 'Votre question') : isArtist ? 'Demande reçue' : 'Votre demande'}
-            {submitted ? ` · ${submitted}` : ''}
-          </TText>
-          <View style={styles.identity}>
-            <TAvatar uri={counterpartAvatar} name={counterpart} size="xl" />
-            <View style={{ flex: 1 }}>
-              <TText variant="displayS" numberOfLines={2} accessibilityRole="header">{counterpart}</TText>
-              <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>
-                {isArtist ? (request.isFirstTattoo ? 'Client · premier tatouage' : 'Client') : request.artistCity || 'Artiste'}
-              </TText>
-            </View>
-          </View>
-          <RequestStatusLine status={request.status} viewAs={viewAs} strong inquiry={inquiry} />
-        </Animated.View>
+  // ── The cartel: who, where it stands, and the brief ──
+  const identity = (onInk: boolean) => (
+    <View style={styles.identity}>
+      <TAvatar uri={counterpartAvatar} name={counterpart} size={onInk ? 'xl' : 'lg'} />
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <Kicker tone={onInk ? 'onInkMuted' : 'muted'}>{isArtist ? 'Client' : 'Artiste'}</Kicker>
+        <TText variant="displayS" numberOfLines={2} style={[styles.name, { color: onInk ? Colors.onInk : Colors.ink }]}>
+          {counterpart}
+        </TText>
+        <TText variant="caption" style={{ color: onInk ? Colors.onInkMuted : Colors.textSecondary }}>
+          {isArtist ? (request.isFirstTattoo ? 'Client · premier tatouage' : 'Client') : request.artistCity || 'Artiste'}
+        </TText>
+      </View>
+    </View>
+  );
 
-        {/* ── A question: the conversation is the whole story ── */}
-        {inquiry && (
-          <Section title="Échange" index={1}>
-            <TText variant="bodySmall" color="secondary" style={styles.prose}>{guidance}</TText>
-          </Section>
-        )}
+  const brief = (onInk: boolean) => (
+    <View>
+      <DetailRow onInk={onInk} label="Type" value={projectTypeLabel(request.projectType)} />
+      <DetailRow onInk={onInk} label="Zone" value={request.bodyZone || '—'} />
+      <DetailRow onInk={onInk} label="Taille" value={`${request.sizeCategory.toUpperCase()} · ${SIZE_RANGE[request.sizeCategory] ?? ''}`} />
+      <DetailRow onInk={onInk} label="Budget" value={formatBudget(request)} />
+      <DetailRow onInk={onInk} label="Couleur" value={COLOR_LABEL[request.colorPreference] ?? request.colorPreference} />
+      {!!styles_ && <DetailRow onInk={onInk} label="Styles" value={styles_} />}
+      <DetailRow
+        onInk={onInk}
+        label="Approche"
+        value={FLEX_LABEL[request.flexibilityLevel] ?? request.flexibilityLevel}
+        last={!(!isArtist && request.isFirstTattoo)}
+      />
+      {!isArtist && request.isFirstTattoo && <DetailRow onInk={onInk} label="Premier tatouage" value="Oui" last />}
+    </View>
+  );
 
-        {/* ── Status timeline ── */}
-        {!inquiry && <Section title="Suivi" index={1}>
+  const main = (
+    <View style={styles.main}>
+      {/* Phone: the counterpart opens the dossier, the status right under. */}
+      {!isWide && (
+        <View style={styles.phoneIdentity}>
+          {identity(false)}
+          <RequestStatusLine status={request.status} viewAs={viewAs} inquiry={inquiry} />
+        </View>
+      )}
+
+      {/* ── A question: the conversation is the whole story ── */}
+      {inquiry && (
+        <Section title="Échange">
+          <TText variant="bodySmall" color="secondary" style={styles.prose}>{guidance}</TText>
+        </Section>
+      )}
+
+      {/* ── Status timeline ── */}
+      {!inquiry && (
+        <Section title="Suivi">
           <StatusTimeline steps={buildTimeline(request, viewAs)} />
           {!!guidance && <TText variant="bodySmall" color="secondary" style={styles.guidance}>{guidance}</TText>}
           {['accepted', 'confirmed', 'completed'].includes(request.status) && (
@@ -274,74 +295,104 @@ export default function RequestDetailScreen() {
               />
             </View>
           )}
-        </Section>}
+        </Section>
+      )}
 
-        {/* Before acceptance the booking panel is hidden: keep the wished slots in view. */}
-        {awaitingAnswer && wishedSlots.length > 0 && (
-          <Section title={isArtist ? 'Créneaux souhaités' : 'Vos créneaux souhaités'} index={2}>
-            {wishedSlots.map((iso) => (
-              <View key={iso} style={styles.slotRow}>
-                <Ionicons name="time-outline" size={15} color={Colors.textTertiary} />
-                <TText variant="bodySmall" tabular style={{ flex: 1 }}>{formatPreferredSlot(iso)}</TText>
-              </View>
-            ))}
-            <TText variant="caption" color="tertiary" style={{ marginTop: Spacing['2xs'] }}>
-              {isArtist
-                ? 'Une fois la demande acceptée, proposez l’un de ces créneaux en un geste.'
-                : `${counterpart} confirmera l’un d’eux ou vous en proposera un autre.`}
-            </TText>
-          </Section>
-        )}
-
-        {!!request.artistNotes && (
-          <Section title="Note de l’artiste" index={2}>
-            <TText variant="body" color="secondary" style={styles.prose}>{request.artistNotes}</TText>
-          </Section>
-        )}
-
-        {/* ── Project (a question has none: its fields are placeholders) ── */}
-        {!inquiry && <Section title="Le projet" index={2}>
-          <Fact label="Type" value={projectTypeLabel(request.projectType)} />
-          <Fact label="Zone" value={request.bodyZone || '—'} />
-          <Fact label="Taille" value={`${request.sizeCategory.toUpperCase()} · ${SIZE_RANGE[request.sizeCategory] ?? ''}`} />
-          <Fact label="Budget" value={formatBudget(request)} />
-          <Fact label="Couleur" value={COLOR_LABEL[request.colorPreference] ?? request.colorPreference} />
-          {!!styles_ && <Fact label="Styles" value={styles_} />}
-          <Fact label="Approche" value={FLEX_LABEL[request.flexibilityLevel] ?? request.flexibilityLevel} />
-          {!isArtist && request.isFirstTattoo && <Fact label="Premier tatouage" value="Oui" />}
-        </Section>}
-
-        {!!request.description && (
-          <Section title={inquiry ? 'Premier message' : 'Description'} index={3}>
-            <TText variant="body" color="secondary" style={styles.prose} selectable>{request.description}</TText>
-          </Section>
-        )}
-
-        {references.length > 0 && (
-          <Section title="Références" index={4}>
-            <View style={styles.refGrid}>
-              {references.map((uri, i) => (
-                <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
-              ))}
+      {/* Before acceptance the booking panel is hidden: keep the wished slots in view. */}
+      {awaitingAnswer && wishedSlots.length > 0 && (
+        <Section title={isArtist ? 'Créneaux souhaités' : 'Vos créneaux souhaités'}>
+          {wishedSlots.map((iso, i) => (
+            <View key={iso} style={[styles.slotRow, i === wishedSlots.length - 1 && styles.slotRowLast]}>
+              <TText variant="caption" tabular color="tertiary" style={styles.slotIndex}>{String(i + 1).padStart(2, '0')}</TText>
+              <TText variant="bodySmall" weight="medium" tabular style={{ flex: 1 }}>{formatPreferredSlot(iso)}</TText>
             </View>
-          </Section>
-        )}
+          ))}
+          <TText variant="caption" color="tertiary" style={{ marginTop: Spacing.xs }}>
+            {isArtist
+              ? 'Une fois la demande acceptée, proposez l’un de ces créneaux en un geste.'
+              : `${counterpart} confirmera l’un d’eux ou vous en proposera un autre.`}
+          </TText>
+        </Section>
+      )}
 
-        {request.status === 'declined' && !!request.declineReason && (
-          <Section title="Motif du refus" index={5}>
-            <TText variant="body" color="secondary">{DECLINE_REASONS[request.declineReason] ?? request.declineReason}</TText>
-          </Section>
-        )}
+      {!!request.artistNotes && (
+        <Section title="Note de l’artiste">
+          <TText variant="body" color="secondary" style={styles.prose}>{request.artistNotes}</TText>
+        </Section>
+      )}
+
+      {/* ── Project (a question has none: its fields are placeholders). On wide, it is the ink cartel. ── */}
+      {!inquiry && !isWide && <Section title="Le projet">{brief(false)}</Section>}
+
+      {!!request.description && (
+        <Section title={inquiry ? 'Premier message' : 'Description'}>
+          <TText variant="body" color="secondary" style={styles.prose} selectable>{request.description}</TText>
+        </Section>
+      )}
+
+      {references.length > 0 && (
+        <Section title="Références">
+          <View style={styles.refGrid}>
+            {references.map((uri, i) => (
+              <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+            ))}
+          </View>
+        </Section>
+      )}
+
+      {request.status === 'declined' && !!request.declineReason && (
+        <Section title="Motif du refus">
+          <TText variant="body" color="secondary">{DECLINE_REASONS[request.declineReason] ?? request.declineReason}</TText>
+        </Section>
+      )}
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <THeader showBack title={inquiry ? 'Question' : 'Demande'} />
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + (hasBar ? 190 : Spacing['2xl']) }}
+        showsVerticalScrollIndicator={false}
+      >
+        <PageWrap>
+          <Masthead
+            kicker={kicker}
+            title={title}
+            emphasis={emphasis}
+            description={isWide ? guidance ?? undefined : undefined}
+            action={isWide ? <RequestStatusLine status={request.status} viewAs={viewAs} inquiry={inquiry} /> : undefined}
+          />
+
+          {isWide ? (
+            <View style={styles.wide}>
+              {main}
+              <InkPanel style={styles.aside}>
+                {identity(true)}
+                <View style={styles.asideStatus}>
+                  <RequestStatusLine status={request.status} viewAs={viewAs} inquiry={inquiry} onInk />
+                </View>
+                {!inquiry && (
+                  <>
+                    <Kicker tone="flameOnInk" style={styles.asideKicker}>Le brief</Kicker>
+                    {brief(true)}
+                  </>
+                )}
+              </InkPanel>
+            </View>
+          ) : main}
+        </PageWrap>
       </ScrollView>
 
       {/* ── Pinned actions ── */}
       {hasBar && !showDecline && (
-        <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
+        <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12, paddingHorizontal: gutter }]}>
           <View style={styles.barInner}>
             {!!error && (
               <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
-                <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
-                <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{error}</TText>
+                <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
+                <TText variant="caption" style={{ color: Colors.error, flex: 1 }}>{error}</TText>
               </View>
             )}
             {inquiry ? (
@@ -349,7 +400,7 @@ export default function RequestDetailScreen() {
                 <TButton
                   title={isArtist ? 'Répondre' : 'Ouvrir la conversation'}
                   onPress={() => router.push(`/conversation/${request.id}`)}
-                  icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.textInverse} />}
+                  icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.paper} />}
                 />
                 {!isArtist && (
                   <TButton
@@ -392,7 +443,7 @@ export default function RequestDetailScreen() {
               <TButton
                 title="Ouvrir la conversation"
                 onPress={() => router.push(`/conversation/${request.id}`)}
-                icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.textInverse} />}
+                icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.paper} />}
               />
             )}
           </View>
@@ -401,11 +452,12 @@ export default function RequestDetailScreen() {
 
       {/* ── Decline reasons ── */}
       <BottomSheet visible={showDecline} onClose={() => setShowDecline(false)} accessibilityLabel="Motif du refus">
-        <TText variant="displayS">Motif du refus</TText>
+        <Kicker tone="flame">Refuser la demande</Kicker>
+        <TText variant="displayS" style={{ marginTop: 8 }}>Motif du refus</TText>
         <TText variant="bodySmall" color="secondary" style={{ marginTop: 4, marginBottom: Spacing.sm }}>
           {counterpart} verra ce motif sur sa demande.
         </TText>
-        <View accessibilityRole="radiogroup">
+        <View accessibilityRole="radiogroup" style={styles.reasons}>
           {Object.entries(DECLINE_REASONS).map(([key, label]) => {
             const selected = selectedReason === key;
             return (
@@ -414,7 +466,10 @@ export default function RequestDetailScreen() {
                 onPress={() => setSelectedReason(key)}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: selected, selected }}
-                style={styles.reasonRow}
+                style={(state) => [
+                  styles.reasonRow,
+                  ((state as { hovered?: boolean }).hovered || state.pressed) && { backgroundColor: Colors.wash },
+                ]}
               >
                 <View style={[styles.radio, selected && styles.radioOn]}>
                   {selected && <View style={styles.radioDot} />}
@@ -425,7 +480,7 @@ export default function RequestDetailScreen() {
           })}
         </View>
         {!!error && (
-          <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{error}</TText>
+          <TText variant="caption" style={{ color: Colors.error, marginTop: Spacing.xs }} accessibilityRole="alert">{error}</TText>
         )}
         <View style={styles.sheetActions}>
           <TButton
@@ -444,54 +499,56 @@ export default function RequestDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  body: {
-    width: '100%', maxWidth: DOSSIER_MAX + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter,
-  },
 
-  hero: { paddingTop: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.sm },
+  wide: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'] },
+  main: { flex: 1, minWidth: 0 },
+  aside: { width: ASIDE_W },
+  asideStatus: { marginTop: Spacing.md, marginBottom: Spacing.lg },
+  asideKicker: { marginBottom: Spacing.xs },
+
   identity: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  name: { fontSize: 30, lineHeight: 31, letterSpacing: -0.6 },
+  phoneIdentity: { gap: Spacing.sm, paddingBottom: Spacing.lg },
 
   section: {
-    paddingVertical: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: Spacing.lg, paddingBottom: Spacing.xl,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  sectionTitle: { marginBottom: Spacing.sm },
+  sectionTitle: { marginBottom: Spacing.md },
   guidance: { marginTop: Spacing.xs, maxWidth: Layout.maxReading },
   prose: { maxWidth: Layout.maxReading },
 
-  fact: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
+  slotRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 44,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  factLabel: { width: 112 },
-  slotRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  slotRowLast: { borderBottomWidth: 1, borderBottomColor: Colors.line },
+  slotIndex: { width: 22 },
 
   refGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  refTile: { width: 104, height: 130, borderRadius: Radius.sm },
+  refTile: { width: 104, height: 130 },
 
   bar: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
-    paddingTop: 12, paddingHorizontal: Layout.gutter,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  barInner: { width: '100%', maxWidth: DOSSIER_MAX, alignSelf: 'center', gap: Spacing['2xs'] },
+  barInner: { width: '100%', maxWidth: BAR_MAX, alignSelf: 'center', gap: Spacing['2xs'] },
   barRow: { flexDirection: 'row', gap: Spacing['2xs'] },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 },
 
+  reasons: { borderTopWidth: 1, borderTopColor: Colors.line },
   reasonRow: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    minHeight: 48,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
+    minHeight: 48, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
   radio: {
-    width: 20, height: 20, borderRadius: 10,
-    borderWidth: 1.5, borderColor: Colors.textTertiary,
+    width: 20, height: 20, borderRadius: Radius.full,
+    borderWidth: 1.5, borderColor: Colors.ink,
     alignItems: 'center', justifyContent: 'center',
   },
   radioOn: { borderColor: Colors.error },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
+  radioDot: { width: 10, height: 10, borderRadius: Radius.full, backgroundColor: Colors.error },
   sheetActions: { marginTop: Spacing.md, gap: Spacing['2xs'] },
 });
-

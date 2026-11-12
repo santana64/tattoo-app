@@ -8,9 +8,11 @@ import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
-import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
 import { BottomSheet } from '@/components/motion';
+import { Masthead } from '@/components/v5';
+import { SETTINGS_PANE, SettingsNotice, SettingsSection } from '@/components/v5/SettingsParts';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useAuthStore } from '@/store/auth-store';
 
 const CONFIRM_WORD = 'SUPPRIMER';
@@ -26,6 +28,7 @@ const CONSEQUENCES = [
 export default function DeleteAccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { isWide, gutter } = useContentDimensions();
   const { deleteAccount } = useAuthStore();
   const [confirmation, setConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -65,66 +68,58 @@ export default function DeleteAccountScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={[styles.content, { paddingHorizontal: gutter, paddingBottom: insets.bottom + Spacing['3xl'] }]}
       >
-        {/* Statement */}
-        <View style={styles.hero}>
-          <View style={styles.iconRing}>
-            <Ionicons name="alert-outline" size={22} color={Colors.error} />
-          </View>
-          <TText variant="displayM" accessibilityRole="header">
-            Supprimer <TText variant="displayM" italic style={{ color: Colors.errorLight }}>votre compte</TText>
-          </TText>
-          <TText variant="body" color="secondary" style={styles.lead}>
-            Votre compte et vos données seront supprimés immédiatement et définitivement. Cette action est irréversible.
-          </TText>
-        </View>
-
-        {/* Consequences */}
-        <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Ce qui sera supprimé</TText>
-        <View style={styles.list}>
-          {CONSEQUENCES.map((item, idx) => (
-            <React.Fragment key={item}>
-              {idx > 0 && <TDivider inset={30} />}
-              <View style={styles.listRow}>
-                <Ionicons name="close" size={16} color={Colors.error} style={{ width: 18 }} />
-                <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>{item}</TText>
-              </View>
-            </React.Fragment>
-          ))}
-        </View>
-
-        <View style={styles.note}>
-          <Ionicons name="time-outline" size={16} color={Colors.warning} />
-          <TText variant="caption" color="secondary" style={{ flex: 1 }}>
-            Vos demandes et rendez-vous disparaissent aussi chez les personnes concernées. Prévenez-les avant de supprimer votre compte.
-          </TText>
-        </View>
-
-        {/* Typed confirmation */}
-        <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Confirmation</TText>
-        <TInput
-          label={`Saisissez ${CONFIRM_WORD} pour confirmer`}
-          value={confirmation}
-          onChangeText={setConfirmation}
-          placeholder={CONFIRM_WORD}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          selectionColor={Colors.error}
-          error={confirmation.length >= CONFIRM_WORD.length && !isConfirmed ? `Saisissez exactement ${CONFIRM_WORD}.` : undefined}
-          helper={isConfirmed ? 'Confirmation saisie.' : undefined}
+        {/* Statement: no vermilion flourish on an irreversible action */}
+        <Masthead
+          kicker="Paramètres / Suppression"
+          title="Supprimer votre compte."
+          description="Votre compte et vos données seront supprimés immédiatement et définitivement. Cette action est irréversible."
         />
 
-        <View style={styles.actions}>
-          <TButton
-            title="Supprimer mon compte"
-            variant="destructive"
-            onPress={openConfirmation}
-            disabled={!isConfirmed || isDeleting}
-            loading={isDeleting}
-            icon={<Ionicons name="trash-outline" size={17} color={Colors.errorLight} />}
-          />
-          <TButton title="Annuler" variant="ghost" onPress={() => router.back()} />
+        <View style={styles.pane}>
+          {/* Consequences */}
+          <SettingsSection number="01" title="Ce qui sera supprimé" style={styles.firstSection}>
+            {CONSEQUENCES.map((item) => (
+              <View key={item} style={styles.listRow}>
+                <Ionicons name="close" size={16} color={Colors.error} style={styles.listIcon} />
+                <TText variant="bodySmall" style={styles.listText}>{item}</TText>
+              </View>
+            ))}
+          </SettingsSection>
+
+          <SettingsNotice label="À savoir" style={styles.note}>
+            Vos demandes et rendez-vous disparaissent aussi chez les personnes concernées. Prévenez-les avant de supprimer votre compte.
+          </SettingsNotice>
+
+          {/* Typed confirmation */}
+          <SettingsSection number="02" title="Confirmation">
+            <View style={styles.confirm}>
+              <TInput
+                label={`Saisissez ${CONFIRM_WORD} pour confirmer`}
+                value={confirmation}
+                onChangeText={setConfirmation}
+                placeholder={CONFIRM_WORD}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                selectionColor={Colors.error}
+                error={confirmation.length >= CONFIRM_WORD.length && !isConfirmed ? `Saisissez exactement ${CONFIRM_WORD}.` : undefined}
+                helper={isConfirmed ? 'Confirmation saisie.' : undefined}
+              />
+            </View>
+          </SettingsSection>
+
+          <View style={[styles.actions, isWide && styles.actionsWide]}>
+            <TButton
+              title="Supprimer mon compte"
+              variant="destructive"
+              onPress={openConfirmation}
+              disabled={!isConfirmed || isDeleting}
+              loading={isDeleting}
+              fullWidth={!isWide}
+            />
+            <TButton title="Annuler" variant="ghost" fullWidth={!isWide} onPress={() => router.back()} />
+          </View>
         </View>
       </ScrollView>
 
@@ -135,11 +130,11 @@ export default function DeleteAccountScreen() {
           Votre compte et toutes vos données vont être supprimés maintenant. Cette action ne peut pas être annulée.
         </TText>
         {deleteError ? (
-          <TText variant="bodySmall" style={styles.sheetError} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+          <TText variant="bodySmall" color="error" style={styles.sheetError} accessibilityRole="alert" accessibilityLiveRegion="assertive">
             {deleteError}
           </TText>
         ) : null}
-        <View style={styles.actions}>
+        <View style={styles.sheetActions}>
           <TButton
             title="Supprimer définitivement"
             variant="destructive"
@@ -155,28 +150,21 @@ export default function DeleteAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxReading + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xl,
+  container: { flex: 1, backgroundColor: Colors.paper },
+  content: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  pane: { width: '100%', maxWidth: SETTINGS_PANE },
+  firstSection: { marginTop: 0 },
+  listRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  hero: { marginBottom: Spacing.xl },
-  iconRing: {
-    width: 48, height: 48, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(217,105,95,0.45)',
-    backgroundColor: 'rgba(217,105,95,0.08)',
-    marginBottom: Spacing.md,
-  },
-  lead: { marginTop: Spacing.xs },
-  sectionLabel: { marginBottom: Spacing['2xs'], marginTop: Spacing.lg },
-  list: {
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-  },
-  listRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  note: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: Spacing.md },
+  listIcon: { width: 18 },
+  listText: { flex: 1 },
+  note: { marginTop: Spacing.lg },
+  confirm: { paddingTop: Spacing.md },
   actions: { gap: 10, marginTop: Spacing.xs },
+  actionsWide: { flexDirection: 'row', flexWrap: 'wrap' },
   sheetBody: { marginTop: Spacing['2xs'], marginBottom: Spacing.lg },
-  sheetError: { color: Colors.errorLight, marginTop: -Spacing.sm, marginBottom: Spacing.md },
+  sheetError: { marginTop: -Spacing.sm, marginBottom: Spacing.md },
+  sheetActions: { gap: 10, marginTop: Spacing.xs },
 });

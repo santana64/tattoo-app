@@ -1,25 +1,25 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue,
-} from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
-import { TDivider } from '@/components/ui/TDivider';
 import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { EASE_OUT, MotionDuration, PressableScale, RevealImage, enterUp } from '@/components/motion';
+import {
+  ArtCanvas, InkPanel, Kicker, Masthead, MetricGrid, PageWrap, Rule, SectionHead, type Metric,
+} from '@/components/v5';
+import { Panel, Segmented, cartelNumber } from '@/components/v5/studio';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase, type Tables } from '@/lib/supabase';
 import { fetchArtistPortfolio } from '@/lib/catalog';
 
 const DAY_INITIALS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // indexed by Date.getDay()
+const CHART_H = 132;
 
 /** Labels for the 7 buckets built below: oldest first, today last. */
 function lastSevenDayLabels() {
@@ -31,82 +31,67 @@ function lastSevenDayLabels() {
   });
 }
 
-// ─── Count-up: once, on first real value, ~700ms ease-out ─────────────────────
-function useCountUp(target: number | null, reduced: boolean) {
-  const [shown, setShown] = useState<number | null>(target);
-  const played = useRef(false);
-  useEffect(() => {
-    if (target === null) { setShown(null); return undefined; }
-    if (played.current || reduced || target === 0) { played.current = true; setShown(target); return undefined; }
-    played.current = true;
-    const start = Date.now();
-    let frame = 0;
-    const tick = () => {
-      const t = Math.min(1, (Date.now() - start) / MotionDuration.reveal);
-      const eased = 1 - Math.pow(1 - t, 4);
-      setShown(Math.round(target * eased));
-      if (t < 1) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [target, reduced]);
-  return shown;
-}
+const formatNumber = (n: number) => n.toLocaleString('fr-FR');
 
-function Metric({ label, value, suffix = '', caption, loading, reduced }: {
-  label: string; value: number | null; suffix?: string; caption?: string; loading: boolean; reduced: boolean;
-}) {
-  const shown = useCountUp(loading ? null : value, reduced);
-  const display = value === null ? '—' : `${(shown ?? 0).toLocaleString('fr-FR')}${suffix}`;
-  return (
-    <View style={styles.metric} accessible accessibilityLabel={loading ? `${label}, chargement` : `${label} : ${value === null ? 'non disponible' : `${value}${suffix}`}`}>
-      <TText variant="label" color="tertiary" uppercase numberOfLines={1}>{label}</TText>
-      {loading ? (
-        <TSkeleton width={72} height={34} style={{ marginTop: 8 }} />
-      ) : (
-        <TText variant="displayM" tabular style={styles.metricValue}>{display}</TText>
-      )}
-      {!!caption && <TText variant="caption" color="tertiary">{caption}</TText>}
-    </View>
-  );
-}
-
-// ─── Understated bar chart: grows once (scaleY), today in gold ────────────────
-function Bar({ ratio, progress, highlight }: { ratio: number; progress: SharedValue<number>; highlight: boolean }) {
-  const style = useAnimatedStyle(() => ({ transform: [{ scaleY: Math.max(ratio * progress.get(), 0.001) }] }));
-  return (
-    <View style={styles.barTrack}>
-      <Animated.View style={[styles.barFill, { backgroundColor: highlight ? Colors.accentWarm : Colors.textTertiary }, style]} />
-    </View>
-  );
-}
-
-function BarChart({ data, labels, reduced, emptyLabel }: { data: number[]; labels: string[]; reduced: boolean; emptyLabel: string }) {
+// ─── Bar chart: ink bars on a ruled baseline, today in vermilion ──────────────
+function BarChart({ data, labels, emptyLabel }: { data: number[]; labels: string[]; emptyLabel: string }) {
   const max = Math.max(...data, 1);
   const total = data.reduce((a, b) => a + b, 0);
-  const progress = useSharedValue(reduced ? 1 : 0);
-  useEffect(() => {
-    progress.set(withTiming(1, { duration: reduced ? 1 : MotionDuration.reveal, easing: EASE_OUT }));
-  }, [progress, reduced]);
-
   return (
     <View
       accessible
       accessibilityLabel={total === 0 ? emptyLabel : data.map((v, i) => `${labels[i]} : ${v}`).join(', ')}
     >
       <View style={styles.bars}>
-        {data.map((val, i) => (
-          <View key={i} style={styles.barCol}>
-            <TText variant="micro" color="tertiary" tabular style={{ opacity: val > 0 ? 1 : 0 }}>{val}</TText>
-            <Bar ratio={val / max} progress={progress} highlight={i === data.length - 1} />
-            <TText variant="micro" color={i === data.length - 1 ? 'accentWarm' : 'tertiary'}>{labels[i]}</TText>
-          </View>
+        {data.map((val, i) => {
+          const today = i === data.length - 1;
+          return (
+            <View key={i} style={styles.barCol}>
+              <TText variant="micro" color="secondary" tabular style={{ opacity: val > 0 ? 1 : 0, letterSpacing: 0 }}>{val}</TText>
+              <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.barFill,
+                    { height: `${(val / max) * 100}%`, backgroundColor: today ? Colors.flame : Colors.ink },
+                    val > 0 && { minHeight: 2 },
+                  ]}
+                />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      <Rule tone="ink" />
+      <View style={styles.barLabels}>
+        {labels.map((l, i) => (
+          <TText
+            key={i}
+            variant="micro"
+            style={[styles.barLabel, { color: i === labels.length - 1 ? Colors.flameText : Colors.textSecondary }]}
+          >
+            {l}
+          </TText>
         ))}
       </View>
-      {total === 0 && <TText variant="caption" color="tertiary" style={{ marginTop: Spacing['2xs'] }}>{emptyLabel}</TText>}
+      {total === 0 && <TText variant="caption" color="secondary" style={{ marginTop: Spacing['2xs'] }}>{emptyLabel}</TText>}
     </View>
   );
 }
+
+function ChartSkeleton() {
+  return (
+    <View style={{ marginTop: Spacing.md }}>
+      <View style={[styles.bars, { alignItems: 'flex-end' }]}>
+        {[40, 70, 30, 85, 55, 60, 45].map((h, i) => (
+          <View key={i} style={styles.barCol}><TSkeleton width={18} height={Math.round((h / 100) * (CHART_H - 20))} /></View>
+        ))}
+      </View>
+      <Rule tone="ink" />
+    </View>
+  );
+}
+
+type Hover = { pressed: boolean; hovered?: boolean };
 
 interface AnalyticsData {
   profileViews: number;
@@ -131,8 +116,7 @@ const EMPTY_ANALYTICS: AnalyticsData = {
 export default function AnalyticsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reduced = useReducedMotion();
-  const { width } = useWindowDimensions();
+  const { isWide } = useContentDimensions();
   const { user } = useAuthStore();
   const isPremium = user?.artistTier === 'premium';
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
@@ -229,7 +213,6 @@ export default function AnalyticsScreen() {
   }, [user?.artistId]);
   useEffect(() => loadTopPosts(), [loadTopPosts]);
 
-  const wide = width >= 820;
   const periodLabel = period === '7d' ? '7 derniers jours' : '30 derniers jours';
 
   if (user && (user.role !== 'artist' || !user.artistId)) {
@@ -255,174 +238,174 @@ export default function AnalyticsScreen() {
     { label: 'Demandes acceptées', value: analytics.acceptedRequests },
   ];
 
+  const hasRequests = analytics.requestsReceived > 0;
+  const metrics: Metric[] = [
+    { label: 'Vues du profil', value: loading ? '—' : formatNumber(analytics.profileViews), hint: loading ? 'Chargement' : periodLabel },
+    { label: 'Demandes reçues', value: loading ? '—' : formatNumber(analytics.requestsReceived), hint: loading ? 'Chargement' : periodLabel },
+    {
+      label: 'Taux d’acceptation',
+      value: loading || !hasRequests ? '—' : `${formatNumber(analytics.responseRate)} %`,
+      hint: loading ? 'Chargement' : hasRequests ? periodLabel : 'Aucune demande sur la période',
+    },
+    { label: 'Rendez-vous confirmés', value: loading ? '—' : formatNumber(analytics.confirmedAppointments), hint: loading ? 'Chargement' : 'Au statut confirmé' },
+  ];
+
+  const periodControl = (
+    <Segmented
+      accessibilityLabel="Période"
+      value={period}
+      onChange={setPeriod}
+      options={[{ value: '7d', label: '7 jours' }, { value: '30d', label: '30 jours' }]}
+    />
+  );
+
   return (
     <View style={styles.container}>
       <THeader title="Statistiques" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View entering={enterUp(0)} style={styles.titleRow}>
-          <View style={{ flex: 1, minWidth: 220 }}>
-            <TText variant="label" color="accentWarm" uppercase>Votre activité</TText>
-            <TText variant="displayM" style={{ marginTop: 4 }} accessibilityRole="header">
-              Les <TText variant="displayM" italic color="accentGlow">chiffres</TText>
-            </TText>
-          </View>
-          <View style={styles.periodToggle} accessibilityRole="radiogroup">
-            {(['7d', '30d'] as const).map((p) => {
-              const active = period === p;
-              return (
-                <PressableScale
-                  key={p}
-                  onPress={() => setPeriod(p)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: active }}
-                  style={[styles.periodBtn, active && styles.periodBtnActive]}
-                >
-                  <TText variant="bodySmall" weight="medium" style={{ color: active ? Colors.textInverse : Colors.textSecondary }}>
-                    {p === '7d' ? '7 jours' : '30 jours'}
-                  </TText>
-                </PressableScale>
-              );
-            })}
-          </View>
-        </Animated.View>
-
-        {state === 'error' ? (
-          <EmptyState
-            icon="cloud-offline-outline"
-            title="Statistiques indisponibles"
-            description="Le chargement a échoué. Vérifiez votre connexion."
-            ctaLabel="Réessayer"
-            onCta={() => setAttempt((n) => n + 1)}
-            style={styles.inlineEmpty}
+        <PageWrap>
+          <Masthead
+            kicker="Studio / Indicateurs"
+            title="La création."
+            emphasis="Et sa portée."
+            breakEmphasis
+            description="Des indicateurs lisibles pour comprendre vos demandes, sans transformer votre travail en course aux chiffres."
+            action={periodControl}
           />
-        ) : (
-          <>
-            {/* Key metrics — real values only */}
-            <Animated.View entering={enterUp(1)} style={[styles.metrics, wide && styles.metricsWide]}>
-              <Metric label="Vues du profil" value={analytics.profileViews} caption={periodLabel} loading={loading} reduced={reduced} />
-              <Metric label="Demandes reçues" value={analytics.requestsReceived} caption={periodLabel} loading={loading} reduced={reduced} />
-              <Metric
-                label="Taux d’acceptation"
-                value={analytics.requestsReceived > 0 ? analytics.responseRate : null}
-                suffix=" %"
-                caption={analytics.requestsReceived > 0 ? periodLabel : 'Aucune demande sur la période'}
-                loading={loading}
-                reduced={reduced}
-              />
-              <Metric label="Rendez-vous confirmés" value={analytics.confirmedAppointments} caption="Au statut confirmé" loading={loading} reduced={reduced} />
-            </Animated.View>
 
-            {/* Charts */}
-            <View style={[styles.charts, wide && styles.chartsWide]}>
-              <View style={styles.chart}>
-                <TText variant="title2" serif style={styles.chartTitle}>Vues du profil</TText>
-                <TText variant="caption" color="tertiary">7 derniers jours, aujourd’hui à droite</TText>
-                {loading ? <TSkeleton height={120} radius={Radius.sm} style={{ marginTop: Spacing.sm }} /> : (
-                  <BarChart data={analytics.viewsByDay} labels={dayLabels} reduced={reduced} emptyLabel="Aucune vue sur les 7 derniers jours." />
-                )}
-              </View>
-              <View style={styles.chart}>
-                <TText variant="title2" serif style={styles.chartTitle}>Demandes reçues</TText>
-                <TText variant="caption" color="tertiary">7 derniers jours, aujourd’hui à droite</TText>
-                {loading ? <TSkeleton height={120} radius={Radius.sm} style={{ marginTop: Spacing.sm }} /> : (
-                  <BarChart data={analytics.requestsByDay} labels={dayLabels} reduced={reduced} emptyLabel="Aucune demande sur les 7 derniers jours." />
-                )}
-              </View>
-            </View>
-          </>
-        )}
-
-        {/* Top posts — real view counters */}
-        <View style={styles.section}>
-          <TText variant="title2" serif style={styles.chartTitle}>Réalisations les plus vues</TText>
-          {topPosts === null ? (
-            <View style={{ gap: 10, marginTop: Spacing.sm }}>
-              {[0, 1, 2].map((i) => <TSkeleton key={i} height={56} radius={Radius.sm} />)}
-            </View>
-          ) : topPosts.length === 0 ? (
-            <TText variant="bodySmall" color="tertiary" style={{ marginTop: Spacing.xs }}>
-              Publiez une réalisation pour suivre ses vues ici.
-            </TText>
+          {state === 'error' ? (
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Statistiques indisponibles"
+              description="Le chargement a échoué. Vérifiez votre connexion."
+              ctaLabel="Réessayer"
+              onCta={() => setAttempt((n) => n + 1)}
+              style={styles.inlineEmpty}
+            />
           ) : (
-            <View style={styles.list}>
-              {topPosts.map((post, i) => (
-                <React.Fragment key={post.id}>
-                  {i > 0 && <TDivider inset={76} />}
-                  <PressableScale
-                    onPress={() => router.push(`/post/${post.id}`)}
-                    pressedScale={0.985}
-                    accessibilityRole="link"
-                    accessibilityLabel={`${post.caption ?? `Réalisation ${i + 1}`}, ${post.views_count ?? 0} vues, ${post.likes_count ?? 0} j’aime`}
-                    style={styles.postRow}
-                  >
-                    <TText variant="bodySmall" color="accentWarm" tabular style={{ width: 16 }}>{i + 1}</TText>
-                    <RevealImage uri={post.media_url} style={styles.thumb} />
-                    <TText variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>{post.caption || 'Sans légende'}</TText>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <TText variant="bodySmall" weight="medium" tabular>{(post.views_count ?? 0).toLocaleString('fr-FR')} vues</TText>
-                      <TText variant="caption" color="tertiary" tabular>{(post.likes_count ?? 0).toLocaleString('fr-FR')} j’aime</TText>
-                    </View>
-                  </PressableScale>
-                </React.Fragment>
-              ))}
-            </View>
-          )}
-        </View>
+            <>
+              {/* Key metrics — real values only */}
+              <MetricGrid items={metrics} />
 
-        {/* Conversion path */}
-        {isPremium ? (
-          <View style={styles.section}>
-            <TText variant="title2" serif style={styles.chartTitle}>Parcours de conversion</TText>
-            <TText variant="caption" color="tertiary">{periodLabel}</TText>
-            {analytics.profileViews === 0 && !loading ? (
-              <TText variant="bodySmall" color="tertiary" style={{ marginTop: Spacing.xs }}>
-                Pas encore assez de vues sur la période pour calculer un parcours.
-              </TText>
-            ) : (
-              <View style={{ marginTop: Spacing.sm, gap: Spacing.sm }}>
-                {funnel.map((step) => {
-                  const pct = analytics.profileViews > 0 ? (step.value / analytics.profileViews) * 100 : 0;
-                  return (
-                    <View key={step.label} accessible accessibilityLabel={`${step.label} : ${step.value}`}>
-                      <View style={styles.funnelHead}>
-                        <TText variant="bodySmall" color="secondary">{step.label}</TText>
-                        <TText variant="bodySmall" weight="medium" tabular>
-                          {step.value.toLocaleString('fr-FR')}
-                          <TText variant="caption" color="tertiary" tabular>{`  ${pct.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`}</TText>
-                        </TText>
-                      </View>
-                      <View style={styles.funnelTrack}>
-                        <View style={[styles.funnelFill, { width: `${Math.max(pct, step.value > 0 ? 2 : 0)}%` }]} />
-                      </View>
-                    </View>
-                  );
-                })}
+              {/* Charts */}
+              <View style={[styles.charts, isWide && styles.chartsWide]}>
+                <Panel style={isWide ? { flex: 1 } : undefined}>
+                  <Kicker>Évolution / 7 jours</Kicker>
+                  <TText variant="displayS" style={styles.panelTitle}>Vues du profil.</TText>
+                  <TText variant="caption" color="secondary">7 derniers jours, aujourd’hui à droite</TText>
+                  {loading ? <ChartSkeleton /> : (
+                    <BarChart data={analytics.viewsByDay} labels={dayLabels} emptyLabel="Aucune vue sur les 7 derniers jours." />
+                  )}
+                </Panel>
+                <Panel style={isWide ? { flex: 1 } : undefined}>
+                  <Kicker>Évolution / 7 jours</Kicker>
+                  <TText variant="displayS" style={styles.panelTitle}>Demandes reçues.</TText>
+                  <TText variant="caption" color="secondary">7 derniers jours, aujourd’hui à droite</TText>
+                  {loading ? <ChartSkeleton /> : (
+                    <BarChart data={analytics.requestsByDay} labels={dayLabels} emptyLabel="Aucune demande sur les 7 derniers jours." />
+                  )}
+                </Panel>
               </View>
-            )}
+            </>
+          )}
+
+          <View style={[styles.lower, isWide && styles.lowerWide]}>
+            {/* Top posts — real view counters */}
+            <View style={isWide ? { flex: 1.5 } : undefined}>
+              <SectionHead kicker="Les plus vues" title="Les œuvres qui" emphasis="interpellent." />
+              <Rule tone="ink" />
+              {topPosts === null ? (
+                <View style={{ gap: 10, marginTop: Spacing.sm }}>
+                  {[0, 1, 2].map((i) => <TSkeleton key={i} height={64} />)}
+                </View>
+              ) : topPosts.length === 0 ? (
+                <TText variant="bodySmall" color="secondary" style={{ marginTop: Spacing.md }}>
+                  Publiez une réalisation pour suivre ses vues ici.
+                </TText>
+              ) : (
+                <View>
+                  {topPosts.map((post, i) => (
+                    <Pressable
+                      key={post.id}
+                      onPress={() => router.push(`/post/${post.id}`)}
+                      accessibilityRole="link"
+                      accessibilityLabel={`${post.caption ?? `Réalisation ${i + 1}`}, ${post.views_count ?? 0} vues, ${post.likes_count ?? 0} j’aime`}
+                      style={(s) => [
+                        styles.postRow,
+                        Platform.OS === 'web' && ({ cursor: 'pointer' } as object),
+                        ((s as Hover).hovered || (s as Hover).pressed) && { backgroundColor: Colors.wash },
+                      ]}
+                    >
+                      <TText variant="label" tabular style={styles.postIndex}>{cartelNumber(i + 1)}</TText>
+                      <ArtCanvas uri={post.media_url} aspectRatio={1} style={styles.thumb} />
+                      <TText variant="bodySmall" numberOfLines={2} style={{ flex: 1 }}>{post.caption || 'Sans légende'}</TText>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <TText variant="bodySmall" weight="semibold" tabular>{`${formatNumber(post.views_count ?? 0)} vues`}</TText>
+                        <TText variant="caption" color="secondary" tabular>{`${formatNumber(post.likes_count ?? 0)} j’aime`}</TText>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Conversion path */}
+            <InkPanel style={isWide ? { flex: 1 } : undefined}>
+              {isPremium ? (
+                <>
+                  <Kicker tone="flameOnInk">Parcours de conversion</Kicker>
+                  <TText variant="displayS" color="onInk" style={styles.panelTitle}>Au-delà des vues.</TText>
+                  <TText variant="caption" color="onInkMuted">{periodLabel}</TText>
+                  {analytics.profileViews === 0 && !loading ? (
+                    <TText variant="bodySmall" color="onInkMuted" style={{ marginTop: Spacing.md }}>
+                      Pas encore assez de vues sur la période pour calculer un parcours.
+                    </TText>
+                  ) : (
+                    <View style={{ marginTop: Spacing.lg }}>
+                      {funnel.map((step) => {
+                        const pct = analytics.profileViews > 0 ? (step.value / analytics.profileViews) * 100 : 0;
+                        return (
+                          <View key={step.label} style={styles.funnelRow} accessible accessibilityLabel={`${step.label} : ${step.value}`}>
+                            <View style={styles.funnelHead}>
+                              <TText variant="displayS" color="onInk" style={styles.funnelLabel}>{step.label}</TText>
+                              <TText variant="bodySmall" weight="semibold" tabular color="onInk">
+                                {formatNumber(step.value)}
+                                <TText variant="caption" tabular color="flameOnInk">{`  ${pct.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`}</TText>
+                              </TText>
+                            </View>
+                            <View style={styles.funnelTrack}>
+                              <View style={[styles.funnelFill, { width: `${Math.max(pct, step.value > 0 ? 2 : 0)}%` }]} />
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Kicker tone="flameOnInk">INKR Premium</Kicker>
+                  <TText variant="displayS" color="onInk" style={styles.panelTitle}>Parcours de conversion.</TText>
+                  <TText variant="bodySmall" color="onInkMuted" style={{ marginTop: 4, marginBottom: Spacing.lg }}>
+                    Voyez où vos visiteurs s’arrêtent, des vues du profil aux demandes acceptées.
+                  </TText>
+                  <TButton
+                    title="Découvrir Premium"
+                    variant="glow"
+                    size="md"
+                    fullWidth={false}
+                    icon={<Ionicons name="arrow-forward" size={14} color="#FFFFFF" />}
+                    iconPosition="right"
+                    onPress={() => router.push('/settings/subscription')}
+                  />
+                </>
+              )}
+            </InkPanel>
           </View>
-        ) : (
-          <View style={styles.section}>
-            <GlassCard variant="premium" radius={Radius.lg}>
-              <TText variant="label" color="accentWarm" uppercase>INKR Premium</TText>
-              <TText variant="title2" serif style={[styles.chartTitle, { marginTop: 6 }]}>Parcours de conversion</TText>
-              <TText variant="bodySmall" color="secondary" style={{ marginTop: 4, marginBottom: Spacing.md }}>
-                Voyez où vos visiteurs s’arrêtent, des vues du profil aux demandes acceptées.
-              </TText>
-              <TButton
-                title="Découvrir Premium"
-                variant="glow"
-                size="sm"
-                fullWidth={false}
-                icon={<Ionicons name="arrow-forward" size={14} color={Colors.textInverse} />}
-                iconPosition="right"
-                onPress={() => router.push('/settings/subscription')}
-              />
-            </GlassCard>
-          </View>
-        )}
+        </PageWrap>
       </ScrollView>
     </View>
   );
@@ -430,49 +413,30 @@ export default function AnalyticsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xl,
-  },
-  titleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: Spacing.md },
-  periodToggle: {
-    flexDirection: 'row', gap: 4, padding: 3,
-    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  periodBtn: { height: 36, paddingHorizontal: 16, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  periodBtnActive: { backgroundColor: Colors.accentAction },
 
-  metrics: {
-    flexDirection: 'row', flexWrap: 'wrap', marginTop: Spacing.xl,
-    borderTopWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  metricsWide: { flexWrap: 'nowrap' },
-  metric: {
-    flexGrow: 1, flexBasis: '50%', minWidth: 150, paddingVertical: Spacing.md, paddingRight: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  metricValue: { marginTop: 6 },
+  charts: { marginTop: Spacing.xl, gap: Spacing.md },
+  chartsWide: { flexDirection: 'row', gap: 17 },
+  panelTitle: { fontSize: 30, lineHeight: 32, letterSpacing: -0.6, marginTop: 10, marginBottom: 4 },
+  bars: { flexDirection: 'row', height: CHART_H, gap: 8, alignItems: 'flex-end', marginTop: Spacing.md, paddingHorizontal: 4 },
+  barCol: { flex: 1, alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' },
+  barTrack: { flex: 1, width: '72%', maxWidth: 34, justifyContent: 'flex-end' },
+  barFill: { width: '100%' },
+  barLabels: { flexDirection: 'row', gap: 8, paddingHorizontal: 4, marginTop: 6 },
+  barLabel: { flex: 1, textAlign: 'center', letterSpacing: 0 },
 
-  charts: { marginTop: Spacing.xl, gap: Spacing.xl },
-  chartsWide: { flexDirection: 'row' },
-  chart: { flex: 1 },
-  chartTitle: { fontSize: 22, lineHeight: 26 },
-  bars: { flexDirection: 'row', height: 132, gap: 6, alignItems: 'flex-end', marginTop: Spacing.sm },
-  barCol: { flex: 1, alignItems: 'center', gap: 4, height: '100%' },
-  barTrack: { flex: 1, width: '70%', maxWidth: 28, justifyContent: 'flex-end', borderRadius: 2, overflow: 'hidden', backgroundColor: Colors.bgSurface },
-  barFill: { height: '100%', width: '100%', transformOrigin: 'bottom' },
-
-  section: { marginTop: Spacing['2xl'] },
-  list: {
-    marginTop: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+  lower: { marginTop: Spacing['3xl'], gap: Spacing.xl },
+  lowerWide: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing['2xl'] },
+  postRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, minHeight: 68,
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  postRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, minHeight: 64 },
-  thumb: { width: 44, height: 44, borderRadius: Radius.sm },
+  postIndex: { width: 22, color: Colors.flameText },
+  thumb: { width: 48, height: 48 },
 
-  funnelHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  funnelTrack: { height: 4, borderRadius: 2, backgroundColor: Colors.bgSurface, overflow: 'hidden' },
-  funnelFill: { height: '100%', borderRadius: 2, backgroundColor: Colors.accentWarm },
+  funnelRow: { paddingVertical: 14, borderTopWidth: 1, borderTopColor: Colors.onInkLine },
+  funnelHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
+  funnelLabel: { fontSize: 22, lineHeight: 25, flexShrink: 1 },
+  funnelTrack: { height: 3, backgroundColor: Colors.onInkLine, overflow: 'hidden' },
+  funnelFill: { height: '100%', backgroundColor: Colors.flame },
   inlineEmpty: { flex: 0, paddingVertical: Spacing.xl },
 });

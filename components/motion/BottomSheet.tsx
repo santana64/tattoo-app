@@ -7,7 +7,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Layout } from '@/constants/theme';
+import { Colors, Layout } from '@/constants/theme';
 import { EASE_SHEET, Springs } from './tokens';
 
 interface BottomSheetProps {
@@ -92,15 +92,14 @@ export function BottomSheet({ visible, onClose, children, style, accessibilityLa
 }
 
 const styles = StyleSheet.create({
-  backdrop: { backgroundColor: 'rgba(5,4,3,0.72)' },
+  backdrop: { backgroundColor: Colors.scrim },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     alignSelf: 'center', width: '100%', maxWidth: 560,
-    backgroundColor: Colors.bgElevated,
-    borderTopLeftRadius: Radius['2xl'], borderTopRightRadius: Radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    backgroundColor: Colors.paper,
+    borderTopWidth: 2, borderTopColor: Colors.ink,
     paddingHorizontal: Layout.gutter,
   },
   grabZone: { paddingTop: 10, paddingBottom: 18, alignItems: 'center' },
-  handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: Colors.borderGlass },
+  handle: { width: 44, height: 3, backgroundColor: Colors.ink },
 });

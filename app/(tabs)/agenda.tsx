@@ -1,22 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ScrollView, StyleSheet, View, Pressable, Platform, useWindowDimensions,
+  ScrollView,
+  StyleSheet,
+  View,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
-import { TDivider } from '@/components/ui/TDivider';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PressableScale } from '@/components/motion';
 import { Toast } from '@/components/ui/TToast';
+import {
+  DetailRow, IconButton, InkPanel, Kicker, Masthead, PageWrap, Rule, StatusDot, TextLink, type StatusTone,
+} from '@/components/v5';
+import { Panel } from '@/components/v5/studio';
 import { exportCalendar } from '@/components/booking/calendar-export';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions, useShell } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
 import { absoluteUrl } from '@/lib/site';
 import type { CalendarEvent } from '@/lib/ics';
@@ -37,6 +44,7 @@ const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const DAYS_LONG = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const DAY_MS = 24 * 60 * 60 * 1000;
+const CHIPS_PER_DAY = 3;
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const weekdayIndex = (d: Date) => (d.getDay() + 6) % 7; // Monday = 0
@@ -71,68 +79,103 @@ function weekRangeLabel(dates: Date[]) {
     : `Semaine du ${first.getDate()} ${MONTHS_FR[first.getMonth()]} au ${last.getDate()} ${MONTHS_FR[last.getMonth()]}`;
 }
 
-const STATUS_CONFIG = {
-  proposed:  { label: 'Proposé',  color: Colors.warning },
-  confirmed: { label: 'Confirmé', color: Colors.success },
-  completed: { label: 'Terminé',  color: Colors.textTertiary },
-  canceled:  { label: 'Annulé',   color: Colors.error },
-} as const;
-
+const STATUS_CONFIG: Record<RealAppointment['status'], { label: string; tone: StatusTone }> = {
+  proposed:  { label: 'Proposé',  tone: 'wait' },
+  confirmed: { label: 'Confirmé', tone: 'open' },
+  completed: { label: 'Terminé',  tone: 'closed' },
+  canceled:  { label: 'Annulé',   tone: 'alert' },
+};
 
 // ─── Pieces ───────────────────────────────────────────────────────────────────
-function RoundButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+/** Event chip inside a calendar cell: ink when confirmed, clay while proposed. */
+function EventChip({ apt, counterpart }: { apt: RealAppointment; counterpart: string }) {
+  const start = new Date(apt.startsAt);
+  const tone = apt.status === 'confirmed' ? styles.chipInk
+    : apt.status === 'proposed' ? styles.chipClay
+    : apt.status === 'completed' ? styles.chipDone
+    : styles.chipCanceled;
+  const color = apt.status === 'confirmed' ? Colors.onInk
+    : apt.status === 'proposed' ? Colors.ink
+    : Colors.textSecondary;
   return (
-    <PressableScale
-      onPress={onPress}
-      pressedScale={0.92}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      hitSlop={6}
-      style={styles.roundBtn}
-    >
-      <Ionicons name={icon} size={19} color={Colors.textPrimary} />
-    </PressableScale>
+    <View style={[styles.chip, tone]}>
+      <TText
+        variant="micro"
+        tabular
+        numberOfLines={1}
+        style={[{ color, letterSpacing: 0, fontSize: 10.5, lineHeight: 14 }, apt.status === 'canceled' && styles.struck]}
+      >
+        {`${formatTime(start)} — ${counterpart}`}
+      </TText>
+    </View>
   );
 }
 
-function DayCell({ date, selected, isToday, count, onPress }: {
+/** Wide calendar cell: white sheet, serif numeral, the day's sessions as chips. */
+function CalendarCell({ date, selected, isToday, items, counterpartOf, onPress }: {
+  date: Date; selected: boolean; isToday: boolean; items: RealAppointment[];
+  counterpartOf: (a: RealAppointment) => string; onPress: () => void;
+}) {
+  const count = items.length;
+  const a11y = `${capitalize(formatLongDate(date))}${isToday ? ', aujourd’hui' : ''}, ${count ? `${count} rendez-vous` : 'aucun rendez-vous'}`;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
+      accessibilityState={{ selected }}
+      style={(state) => [
+        styles.cell,
+        webPointer,
+        ((state as Hover).hovered || selected) && { backgroundColor: Colors.wash },
+        selected && styles.cellSelected,
+      ]}
+    >
+      <TText variant="micro" uppercase style={{ color: isToday ? Colors.flameText : Colors.textSecondary }}>
+        {isToday ? `${DAYS[weekdayIndex(date)]} · Auj.` : DAYS[weekdayIndex(date)]}
+      </TText>
+      <TText variant="displayS" tabular style={[styles.cellNum, isToday && { color: Colors.accentGlow }]}>
+        {date.getDate()}
+      </TText>
+      {count === 0 ? (
+        <TText variant="micro" color="tertiary" style={{ letterSpacing: 0, marginTop: 14 }}>Aucune séance</TText>
+      ) : (
+        <View style={{ gap: 4, marginTop: 12 }}>
+          {items.slice(0, CHIPS_PER_DAY).map((a) => <EventChip key={a.id} apt={a} counterpart={counterpartOf(a)} />)}
+          {count > CHIPS_PER_DAY ? (
+            <TText variant="micro" color="secondary" tabular style={{ letterSpacing: 0 }}>{`+ ${count - CHIPS_PER_DAY}`}</TText>
+          ) : null}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+/** Phone week strip cell: compact, ink when selected. */
+function StripCell({ date, selected, isToday, count, onPress }: {
   date: Date; selected: boolean; isToday: boolean; count: number; onPress: () => void;
 }) {
   const a11y = `${capitalize(formatLongDate(date))}${isToday ? ', aujourd’hui' : ''}, ${count ? `${count} rendez-vous` : 'aucun rendez-vous'}`;
   return (
-    <PressableScale
+    <Pressable
       onPress={onPress}
-      pressedScale={0.94}
       accessibilityRole="button"
       accessibilityLabel={a11y}
       accessibilityState={{ selected }}
-      style={[styles.dayCell, selected && styles.dayCellSelected]}
+      style={[styles.strip, selected && styles.stripSelected]}
     >
-      <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+      <TText variant="micro" uppercase style={{ color: selected ? Colors.onInkMuted : isToday ? Colors.flameText : Colors.textSecondary, letterSpacing: 0.4 }}>
         {DAYS[weekdayIndex(date)]}
       </TText>
       <TText
-        variant="body"
-        weight="semibold"
+        variant="displayS"
         tabular
-        style={{ color: selected ? Colors.textInverse : isToday ? Colors.accentGlow : Colors.textPrimary, marginTop: 2 }}
+        style={[styles.stripNum, { color: selected ? Colors.onInk : isToday ? Colors.accentGlow : Colors.ink }]}
       >
         {date.getDate()}
       </TText>
-      <View style={[styles.dayDot, count > 0 && { backgroundColor: selected ? Colors.textInverse : Colors.accentWarm }]} />
-    </PressableScale>
-  );
-}
-
-function Fact({ label, value, dot }: { label: string; value: number; dot?: string }) {
-  return (
-    <View style={styles.fact} accessible accessibilityLabel={`${label} : ${value}`}>
-      <TText variant="label" color="tertiary" uppercase numberOfLines={1}>{label}</TText>
-      <View style={styles.factValue}>
-        {dot && <View style={[styles.dot, { backgroundColor: dot }]} />}
-        <TText variant="title2" serif tabular style={{ fontSize: 24, lineHeight: 28 }}>{value}</TText>
-      </View>
-    </View>
+      <View style={[styles.stripMark, count > 0 && { backgroundColor: selected ? Colors.flame : Colors.ink }]} />
+    </Pressable>
   );
 }
 
@@ -146,59 +189,69 @@ function AppointmentRow({ apt, counterpart, avatar }: {
   const meta = [status.label, apt.bodyZone].filter(Boolean).join(' · ');
 
   return (
-    <PressableScale
+    <Pressable
       onPress={() => router.push(`/appointment/${apt.id}`)}
-      pressedScale={0.985}
       accessibilityRole="button"
       accessibilityLabel={`${formatTime(start)} à ${formatTime(end)}, ${counterpart}, ${meta}`}
-      style={[styles.aptRow, apt.status === 'canceled' && { opacity: 0.6 }]}
+      style={(state) => [
+        styles.aptRow,
+        webPointer,
+        ((state as Hover).hovered || (state as Hover).pressed) && { backgroundColor: Colors.wash },
+        apt.status === 'canceled' && { opacity: 0.6 },
+      ]}
     >
-        <View style={styles.aptTime}>
-          <TText variant="body" weight="semibold" tabular>{formatTime(start)}</TText>
-          <TText variant="caption" color="tertiary" tabular>{formatTime(end)}</TText>
-        </View>
-        <View style={[styles.aptRule, { backgroundColor: status.color }]} />
-        <View style={styles.aptBody}>
-          <TText variant="body" weight="medium" numberOfLines={1}>{counterpart}</TText>
-          <View style={styles.aptMeta}>
-            <View style={[styles.dot, { backgroundColor: status.color }]} />
-            <TText variant="caption" color="secondary" numberOfLines={1} style={{ flexShrink: 1 }}>{meta}</TText>
-          </View>
-          {!!apt.notes && (
-            <TText variant="caption" color="tertiary" numberOfLines={1} style={{ marginTop: 2 }}>{apt.notes}</TText>
+      <View style={styles.aptTime}>
+        <TText variant="bodySmall" weight="semibold" tabular>{formatTime(start)}</TText>
+        <TText variant="caption" color="tertiary" tabular>{formatTime(end)}</TText>
+      </View>
+      <View style={styles.aptBody}>
+        <TText variant="displayS" numberOfLines={1} style={styles.aptName}>{counterpart}</TText>
+        <View style={styles.aptMeta}>
+          <StatusDot tone={status.tone} label={status.label} />
+          {!!apt.bodyZone && (
+            <TText variant="caption" color="secondary" numberOfLines={1} style={{ flexShrink: 1 }}>{apt.bodyZone}</TText>
           )}
         </View>
-        <TAvatar uri={avatar} name={counterpart} size="md" />
-    </PressableScale>
+        {!!apt.notes && (
+          <TText variant="caption" color="tertiary" numberOfLines={1} style={{ marginTop: 4 }}>{apt.notes}</TText>
+        )}
+      </View>
+      <TAvatar uri={avatar} name={counterpart} size="md" />
+    </Pressable>
   );
 }
 
 function ListSkeleton() {
   return (
-    <View style={{ gap: Spacing.md, paddingTop: Spacing.sm }}>
+    <View style={{ gap: Spacing.md, paddingTop: Spacing.md }}>
       {[0, 1, 2].map((i) => (
         <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <View style={{ width: 52, gap: 6 }}>
-            <TSkeleton width={46} height={16} />
+            <TSkeleton width={46} height={14} />
             <TSkeleton width={36} height={11} />
           </View>
           <View style={{ flex: 1, gap: 8 }}>
-            <TSkeleton width="55%" height={15} />
+            <TSkeleton width="55%" height={20} />
             <TSkeleton width="40%" height={11} />
           </View>
-          <TSkeleton width={40} height={40} radius={20} />
+          <TSkeleton width={40} height={40} />
         </View>
       ))}
     </View>
   );
 }
 
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color', transitionDuration: '180ms' } as object)
+  : null;
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function AgendaScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const wide = width >= 960;
+  const { isWide } = useContentDimensions();
+  const { hasSidebar } = useShell();
   const { user } = useAuthStore();
   const isArtist = user?.role === 'artist';
   const [appointments, setAppointments] = useState<RealAppointment[]>([]);
@@ -255,8 +308,9 @@ export default function AgendaScreen() {
   const today = new Date();
   const selectedDate = weekDates[selectedDay];
 
-  const countFor = (date: Date) => appointments.filter((a) => sameDay(new Date(a.startsAt), date)).length;
-  const dayAppointments = appointments.filter((a) => sameDay(new Date(a.startsAt), selectedDate));
+  const appointmentsOn = (date: Date) => appointments.filter((a) => sameDay(new Date(a.startsAt), date));
+  const dayAppointments = appointmentsOn(selectedDate);
+  const counterpartOf = (a: RealAppointment) => (isArtist ? a.clientName : a.artistBlaze);
 
   const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
   const weekAppts = appointments.filter((a) => {
@@ -320,6 +374,7 @@ export default function AgendaScreen() {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push(isArtist ? '/availability' : '/(tabs)/explore');
   };
+  const newAppointmentLabel = isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste';
 
   // ── Day panel content
   let dayContent: React.ReactNode;
@@ -344,7 +399,7 @@ export default function AgendaScreen() {
         description={isArtist
           ? 'Publiez vos horaires : vos clients choisiront parmi vos créneaux libres, et les séances confirmées apparaîtront ici.'
           : 'Vos séances planifiées avec un artiste apparaîtront ici.'}
-        ctaLabel={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
+        ctaLabel={newAppointmentLabel}
         onCta={openNewAppointment}
         style={styles.inlineEmpty}
       />
@@ -352,8 +407,8 @@ export default function AgendaScreen() {
   } else if (dayAppointments.length === 0) {
     dayContent = (
       <View style={styles.freeDay}>
-        <TText variant="title2" serif style={{ fontSize: 22 }}>Journée libre</TText>
-        <TText variant="bodySmall" color="secondary" style={{ marginTop: 4 }}>
+        <TText variant="displayS" style={styles.freeTitle}>Journée libre.</TText>
+        <TText variant="bodySmall" color="secondary" style={{ marginTop: 6 }}>
           Aucun rendez-vous prévu le {formatLongDate(selectedDate)}.
         </TText>
         {nextAfterSelected && (
@@ -363,7 +418,7 @@ export default function AgendaScreen() {
             size="sm"
             fullWidth={false}
             style={{ marginTop: Spacing.md, alignSelf: 'flex-start' }}
-            icon={<Ionicons name="arrow-forward" size={14} color={Colors.textPrimary} />}
+            icon={<Ionicons name="arrow-forward" size={14} color={Colors.ink} />}
             iconPosition="right"
             onPress={() => goToDate(new Date(nextAfterSelected.startsAt))}
           />
@@ -373,158 +428,241 @@ export default function AgendaScreen() {
   } else {
     dayContent = (
       <View>
-        {dayAppointments.map((apt, i) => (
-          <React.Fragment key={apt.id}>
-            {i > 0 && <TDivider inset={66} />}
-            <AppointmentRow
-              apt={apt}
-              counterpart={isArtist ? apt.clientName : apt.artistBlaze}
-              avatar={isArtist ? apt.clientAvatar : null}
-            />
-          </React.Fragment>
+        {dayAppointments.map((apt) => (
+          <AppointmentRow
+            key={apt.id}
+            apt={apt}
+            counterpart={counterpartOf(apt)}
+            avatar={isArtist ? apt.clientAvatar : null}
+          />
         ))}
+        <Rule />
       </View>
     );
   }
 
+  const ready = loadState === 'ready' && appointments.length > 0;
+
+  const dayHead = (
+    <View style={styles.dayHead}>
+      <Kicker tone={isOnToday ? 'flame' : 'muted'}>{isOnToday ? 'Aujourd’hui' : 'Jour sélectionné'}</Kicker>
+      <TText variant="displayS" accessibilityRole="header" style={styles.dayTitle}>
+        {`${capitalize(formatLongDate(selectedDate))}.`}
+      </TText>
+    </View>
+  );
+
+  const facts = [
+    { label: 'Séances cette semaine', value: weekStats.total },
+    { label: 'Confirmées', value: weekStats.confirmed },
+    { label: 'À confirmer', value: weekStats.proposed },
+  ];
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={[styles.frame, wide && styles.frameWide]}>
-        {/* ── Week pane ── */}
-        <View style={[styles.weekPane, wide && styles.weekPaneWide]}>
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <TText variant="displayM" accessibilityRole="header">Agenda</TText>
-              <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 2 }}>
-                {weekRangeLabel(weekDates)}
-              </TText>
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: hasSidebar ? Spacing['3xl'] : insets.bottom + 110 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <PageWrap>
+          <Masthead
+            kicker={`Le calendrier / ${monthLabel}`}
+            title="L’agenda."
+            emphasis="Votre temps."
+            description={isArtist
+              ? 'Une vue de la semaine, l’état de chaque séance et un accès direct à vos horaires.'
+              : 'Vos séances planifiées avec les artistes, semaine après semaine.'}
+          />
+
+          {/* ── Week toolbar ── */}
+          <View style={styles.toolbar}>
+            <View style={styles.weekNav}>
+              <IconButton icon="chevron-back" label="Semaine précédente" onPress={() => shiftWeek(-1)} />
+              <View style={styles.weekLabel}>
+                <View accessibilityLiveRegion="polite">
+                  <Kicker numberOfLines={2}>{weekRangeLabel(weekDates)}</Kicker>
+                </View>
+                {!isOnToday && (
+                  <TextLink label="Aujourd’hui" icon="return-down-back" onPress={() => goToDate(new Date())} style={{ marginTop: 2 }} />
+                )}
+              </View>
+              <IconButton icon="chevron-forward" label="Semaine suivante" onPress={() => shiftWeek(1)} />
             </View>
-            <View style={styles.headerActions}>
-              {loadState === 'ready' && appointments.length > 0 && (
-                <RoundButton
+            <View style={styles.toolbarActions}>
+              {ready && (
+                <IconButton
                   icon="download-outline"
                   label={Platform.OS === 'web' ? 'Exporter les séances à venir (.ics)' : 'Partager les séances à venir (.ics)'}
                   onPress={() => { void exportUpcoming(); }}
                 />
               )}
-              <RoundButton
-                icon={isArtist ? 'time-outline' : 'add'}
-                label={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
+              <TButton
+                title={isArtist ? 'Mes horaires' : 'Trouver un artiste'}
+                variant="secondary"
+                size="md"
+                fullWidth={false}
+                accessibilityLabel={newAppointmentLabel}
+                icon={<Ionicons name={isArtist ? 'time-outline' : 'search'} size={15} color={Colors.ink} />}
                 onPress={openNewAppointment}
               />
             </View>
           </View>
 
-          <View style={styles.monthNav}>
-            <RoundButton icon="chevron-back" label="Semaine précédente" onPress={() => shiftWeek(-1)} />
-            <View style={styles.monthCenter}>
-              <TText variant="bodySmall" weight="semibold" accessibilityLiveRegion="polite">{monthLabel}</TText>
-              {!isOnToday && (
-                <Pressable onPress={() => goToDate(new Date())} accessibilityRole="button" hitSlop={8}>
-                  <TText variant="caption" color="accentWarm" style={styles.todayLink}>Aujourd’hui</TText>
-                </Pressable>
+          {isWide ? (
+            <>
+              {/* ── Calendar grid ── */}
+              <View style={styles.calendar}>
+                {weekDates.map((date, i) => (
+                  <CalendarCell
+                    key={date.toISOString()}
+                    date={date}
+                    selected={selectedDay === i}
+                    isToday={sameDay(date, today)}
+                    items={loadState === 'ready' ? appointmentsOn(date) : []}
+                    counterpartOf={counterpartOf}
+                    onPress={() => setSelectedDay(i)}
+                  />
+                ))}
+              </View>
+
+              <View style={styles.wideRow}>
+                <Panel style={{ flex: 1.6 }}>
+                  {dayHead}
+                  {dayContent}
+                </Panel>
+                <InkPanel style={{ flex: 1 }}>
+                  <Kicker tone="flameOnInk">La semaine</Kicker>
+                  <TText variant="displayS" color="onInk" style={styles.inkTitle}>Des créneaux sous contrôle.</TText>
+                  <View style={{ marginTop: Spacing.lg }}>
+                    {facts.map((f, i) => (
+                      <DetailRow
+                        key={f.label}
+                        label={f.label}
+                        value={loadState === 'ready' ? String(f.value) : '—'}
+                        onInk
+                        last={i === facts.length - 1}
+                      />
+                    ))}
+                  </View>
+                  {isArtist ? (
+                    <TText variant="caption" color="onInkMuted" style={{ marginTop: Spacing.md }}>
+                      Horaires habituels, jours bloqués et séances confirmées déterminent les créneaux que voient vos clients.
+                    </TText>
+                  ) : null}
+                  <TButton
+                    title={isArtist ? 'Gérer mes horaires' : 'Trouver un artiste'}
+                    variant="glass"
+                    size="md"
+                    fullWidth={false}
+                    accessibilityLabel={newAppointmentLabel}
+                    onPress={openNewAppointment}
+                    style={{ marginTop: Spacing.lg, alignSelf: 'flex-start' }}
+                  />
+                </InkPanel>
+              </View>
+            </>
+          ) : (
+            <>
+              {/* ── Compact week ── */}
+              <View style={styles.stripRow}>
+                {weekDates.map((date, i) => (
+                  <StripCell
+                    key={date.toISOString()}
+                    date={date}
+                    selected={selectedDay === i}
+                    isToday={sameDay(date, today)}
+                    count={loadState === 'ready' ? appointmentsOn(date).length : 0}
+                    onPress={() => setSelectedDay(i)}
+                  />
+                ))}
+              </View>
+
+              {ready && (
+                <View style={styles.facts}>
+                  {facts.map((f, i) => (
+                    <View
+                      key={f.label}
+                      style={[styles.fact, i > 0 && styles.factDivider]}
+                      accessible
+                      accessibilityLabel={`${f.label} : ${f.value}`}
+                    >
+                      <TText variant="micro" uppercase color="secondary" numberOfLines={2} style={{ letterSpacing: 0.6 }}>{f.label}</TText>
+                      <TText variant="displayS" tabular style={styles.factValue}>{f.value}</TText>
+                    </View>
+                  ))}
+                </View>
               )}
-            </View>
-            <RoundButton icon="chevron-forward" label="Semaine suivante" onPress={() => shiftWeek(1)} />
-          </View>
 
-          <View style={styles.dayStrip}>
-            {weekDates.map((date, i) => (
-              <DayCell
-                key={date.toISOString()}
-                date={date}
-                selected={selectedDay === i}
-                isToday={sameDay(date, today)}
-                count={countFor(date)}
-                onPress={() => setSelectedDay(i)}
-              />
-            ))}
-          </View>
-
-          {loadState === 'ready' && appointments.length > 0 && (
-            <View style={styles.facts}>
-              <Fact label="Cette semaine" value={weekStats.total} />
-              <TDivider vertical tone="default" style={styles.factDivider} />
-              <Fact label="Confirmés" value={weekStats.confirmed} dot={Colors.success} />
-              <TDivider vertical tone="default" style={styles.factDivider} />
-              <Fact label="À confirmer" value={weekStats.proposed} dot={Colors.warning} />
-            </View>
+              {dayHead}
+              <Rule tone="ink" />
+              {dayContent}
+            </>
           )}
-        </View>
-
-        {/* ── Day pane ── */}
-        <ScrollView
-          style={styles.dayPane}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.dayHead}>
-            <TText variant="label" color={isOnToday ? 'accentWarm' : 'tertiary'} uppercase>
-              {isOnToday ? 'Aujourd’hui' : DAYS_LONG[selectedDay]}
-            </TText>
-            <TText variant="displayS" style={{ marginTop: 4 }}>
-              {capitalize(formatLongDate(selectedDate))}
-            </TText>
-          </View>
-          {dayContent}
-        </ScrollView>
-      </View>
+        </PageWrap>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  frame: { flex: 1, width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
-  frameWide: { flexDirection: 'row', gap: Spacing['2xl'] },
-  weekPane: {},
-  weekPaneWide: { width: 400, paddingTop: Spacing.xs },
-  dayPane: { flex: 1 },
 
-  header: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: Spacing.sm, paddingBottom: Spacing.md },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
-  roundBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+  toolbar: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
+    gap: Spacing.sm, marginBottom: Spacing.lg,
   },
+  weekNav: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flexShrink: 1, minWidth: 0 },
+  weekLabel: { flexShrink: 1, minWidth: 0, alignItems: 'flex-start' },
+  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
 
-  monthNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.sm },
-  monthCenter: { alignItems: 'center', gap: 2 },
-  todayLink: { textDecorationLine: 'underline' },
-
-  dayStrip: { flexDirection: 'row', gap: 4, marginBottom: Spacing.md },
-  dayCell: {
-    flex: 1, alignItems: 'center', paddingVertical: 8, minHeight: 64,
-    borderRadius: Radius.md,
+  // Wide calendar
+  calendar: { flexDirection: 'row', borderTopWidth: 1, borderLeftWidth: 1, borderColor: Colors.line },
+  cell: {
+    flex: 1, minWidth: 0, minHeight: 142, padding: 14,
+    backgroundColor: Colors.white, borderRightWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
   },
-  dayCellSelected: { backgroundColor: Colors.accentAction },
-  dayDot: { width: 4, height: 4, borderRadius: 2, marginTop: 5, backgroundColor: 'transparent' },
+  cellSelected: { borderBottomWidth: 2, borderBottomColor: Colors.ink },
+  cellNum: { fontSize: 31, lineHeight: 34, marginTop: 4 },
+  chip: { paddingHorizontal: 6, paddingVertical: 4 },
+  chipInk: { backgroundColor: Colors.inkPanel },
+  chipClay: { backgroundColor: Colors.clay },
+  chipDone: { backgroundColor: Colors.wash },
+  chipCanceled: { borderWidth: 1, borderColor: Colors.line },
+  struck: { textDecorationLine: 'line-through' },
+
+  wideRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 17, marginTop: Spacing.xl },
+  inkTitle: { marginTop: Spacing.sm, fontSize: 32, lineHeight: 34, letterSpacing: -0.6 },
+
+  // Phone strip
+  stripRow: { flexDirection: 'row', borderTopWidth: 1, borderLeftWidth: 1, borderColor: Colors.line },
+  strip: {
+    flex: 1, minWidth: 0, minHeight: 72, alignItems: 'center', justifyContent: 'center', paddingVertical: 8,
+    backgroundColor: Colors.white, borderRightWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
+  },
+  stripSelected: { backgroundColor: Colors.inkPanel, borderColor: Colors.inkPanel },
+  stripNum: { fontSize: 24, lineHeight: 28, marginTop: 2 },
+  stripMark: { width: 6, height: 6, marginTop: 4, backgroundColor: 'transparent' },
 
   facts: {
-    flexDirection: 'row', alignItems: 'stretch',
-    paddingVertical: Spacing.sm, marginBottom: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    flexDirection: 'row', marginTop: Spacing.md,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
   },
-  fact: { flex: 1, gap: 6, minWidth: 0 },
-  factValue: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  factDivider: { marginHorizontal: Spacing.sm },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  fact: { flex: 1, minWidth: 0, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.xs, gap: 6 },
+  factDivider: { borderLeftWidth: 1, borderLeftColor: Colors.line },
+  factValue: { fontSize: 28, lineHeight: 30 },
 
-  dayHead: { paddingTop: Spacing.md, paddingBottom: Spacing.sm },
-  freeDay: {
-    paddingVertical: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
-  },
+  dayHead: { paddingTop: Spacing.lg, paddingBottom: Spacing.sm },
+  dayTitle: { marginTop: 8, fontSize: 32, lineHeight: 34, letterSpacing: -0.6 },
+  freeDay: { paddingVertical: Spacing.lg },
+  freeTitle: { fontSize: 26, lineHeight: 28 },
   inlineEmpty: { flex: 0, paddingVertical: Spacing.xl, paddingHorizontal: 0 },
 
   aptRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 16, borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  aptTime: { width: 52, gap: 1 },
-  aptRule: { width: 2, alignSelf: 'stretch', borderRadius: 1, opacity: 0.8 },
+  aptTime: { width: 52, gap: 2 },
   aptBody: { flex: 1, minWidth: 0 },
-  aptMeta: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 3 },
+  aptName: { fontSize: 24, lineHeight: 27, letterSpacing: -0.4 },
+  aptMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 6 },
 });

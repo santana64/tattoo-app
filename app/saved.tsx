@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, FlatList, ScrollView, Platform, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { THeader } from '@/components/ui/THeader';
@@ -12,6 +13,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ArtPlaceholder, BOOKING_STATUS } from '@/components/ArtistCard';
 import { VideoPlaceholder, isVideoMedia } from '@/components/PostCard';
 import { PressableScale, RevealImage, enterUp } from '@/components/motion';
+import { Kicker, Masthead, SectionHead, StatusDot } from '@/components/v5';
+import { SectionTabs } from '@/components/v5/SectionTabs';
 import { useFeedStore, type FeedPost } from '@/store/feed-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useSavedArtistsStore } from '@/store/saved-artists-store';
@@ -28,7 +31,7 @@ const TABS: { value: Tab; label: string }[] = [
 type SavedArtist = { id: string; blaze: string; avatarUrl: string | null; bookingStatus: FeedPost['artistBookingStatus'] };
 
 // Virtualized grid cell: press feedback and photo reveal only, no entrance animation.
-function WorkTile({ post, width }: { post: FeedPost; width: number }) {
+function WorkTile({ post, width, index }: { post: FeedPost; width: number; index: number }) {
   const router = useRouter();
   const isVideo = isVideoMedia(post.mediaUrl, post.mediaType);
   return (
@@ -49,8 +52,9 @@ function WorkTile({ post, width }: { post: FeedPost; width: number }) {
             />
           )}
         </View>
-        <TText variant="caption" weight="medium" numberOfLines={1} style={styles.tileName}>{post.artistName}</TText>
-        {!!post.artistCity && <TText variant="caption" color="tertiary" numberOfLines={1}>{post.artistCity}</TText>}
+        <Kicker tone="muted" style={styles.tileNumber}>{`N° ${String(index + 1).padStart(2, '0')}`}</Kicker>
+        <TText variant="title2" serif numberOfLines={1} style={styles.tileName}>{post.artistName}</TText>
+        {!!post.artistCity && <TText variant="caption" color="secondary" numberOfLines={1}>{post.artistCity}</TText>}
       </PressableScale>
     </View>
   );
@@ -61,8 +65,8 @@ function GridSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
     <View style={styles.gridRow}>
       {Array.from({ length: cols * 2 }).map((_, i) => (
         <View key={i} style={{ width: cellW, marginBottom: Spacing.lg }}>
-          <TSkeleton height={Math.round(cellW * 1.25)} radius={Radius.md} />
-          <TSkeleton width="55%" height={11} style={{ marginTop: 10 }} />
+          <TSkeleton height={Math.round(cellW * 1.25)} radius={0} />
+          <TSkeleton width="55%" height={14} radius={0} style={{ marginTop: 12 }} />
         </View>
       ))}
     </View>
@@ -72,7 +76,7 @@ function GridSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
 export default function SavedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, gutter } = useContentDimensions();
   const params = useLocalSearchParams<{ tab?: string }>();
 
   const [activeTab, setActiveTab] = useState<Tab>(
@@ -102,9 +106,9 @@ export default function SavedScreen() {
 
   const activePosts = activeTab === 'saved' ? savedPosts : likedPosts;
 
-  // ── Responsive grid
-  const innerW = Math.min(width, Layout.maxContent) - Layout.gutter * 2;
-  const cols = innerW >= 1000 ? 5 : innerW >= 760 ? 4 : innerW >= 520 ? 3 : 2;
+  // ── Responsive grid: two large plates on phones, a denser wall on wide screens.
+  const innerW = Math.min(width, Layout.maxContent) - gutter * 2;
+  const cols = innerW >= 1000 ? 5 : innerW >= 720 ? 4 : 2;
   const cellW = Math.floor((innerW - GAP * (cols - 1)) / cols);
 
   const selectTab = useCallback((tab: Tab) => {
@@ -129,47 +133,31 @@ export default function SavedScreen() {
 
   const header = (
     <View>
-      <View style={styles.masthead}>
-        <Animated.View entering={enterUp(0)}>
-          <TText variant="displayM" accessibilityRole="header">
-            Vos <TText variant="displayM" italic color="accentGlow">favoris</TText>
-          </TText>
-        </Animated.View>
-        <Animated.View entering={enterUp(1)}>
-          <TText variant="bodySmall" color="tertiary" style={{ marginTop: 4 }}>
-            Les pièces et les artistes que vous gardez sous la main.
-          </TText>
-        </Animated.View>
-      </View>
+      <Masthead
+        kicker="Collection privée"
+        title="Votre carnet"
+        emphasis="d’inspirations."
+        description="Les pièces et les artistes que vous gardez sous la main."
+        style={styles.masthead}
+      />
 
-      {/* Tabs */}
-      <Animated.View entering={enterUp(2)} style={styles.tabs} accessibilityRole="tablist">
-        {TABS.map((t) => {
-          const selected = activeTab === t.value;
-          const count = t.value === 'saved' ? savedPosts.length : likedPosts.length;
-          return (
-            <Pressable
-              key={t.value}
-              onPress={() => selectTab(t.value)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              accessibilityLabel={`${t.label}, ${count}`}
-              style={[styles.tab, selected && styles.tabActive]}
-            >
-              <TText variant="bodySmall" weight={selected ? 'semibold' : 'medium'} color={selected ? 'primary' : 'tertiary'}>
-                {t.label}
-              </TText>
-              <TText variant="caption" tabular color={selected ? 'accentWarm' : 'tertiary'}>{count}</TText>
-            </Pressable>
-          );
-        })}
-      </Animated.View>
+      <SectionTabs
+        tabs={TABS.map((t) => ({ ...t, count: t.value === 'saved' ? savedPosts.length : likedPosts.length }))}
+        value={activeTab}
+        onChange={selectTab}
+        style={styles.tabs}
+      />
 
       {/* Saved artists */}
       {activeTab === 'saved' && savedArtists.length > 0 && (
         <View style={styles.artistsSection}>
-          <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>Artistes enregistrés</TText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.rail}>
+          <SectionHead kicker="Artistes enregistrés" />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginHorizontal: -gutter }}
+            contentContainerStyle={[styles.rail, { paddingHorizontal: gutter }]}
+          >
             {savedArtists.map((artist, i) => {
               const status = BOOKING_STATUS[artist.bookingStatus] ?? BOOKING_STATUS.closed;
               return (
@@ -180,14 +168,11 @@ export default function SavedScreen() {
                     accessibilityLabel={`${artist.blaze}, ${status.label}`}
                     style={styles.artistChip}
                   >
-                    <View style={styles.avatarRing}>
+                    <View style={styles.avatarFrame}>
                       <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="lg" />
                     </View>
-                    <TText variant="caption" weight="medium" numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
-                    <View style={styles.statusRow}>
-                      <View style={[styles.dot, { backgroundColor: status.color }]} />
-                      <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
-                    </View>
+                    <TText variant="title2" serif numberOfLines={1} style={styles.artistName}>{artist.blaze}</TText>
+                    <StatusDot tone={status.tone} label={status.short} />
                   </PressableScale>
                 </Animated.View>
               );
@@ -197,9 +182,7 @@ export default function SavedScreen() {
       )}
 
       {activePosts.length > 0 && (
-        <TText variant="label" color="tertiary" uppercase style={styles.sectionLabel}>
-          {activeTab === 'saved' ? 'Réalisations enregistrées' : 'Réalisations aimées'}
-        </TText>
+        <SectionHead kicker={activeTab === 'saved' ? 'Réalisations enregistrées' : 'Réalisations aimées'} style={styles.gridHead} />
       )}
     </View>
   );
@@ -211,11 +194,11 @@ export default function SavedScreen() {
         key={`${activeTab}-${cols}`}
         data={activePosts}
         keyExtractor={(p) => p.id}
-        renderItem={({ item }) => <WorkTile post={item} width={cellW} />}
+        renderItem={({ item, index }) => <WorkTile post={item} width={cellW} index={index} />}
         numColumns={cols}
         columnWrapperStyle={styles.columnWrapper}
         style={styles.list}
-        contentContainerStyle={[styles.frame, { paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={[styles.frame, { paddingHorizontal: gutter, paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={header}
         ListEmptyComponent={
@@ -240,43 +223,25 @@ export default function SavedScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  container: { flex: 1, backgroundColor: Colors.paper },
   list: { flex: 1 },
-  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
-  masthead: { paddingTop: Spacing.md, paddingBottom: Spacing.lg },
-
-  tabs: {
-    flexDirection: 'row', gap: Spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
-    marginBottom: Spacing.lg,
-  },
-  tab: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    height: 44, marginBottom: -StyleSheet.hairlineWidth,
-    borderBottomWidth: 2, borderBottomColor: 'transparent',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  tabActive: { borderBottomColor: Colors.accentWarm },
-
-  sectionLabel: { marginBottom: Spacing.sm },
+  masthead: { marginBottom: 0 },
+  tabs: { marginBottom: Spacing.xl },
 
   artistsSection: { marginBottom: Spacing.xl },
-  railScroller: { marginHorizontal: -Layout.gutter },
-  rail: { gap: Spacing.xs, paddingHorizontal: Layout.gutter },
-  artistChip: { width: 76, alignItems: 'center' },
-  avatarRing: {
-    padding: 3, borderRadius: 30,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  artistName: { marginTop: 8, maxWidth: 72, textAlign: 'center' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  rail: { gap: Spacing.sm },
+  artistChip: { width: 84, alignItems: 'flex-start', gap: 6 },
+  avatarFrame: { padding: 3, borderWidth: 1, borderColor: Colors.line },
+  artistName: { fontSize: 17, lineHeight: 19, maxWidth: 82 },
 
-  columnWrapper: { gap: GAP, marginBottom: Spacing.lg },
+  gridHead: { marginBottom: Spacing.md },
+  columnWrapper: { gap: GAP, marginBottom: Spacing.xl },
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
-  tile: { width: '100%', borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.bgSurface },
-  tileName: { marginTop: 10 },
+  tile: { width: '100%', overflow: 'hidden', backgroundColor: Colors.clay },
+  tileNumber: { marginTop: 10 },
+  tileName: { fontSize: 19, lineHeight: 21, marginTop: 4 },
 
   empty: { paddingTop: Spacing['2xl'] },
 });

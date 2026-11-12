@@ -3,9 +3,10 @@
 // pasted in the dashboard; nothing secret lives in the client.
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
+import { StatusDot } from '@/components/v5';
 import type { CaptchaProps } from './Captcha';
 
 export type { CaptchaProps } from './Captcha';
@@ -93,7 +94,8 @@ export function Captcha({ onToken, resetKey = 0, style }: CaptchaProps) {
       };
       widgetId.current = turnstile.render(container.current, {
         sitekey: SITE_KEY,
-        theme: 'dark',
+        // v5 pages are paper: the light widget sits on them without a dark box.
+        theme: 'light',
         language: 'fr',
         size: 'flexible',
         callback: (token) => {
@@ -158,7 +160,8 @@ export function Captcha({ onToken, resetKey = 0, style }: CaptchaProps) {
       />
       {status === 'failed' && (
         <View style={styles.failed} accessibilityRole="alert">
-          <TText variant="caption" color="secondary">
+          <StatusDot tone="alert" label="Vérification indisponible" />
+          <TText variant="caption" color="secondary" style={styles.failedText}>
             La vérification anti-robot n’a pas pu s’afficher. Vérifiez votre connexion ou désactivez le bloqueur de contenus pour ce site, puis réessayez.
           </TText>
           <TButton title="Réessayer" variant="secondary" size="sm" fullWidth={false} onPress={retry} style={styles.retry} />
@@ -171,11 +174,12 @@ export function Captcha({ onToken, resetKey = 0, style }: CaptchaProps) {
 const styles = StyleSheet.create({
   wrap: { width: '100%', marginBottom: Spacing.sm },
   failed: {
-    padding: Spacing.xs,
-    borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated,
+    padding: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    borderTopColor: Colors.flame,
+    backgroundColor: Colors.white,
   },
-  retry: { marginTop: Spacing['2xs'], alignSelf: 'flex-start' },
+  failedText: { marginTop: 8 },
+  retry: { marginTop: Spacing.xs, alignSelf: 'flex-start' },
 });

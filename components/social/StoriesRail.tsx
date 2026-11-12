@@ -30,8 +30,8 @@ function StoryRing({ uri, name, seen, empty }: { uri: string | null; name: strin
 }
 
 /**
- * A row of round portraits, one per artist with a live story. Gold ring: not
- * seen yet; muted ring: seen on this device. Designed to sit inside a column
+ * A row of square portrait plates, one per artist with a live story. Vermilion
+ * frame: not seen yet; hairline frame: seen on this device. Designed to sit inside a column
  * padded by the layout gutter (it bleeds to the screen edges).
  */
 export function StoriesRail({ artistIds, showAdd = false }: StoriesRailProps) {
@@ -115,7 +115,7 @@ export function StoriesRail({ artistIds, showAdd = false }: StoriesRailProps) {
                 hitSlop={10}
                 style={({ pressed }) => [styles.add, pressed && { opacity: 0.8 }]}
               >
-                <Ionicons name="add" size={16} color={Colors.textInverse} />
+                <Ionicons name="add" size={16} color="#FFFFFF" />
               </Pressable>
             )}
           </View>
@@ -169,19 +169,19 @@ const styles = StyleSheet.create({
   tile: { width: TILE_W, alignItems: 'center' },
   tileInner: { alignItems: 'center', width: TILE_W },
   ring: {
-    width: RING, height: RING, borderRadius: RING / 2,
+    width: RING, height: RING,
     alignItems: 'center', justifyContent: 'center',
   },
-  ringFresh: { borderWidth: 1.5, borderColor: Colors.accentWarm },
-  ringSeen: { borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault },
-  ringEmpty: { borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.borderGlow },
+  ringFresh: { borderWidth: 2, borderColor: Colors.flame },
+  ringSeen: { borderWidth: 1, borderColor: Colors.line },
+  ringEmpty: { borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.ink },
   name: { marginTop: 6, maxWidth: TILE_W - 2, textAlign: 'center' },
   add: {
     position: 'absolute', top: RING - 22, right: (TILE_W - RING) / 2 - 2,
-    width: 24, height: 24, borderRadius: 12,
+    width: 24, height: 24,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.accentWarm,
-    borderWidth: 2, borderColor: Colors.bgPrimary,
+    backgroundColor: Colors.flame,
+    borderWidth: 2, borderColor: Colors.paper,
     ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
   },
 });

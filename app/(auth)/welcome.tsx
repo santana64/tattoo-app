@@ -1,29 +1,113 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence,
-  Easing, FadeIn, FadeInDown, useReducedMotion,
-} from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors, Spacing, Layout, Duration } from '@/constants/theme';
+import { Colors, Spacing, Layout, Duration, Gradients, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { Logo } from '@/components/ui/Logo';
+import { EditorialTitle, Kicker, TextLink } from '@/components/v5';
+import { RevealImage } from '@/components/motion';
 import { STYLES } from '@/constants/tattoo';
+import { useFeedStore, type FeedPost } from '@/store/feed-store';
 
-// Served from our own assets: no third-party request on the landing screen.
-// Photograph from Unsplash (free licence); replace with our own artist photography when available.
-const HERO_IMAGE = require('../../assets/images/welcome-hero.jpg');
 // Slugs from the shared STYLES taxonomy.
 const QUICK_STYLES = STYLES.filter((s) => ['fine-line', 'blackwork', 'realisme', 'japonais', 'old-school', 'neo-trad'].includes(s.slug));
 const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null;
+
 function enter(delay: number, reduced: boolean) {
-  return reduced ? FadeIn.duration(1) : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
+  return reduced ? undefined : FadeInDown.delay(delay).duration(Duration.reveal).easing(EASE);
+}
+
+/** Filter pill on the ink ground: paper hairline, paper fill on hover. */
+function InkPill({ label, onPress, accessibilityLabel }: { label: string; onPress: () => void; accessibilityLabel: string }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={(state) => {
+        const { hovered, pressed } = state as Hover;
+        return [styles.pill, webPointer, (hovered || pressed) && styles.pillLit];
+      }}
+    >
+      {(state) => {
+        const { hovered, pressed } = state as Hover;
+        return (
+          <TText variant="caption" weight="semibold" style={{ fontSize: 12.5, lineHeight: 16, color: hovered || pressed ? Colors.ink : Colors.onInk }}>
+            {label}
+          </TText>
+        );
+      }}
+    </Pressable>
+  );
+}
+
+/** Right column when real pieces exist: the week's most liked work, unframed, each with its cartel. */
+function SelectionColumn({ posts, onOpen }: { posts: FeedPost[]; onOpen: (id: string) => void }) {
+  const [lead, ...rest] = posts;
+  const side = rest.slice(0, 2);
+  const cell = (post: FeedPost, index: number, style: object) => (
+    <Pressable
+      key={post.id}
+      onPress={() => onOpen(post.id)}
+      accessibilityRole="link"
+      accessibilityLabel={`Réalisation de ${post.artistName}${post.artistCity ? `, ${post.artistCity}` : ''}`}
+      style={[styles.cell, style, webPointer]}
+    >
+      <RevealImage uri={post.mediaUrl} style={StyleSheet.absoluteFill} />
+      <View style={styles.cellMark} pointerEvents="none">
+        <TText variant="micro" weight="bold" uppercase style={styles.cellMarkText} numberOfLines={1}>
+          {`N° ${String(index + 1).padStart(2, '0')} / ${post.artistName}`}
+        </TText>
+      </View>
+    </Pressable>
+  );
+  return (
+    <View style={styles.visual}>
+      <View style={styles.selectionGrid}>
+        {cell(lead, 0, { flex: side.length ? 2 : 1 })}
+        {side.length > 0 && (
+          <View style={styles.selectionSide}>
+            {side.map((p, i) => cell(p, i + 1, { flex: 1 }))}
+          </View>
+        )}
+      </View>
+      <View style={styles.selectionCaption}>
+        <Kicker tone="onInkMuted">Sélection de la semaine</Kicker>
+        <Kicker tone="onInkMuted">Pièces publiées sur Inkr</Kicker>
+      </View>
+    </View>
+  );
+}
+
+/** Right column without real pieces: a skin-tone plate carrying the manifesto. No image is invented. */
+function ManifestoColumn() {
+  return (
+    <View style={styles.visual}>
+      <View style={styles.plate}>
+        <LinearGradient colors={Gradients.plateClay} start={{ x: 0.3, y: 0 }} end={{ x: 0.8, y: 1 }} style={StyleSheet.absoluteFill} />
+        <View style={styles.plateFrame} pointerEvents="none" />
+        <View style={styles.plateBody}>
+          <Kicker style={styles.plateKicker}>[ Manifeste ]</Kicker>
+          <TText variant="displayL" style={styles.plateStatement}>
+            Ce n’est pas{'\n'}une image.{'\n'}
+            <TText variant="displayL" italic style={styles.plateStatement}>C’est une rencontre.</TText>
+          </TText>
+        </View>
+        <View style={styles.plateCaption}>
+          <Kicker>Inkr / The human canvas</Kicker>
+          <Kicker>Never just ink</Kicker>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function WelcomeScreen() {
@@ -32,163 +116,114 @@ export default function WelcomeScreen() {
   const { width, height } = useWindowDimensions();
   const reduced = useReducedMotion();
   const wide = width >= 900;
-  const [photoFailed, setPhotoFailed] = useState(false);
+  const selection = useFeedStore((s) => s.selection);
+  const fetchSelection = useFeedStore((s) => s.fetchSelection);
 
-  // Slow gallery-light drift on the hero photograph.
-  const drift = useSharedValue(1);
-  useEffect(() => {
-    if (reduced) return;
-    drift.value = withRepeat(
-      withSequence(
-        withTiming(1.06, { duration: 16000, easing: Easing.inOut(Easing.quad) }),
-        withTiming(1, { duration: 16000, easing: Easing.inOut(Easing.quad) }),
-      ),
-      -1,
-      false,
-    );
-  }, [drift, reduced]);
-  const driftStyle = useAnimatedStyle(() => ({ transform: [{ scale: drift.value }] }));
+  // Real pieces only, and only where there is room to show them.
+  useEffect(() => { if (wide) void fetchSelection(); }, [wide, fetchSelection]);
 
   const explore = (style?: string) =>
     router.push(style ? { pathname: '/(tabs)/explore', params: { style } } : '/(tabs)/explore');
+  const openPost = (id: string) => router.push(`/post/${id}`);
 
   return (
     <View style={styles.container}>
-      {/* Photograph, lit from above */}
-      <Animated.View style={[styles.photo, wide && styles.photoWide, driftStyle]}>
-        {photoFailed ? (
-          // No photograph: a warm spotlight on the wall keeps the composition lit.
-          <LinearGradient
-            colors={['rgba(201,164,106,0.20)', 'rgba(201,164,106,0.05)', 'rgba(11,10,9,0)']}
-            locations={[0, 0.45, 1]}
-            start={{ x: 0.7, y: 0 }}
-            end={{ x: 0.3, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        ) : (
-          <Image
-            source={HERO_IMAGE}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={600}
-            onError={() => setPhotoFailed(true)}
-            accessibilityLabel="Tatoueur au travail dans un studio"
-          />
-        )}
-      </Animated.View>
-      <LinearGradient
-        colors={wide
-          ? ['rgba(11,10,9,0.96)', 'rgba(11,10,9,0.80)', 'rgba(11,10,9,0.15)']
-          : ['rgba(11,10,9,0.35)', 'rgba(11,10,9,0.10)', 'rgba(11,10,9,0.82)', Colors.bgPrimary]}
-        locations={wide ? [0, 0.42, 1] : [0, 0.28, 0.62, 0.88]}
-        start={wide ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 }}
-        end={wide ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
       <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { minHeight: height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + Spacing.lg },
-        ]}
+        contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-        <View style={styles.frame}>
-          {/* Masthead */}
-          <Animated.View entering={reduced ? undefined : FadeIn.duration(800)} style={styles.topBar}>
-            <Logo size="sm" variant="wordmark" />
-            <Pressable
-              onPress={() => router.push('/(auth)/sign-in')}
-              accessibilityRole="link"
-              hitSlop={10}
-              style={({ pressed }) => [styles.signInLink, pressed && { opacity: 0.6 }]}
-            >
-              <TText variant="bodySmall" weight="medium">Se connecter</TText>
-            </Pressable>
-          </Animated.View>
-
-          <View style={styles.spacer} />
-
-          {/* Editorial block */}
-          <View style={[styles.copy, wide && styles.copyWide]}>
-            <Animated.View entering={enter(120, reduced)} style={styles.kicker}>
-              <View style={styles.kickerRule} />
-              <TText variant="label" color="accentWarm" uppercase>
-                Tatoueurs · Studios · Guest spots
-              </TText>
+        <View style={[styles.shell, wide && styles.shellWide, { minHeight: height }]}>
+          <View
+            style={[
+              styles.copy,
+              wide && styles.copyWide,
+              { paddingTop: insets.top + (wide ? 36 : 18), paddingBottom: insets.bottom + Spacing.lg },
+            ]}
+          >
+            {/* Crown */}
+            <Animated.View entering={reduced ? undefined : FadeIn.duration(700)}>
+              <View style={styles.topBar}>
+                <Logo size="sm" variant="wordmark" color={Colors.onInk} />
+                <TextLink label="Se connecter" onPress={() => router.push('/(auth)/sign-in')} onInk icon="log-in-outline" />
+              </View>
+              <Kicker tone="onInkMuted" style={styles.crown}>INKR / THE HUMAN CANVAS</Kicker>
             </Animated.View>
 
-            <Animated.View entering={enter(220, reduced)}>
-              <TText variant="displayXL" style={[styles.headline, !wide && styles.headlineMobile]} accessibilityRole="header">
-                Trouvez l’artiste{'\n'}
-                <TText variant="displayXL" italic color="accentGlow" style={!wide && styles.headlineMobile}>
-                  qui vous ressemble.
+            {/* Statement */}
+            <View style={styles.statement}>
+              <Animated.View entering={enter(120, reduced)}>
+                <EditorialTitle size="hero" onInk emphasis="SKIN." breakEmphasis>{'ART\nUNDER'}</EditorialTitle>
+              </Animated.View>
+
+              <Animated.View entering={enter(260, reduced)}>
+                <TText variant="body" color="onInkMuted" style={styles.lede}>
+                  Le tatouage ne se choisit pas dans un catalogue : il se rencontre. Parcourez les portfolios
+                  par style et par ville, puis confiez votre projet directement à l’artiste qui vous parle.
                 </TText>
-              </TText>
-            </Animated.View>
+              </Animated.View>
 
-            <Animated.View entering={enter(340, reduced)}>
-              <TText variant="body" color="secondary" style={styles.lede}>
-                Parcourez les portfolios par style et par ville, puis confiez votre projet directement
-                à l’artiste qui vous parle.
-              </TText>
-            </Animated.View>
+              <Animated.View entering={enter(360, reduced)}>
+                <Kicker tone="onInkMuted" style={styles.stylesKicker}>Entrer par un style</Kicker>
+                <View style={styles.pills}>
+                  {QUICK_STYLES.map((s) => (
+                    <InkPill
+                      key={s.slug}
+                      label={s.name}
+                      onPress={() => explore(s.slug)}
+                      accessibilityLabel={`Voir les artistes ${s.name}`}
+                    />
+                  ))}
+                </View>
+              </Animated.View>
 
-            {/* Quick entry by style */}
-            <Animated.View entering={enter(440, reduced)}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.styleRow}
-                style={styles.styleScroller}
-              >
-                {QUICK_STYLES.map((s) => (
-                  <Pressable
-                    key={s.slug}
-                    onPress={() => explore(s.slug)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Voir les artistes ${s.name}`}
-                    style={(state) => {
-                      const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-                      return [styles.styleChip, (pressed || hovered) && styles.styleChipActive];
-                    }}
-                  >
-                    <TText variant="caption" weight="medium" style={{ fontSize: 13 }}>{s.name}</TText>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </Animated.View>
+              <Animated.View entering={enter(460, reduced)} style={styles.actions}>
+                <TButton
+                  title="Découvrir les artistes"
+                  variant="glass"
+                  onPress={() => explore()}
+                  icon={<Ionicons name="arrow-forward" size={15} color={Colors.ink} />}
+                  iconPosition="right"
+                  fullWidth={!wide}
+                />
+                <TButton
+                  title="Je suis tatoueur·se"
+                  variant="inverse"
+                  onPress={() => router.push('/(auth)/sign-in')}
+                  fullWidth={!wide}
+                  accessibilityLabel="Je suis tatoueur ou tatoueuse : se connecter ou créer un espace artiste"
+                />
+              </Animated.View>
+            </View>
 
-            <Animated.View entering={enter(540, reduced)} style={styles.actions}>
-              <TButton
-                title="Explorer les artistes"
-                onPress={() => explore()}
-                icon={<Ionicons name="arrow-forward" size={17} color={Colors.textInverse} />}
-                iconPosition="right"
-                fullWidth={!wide}
-              />
-              <TButton
-                title="Je suis tatoueur·se"
-                variant="secondary"
-                onPress={() => router.push('/(auth)/sign-in')}
-                fullWidth={!wide}
-              />
-            </Animated.View>
+            {/* Signature */}
+            <Animated.View entering={reduced ? undefined : FadeIn.delay(700).duration(600)}>
+              <View style={styles.signature}>
+                <Kicker tone="onInkMuted" style={styles.signatureLines}>{'No two skins alike.\nNo two stories the same.'}</Kicker>
+                <TText variant="displayS" italic color="flameOnInk" style={styles.signatureMotto}>Inked to exist.</TText>
+              </View>
 
-            <Animated.View entering={reduced ? undefined : FadeIn.delay(800).duration(600)} style={styles.legalRow}>
-              <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
-              <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link">
-                <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
-              </Pressable>
-              <TText variant="caption" color="tertiary"> et la </TText>
-              <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link">
-                <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
-              </Pressable>
-              <TText variant="caption" color="tertiary">.</TText>
+              <View style={styles.legalRow}>
+                <TText variant="caption" color="onInkMuted">En continuant, vous acceptez les </TText>
+                <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" style={webPointer}>
+                  <TText variant="caption" color="onInk" style={styles.underline}>CGU</TText>
+                </Pressable>
+                <TText variant="caption" color="onInkMuted"> et la </TText>
+                <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" style={webPointer}>
+                  <TText variant="caption" color="onInk" style={styles.underline}>politique de confidentialité</TText>
+                </Pressable>
+                <TText variant="caption" color="onInkMuted">.</TText>
+              </View>
             </Animated.View>
           </View>
+
+          {wide && (
+            <Animated.View entering={reduced ? undefined : FadeIn.delay(200).duration(900)} style={styles.visualWrap}>
+              {selection.length > 0
+                ? <SelectionColumn posts={selection} onOpen={openPost} />
+                : <ManifestoColumn />}
+            </Animated.View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -196,53 +231,66 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary, overflow: 'hidden' },
-  photo: { ...StyleSheet.absoluteFillObject, bottom: '30%' },
-  photoWide: { left: '38%', bottom: 0 },
+  container: { flex: 1, backgroundColor: Colors.inkPanel },
 
-  scroll: { flexGrow: 1, paddingHorizontal: Layout.gutter },
-  frame: { flex: 1, width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  shell: { flex: 1, width: '100%', backgroundColor: Colors.inkPanel },
+  shellWide: { flexDirection: 'row' },
 
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  signInLink: {
-    paddingHorizontal: 14,
-    height: 36,
-    justifyContent: 'center',
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.glassBorderBright,
-    backgroundColor: 'rgba(11,10,9,0.45)',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  copy: { flex: 1, justifyContent: 'space-between', paddingHorizontal: Layout.gutter, gap: Spacing['2xl'] },
+  copyWide: { flex: 55, minWidth: 0, paddingHorizontal: Spacing['3xl'] },
+
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
+  crown: { marginTop: Spacing.lg, paddingTop: Spacing.xs, borderTopWidth: 1, borderTopColor: Colors.onInkLine },
+
+  statement: { maxWidth: 720 },
+  lede: { maxWidth: 440, marginTop: Spacing.xl, lineHeight: 27 },
+
+  stylesKicker: { marginTop: Spacing.xl, marginBottom: Spacing.xs },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: {
+    minHeight: 40, paddingHorizontal: 14, justifyContent: 'center',
+    borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.onInkLine,
   },
+  pillLit: { backgroundColor: Colors.paper, borderColor: Colors.paper },
 
-  spacer: { flex: 1, minHeight: 220 },
+  actions: { gap: 10, flexDirection: 'row', flexWrap: 'wrap', marginTop: Spacing.xl },
 
-  copy: { width: '100%' },
-  copyWide: { maxWidth: 560, paddingBottom: Spacing['3xl'] },
-
-  kicker: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md },
-  kickerRule: { width: 24, height: 1, backgroundColor: Colors.accentWarm },
-
-  headline: { marginBottom: Spacing.md },
-  headlineMobile: { fontSize: 46, lineHeight: 48, letterSpacing: -1.2 },
-  lede: { maxWidth: 440, marginBottom: Spacing.lg },
-
-  styleScroller: { marginHorizontal: -Layout.gutter, marginBottom: Spacing.lg },
-  styleRow: { paddingHorizontal: Layout.gutter, gap: 8 },
-  styleChip: {
-    height: 36,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.glassBorderBright,
-    backgroundColor: 'rgba(11,10,9,0.5)',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+  signature: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: Spacing.sm,
+    paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.onInkLine,
   },
-  styleChipActive: { borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber },
+  signatureLines: { lineHeight: 17 },
+  signatureMotto: { fontSize: 30, lineHeight: 32 },
 
-  actions: { gap: 10, flexDirection: 'row', flexWrap: 'wrap', marginBottom: Spacing.md },
-
-  legalRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  legalRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: Spacing.md },
   underline: { textDecorationLine: 'underline' },
+
+  // Right column (wide only)
+  visualWrap: { flex: 45, minWidth: 0 },
+  visual: { flex: 1 },
+
+  selectionGrid: { flex: 1, flexDirection: 'row', gap: 2, backgroundColor: Colors.inkPanel },
+  selectionSide: { flex: 1, gap: 2 },
+  cell: { overflow: 'hidden', backgroundColor: Colors.clay },
+  cellMark: {
+    position: 'absolute', top: 14, left: 14, maxWidth: '85%',
+    backgroundColor: Colors.paper, paddingHorizontal: 7, paddingVertical: 4,
+  },
+  cellMarkText: { color: Colors.ink, letterSpacing: 1.2, fontSize: 9 },
+  selectionCaption: {
+    flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    borderTopWidth: 1, borderTopColor: Colors.onInkLine,
+  },
+
+  plate: { flex: 1, overflow: 'hidden', justifyContent: 'space-between' },
+  plateFrame: { ...StyleSheet.absoluteFillObject, margin: 24, borderWidth: 1, borderColor: Colors.clayDeep },
+  plateBody: { padding: Spacing['3xl'], paddingTop: Spacing['4xl'] },
+  plateKicker: { marginBottom: Spacing.lg },
+  plateStatement: { color: Colors.ink, fontSize: 64, lineHeight: 60, letterSpacing: -2.4 },
+  plateCaption: {
+    flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm,
+    marginHorizontal: Spacing['2xl'], marginBottom: Spacing['2xl'],
+    paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.clayDeep,
+  },
 });

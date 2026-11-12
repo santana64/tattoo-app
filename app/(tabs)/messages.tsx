@@ -1,19 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, Pressable, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PressableScale, enterUp } from '@/components/motion';
+import { Masthead, Rule } from '@/components/v5';
 import { INQUIRY_LABEL, RequestStatusLine } from '@/components/RequestCard';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
+import { useContentDimensions, useShell } from '@/hooks/useContentDimensions';
 
 // A request becomes a conversation once the artist has accepted it; a question
 // (written without a project) is a conversation from its first message.
@@ -26,6 +26,14 @@ interface LastMessage { content: string; createdAt: string; mine: boolean; type:
 
 const timeFmt = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+
+/** The thread column never stretches across a wide page. */
+const LIST_MAX = 760;
+
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color', transitionDuration: '180ms' } as object)
+  : null;
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -42,6 +50,8 @@ function preview(m: LastMessage | undefined, isArtist: boolean): string {
 export default function MessagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { gutter } = useContentDimensions();
+  const { hasSidebar } = useShell();
   const { user } = useAuthStore();
   const { requests, fetchRequests } = useRequestStore();
   const [last, setLast] = useState<Record<string, LastMessage>>({});
@@ -108,71 +118,95 @@ export default function MessagesScreen() {
     const avatar = isArtist ? item.clientAvatarUrl : item.artistAvatarUrl;
     const m = last[item.id];
     return (
-      <PressableScale
+      <Pressable
         onPress={() => router.push(`/conversation/${item.id}`)}
         accessibilityRole="link"
         accessibilityLabel={`Conversation avec ${name}`}
-        style={styles.row}
+        style={(state) => [styles.row, webPointer, ((state as Hover).hovered || state.pressed) && styles.rowActive]}
       >
-        <TAvatar uri={avatar} name={name} size="lg" />
-        <View style={styles.rowBody}>
-          <View style={styles.rowTop}>
-            <TText variant="title2" serif numberOfLines={1} style={styles.name}>{name}</TText>
-            {!!m && <TText variant="caption" color="tertiary" tabular>{when(m.createdAt)}</TText>}
-          </View>
-          <TText variant="bodySmall" color={m && !m.mine ? 'primary' : 'secondary'} numberOfLines={1}>
-            {preview(m, isArtist)}
-          </TText>
-          <View style={styles.rowMeta}>
-            {item.isInquiry ? (
-              <>
-                <Ionicons name="help-circle-outline" size={13} color={Colors.accentWarm} />
-                <TText variant="caption" color="accentWarm">{INQUIRY_LABEL}</TText>
-              </>
-            ) : (
-              <>
-                <RequestStatusLine status={item.status} viewAs={isArtist ? 'artist' : 'client'} />
-                <TText variant="caption" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>· {item.bodyZone}</TText>
-              </>
-            )}
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
-      </PressableScale>
+        {(state) => {
+          const lit = (state as Hover).hovered || state.pressed;
+          return (
+            <>
+              <TAvatar uri={avatar} name={name} size="lg" />
+              <View style={styles.rowBody}>
+                <View style={styles.rowTop}>
+                  <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={[styles.name, lit && { color: Colors.flameText }]}>
+                    {name}
+                  </TText>
+                  {!!m && <TText variant="caption" color="tertiary" tabular>{when(m.createdAt)}</TText>}
+                </View>
+                <TText variant="bodySmall" color={m && !m.mine ? 'primary' : 'secondary'} numberOfLines={1}>
+                  {preview(m, isArtist)}
+                </TText>
+                <View style={styles.rowMeta}>
+                  {item.isInquiry ? (
+                    <TText variant="micro" weight="bold" uppercase color="accentWarm" style={{ letterSpacing: 0.6 }}>{INQUIRY_LABEL}</TText>
+                  ) : (
+                    <>
+                      <RequestStatusLine status={item.status} viewAs={isArtist ? 'artist' : 'client'} />
+                      {!!item.bodyZone && (
+                        <TText variant="caption" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>· {item.bodyZone}</TText>
+                      )}
+                    </>
+                  )}
+                </View>
+              </View>
+              <Ionicons name="arrow-forward" size={15} color={lit ? Colors.flameText : Colors.textTertiary} />
+            </>
+          );
+        }}
+      </Pressable>
     );
   };
 
+  const count = loaded ? `${conversations.length} conversation${conversations.length > 1 ? 's' : ''}` : 'Chargement…';
+
+  const header = (
+    <View>
+      <Masthead
+        kicker="Correspondance"
+        title="Vos"
+        emphasis="messages."
+        description="Un fil par projet : chaque échange reste relié à sa demande et à ses rendez-vous."
+        style={styles.masthead}
+      />
+      <View style={styles.column}>
+        <TText variant="label" weight="bold" uppercase tabular color="tertiary" style={styles.count}>{count}</TText>
+        <Rule tone="ink" />
+      </View>
+    </View>
+  );
+
+  const contentStyle = [
+    styles.list,
+    { paddingHorizontal: gutter, paddingBottom: insets.bottom + (hasSidebar ? Spacing['2xl'] : 110) },
+  ];
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.frame}>
-        <Animated.View entering={enterUp(0)} style={styles.header}>
-          <TText variant="displayM" accessibilityRole="header">
-            Vos <TText variant="displayM" italic color="accentGlow">messages</TText>
-          </TText>
-          <TText variant="bodySmall" color="tertiary" tabular style={{ marginTop: 4 }}>
-            {loaded ? `${conversations.length} conversation${conversations.length > 1 ? 's' : ''}` : 'Chargement…'}
-          </TText>
-        </Animated.View>
-      </View>
-
       {!loaded ? (
-        <View style={[styles.frame, styles.list]}>
-          {[0, 1, 2].map((i) => (
-            <View key={i} style={styles.row}>
-              <TSkeleton width={48} height={48} radius={24} />
-              <View style={{ flex: 1, gap: 8 }}>
-                <TSkeleton width="40%" height={16} />
-                <TSkeleton width="75%" height={12} />
+        <View style={contentStyle}>
+          {header}
+          <View style={styles.column} accessibilityLabel="Chargement des conversations">
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.row}>
+                <TSkeleton width={48} height={48} />
+                <View style={{ flex: 1, gap: 8 }}>
+                  <TSkeleton width="40%" height={14} />
+                  <TSkeleton width="75%" height={12} />
+                </View>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
       ) : (
         <FlatList
           data={sorted}
           keyExtractor={(r) => r.id}
           renderItem={renderItem}
-          contentContainerStyle={[styles.frame, styles.list, { paddingBottom: insets.bottom + 110 }]}
+          ListHeaderComponent={header}
+          contentContainerStyle={[contentStyle, sorted.length === 0 && { flexGrow: 1 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accentWarm} />}
           ListEmptyComponent={
             <EmptyState
@@ -193,16 +227,20 @@ export default function MessagesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  frame: { width: '100%', maxWidth: 760, alignSelf: 'center' },
-  header: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.sm, paddingBottom: Spacing.md },
-  list: { paddingHorizontal: Layout.gutter },
+  list: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
+  masthead: { marginBottom: Spacing.lg },
+  column: { width: '100%', maxWidth: LIST_MAX },
+  count: { marginBottom: Spacing.xs },
+  // Rows sit in a reading column under the full-width masthead.
   row: {
+    width: '100%', maxWidth: LIST_MAX,
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
+    paddingVertical: 14, paddingHorizontal: Spacing['2xs'],
+    borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  rowBody: { flex: 1, gap: 3 },
+  rowActive: { backgroundColor: Colors.wash },
+  rowBody: { flex: 1, gap: 3, minWidth: 0 },
   rowTop: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 },
-  name: { flexShrink: 1, fontSize: 20 },
+  name: { flexShrink: 1, fontSize: 15 },
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
 });

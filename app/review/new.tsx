@@ -3,18 +3,20 @@ import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Layout } from '@/constants/theme';
+import { Colors, Spacing, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
 import { TAvatar } from '@/components/ui/TAvatar';
-import { PressableScale, GlassSurface, enterUp, EASE_OUT } from '@/components/motion';
+import { EditorialTitle, Kicker } from '@/components/v5';
+import { GlassSurface, enterUp } from '@/components/motion';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth-store';
 import { useArtist } from '@/hooks/use-artist';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 
 const FORM_MAX = 720;
 const MAX_LENGTH = 500;
@@ -30,6 +32,11 @@ const REVIEW_TAGS = [
 
 const RATING_LABELS = ['', 'Décevant', 'Moyen', 'Correct', 'Très bien', 'Excellent'];
 
+type Hover = { pressed: boolean; hovered?: boolean };
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+  : null;
+
 // ─── Stars ────────────────────────────────────────────────────────────────────
 function StarRating({ rating, onChange }: { rating: number; onChange: (r: number) => void }) {
   return (
@@ -37,18 +44,17 @@ function StarRating({ rating, onChange }: { rating: number; onChange: (r: number
       {[1, 2, 3, 4, 5].map((star) => {
         const filled = star <= rating;
         return (
-          <PressableScale
+          <Pressable
             key={star}
-            pressedScale={0.92}
             onPress={() => onChange(star)}
             accessibilityRole="radio"
             accessibilityState={{ checked: rating === star, selected: rating === star }}
             accessibilityLabel={`${star} étoile${star > 1 ? 's' : ''} sur 5, ${RATING_LABELS[star].toLowerCase()}`}
             hitSlop={4}
-            style={styles.star}
+            style={(state) => [styles.star, ((state as Hover).hovered || state.pressed) && styles.starHover]}
           >
-            <Ionicons name={filled ? 'star' : 'star-outline'} size={32} color={filled ? Colors.accentGlow : Colors.textTertiary} />
-          </PressableScale>
+            <Ionicons name={filled ? 'star' : 'star-outline'} size={30} color={filled ? Colors.flame : Colors.metal} />
+          </Pressable>
         );
       })}
     </View>
@@ -57,25 +63,15 @@ function StarRating({ rating, onChange }: { rating: number; onChange: (r: number
 
 // ─── Success (rare moment) ────────────────────────────────────────────────────
 function SuccessView() {
-  const reduced = useReducedMotion();
-  const ring = useSharedValue(0);
-  useEffect(() => {
-    ring.set(withDelay(reduced ? 0 : 80, withTiming(1, { duration: reduced ? 200 : 700, easing: EASE_OUT })));
-  }, [reduced, ring]);
-  const ringStyle = useAnimatedStyle(() => ({
-    opacity: ring.get(),
-    transform: [{ scale: reduced ? 1 : 0.86 + ring.get() * 0.14 }],
-  }));
   return (
     <View style={[styles.container, styles.success]}>
-      <Animated.View style={[styles.successRing, ringStyle]}>
-        <Ionicons name="star" size={26} color={Colors.accentGlow} />
-      </Animated.View>
-      <Animated.View entering={enterUp(0, 220)} style={{ alignItems: 'center' }}>
-        <TText variant="displayM" style={{ textAlign: 'center' }} accessibilityRole="header" accessibilityLiveRegion="polite">
-          Merci pour <TText variant="displayM" italic color="accentGlow">votre avis</TText>
-        </TText>
-        <TText variant="body" color="secondary" style={{ textAlign: 'center', marginTop: Spacing.xs, maxWidth: 360 }}>
+      <Animated.View entering={enterUp(0, 120)} style={{ alignItems: 'center', gap: Spacing.sm }}>
+        <Kicker tone="flame">Avis publié</Kicker>
+        <View accessibilityLiveRegion="polite">
+          <EditorialTitle emphasis="votre avis." breakEmphasis style={{ textAlign: 'center' }}>Merci pour</EditorialTitle>
+        </View>
+        <View style={styles.successRule} />
+        <TText variant="body" color="secondary" style={{ textAlign: 'center', maxWidth: 360 }}>
           Il aide d’autres clients à choisir leur artiste.
         </TText>
       </Animated.View>
@@ -97,6 +93,7 @@ export default function ReviewScreen() {
   }, [appointmentId, artistParam]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { gutter, isWide } = useContentDimensions();
   const { user } = useAuthStore();
   const { artist } = useArtist(artistId ?? '');
 
@@ -158,31 +155,38 @@ export default function ReviewScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.body, { paddingBottom: Spacing['2xl'] }]}
+        contentContainerStyle={[styles.body, { paddingHorizontal: gutter, paddingBottom: Spacing['2xl'] }]}
       >
-        <Animated.View entering={enterUp(0)} style={styles.hero}>
-          {artist && (
+        <View style={[styles.hero, isWide && { paddingTop: Spacing['2xl'] }]}>
+          {artist ? (
             <View style={styles.artistRow}>
               <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="sm" />
-              <TText variant="caption" color="secondary">Votre séance avec {artist.blaze}</TText>
+              <Kicker>{`Votre séance avec ${artist.blaze}`}</Kicker>
             </View>
+          ) : (
+            <Kicker>Après la séance</Kicker>
           )}
-          <TText variant="displayS" accessibilityRole="header">
-            Comment s’est passée <TText variant="displayS" italic color="accentGlow">votre séance</TText>{' '}?
-          </TText>
-        </Animated.View>
+          <EditorialTitle emphasis={'votre séance ?'}>Comment s’est passée</EditorialTitle>
+        </View>
 
-        <Animated.View entering={enterUp(1)} style={styles.section}>
+        <View style={styles.section}>
+          <Kicker tone="flame" style={styles.sectionKicker}>01 · Votre note</Kicker>
           <StarRating rating={rating} onChange={setRating} />
-          <TText variant="bodySmall" weight="medium" color={rating ? 'accentGlow' : 'tertiary'} style={styles.ratingLabel} accessibilityLiveRegion="polite">
+          <TText
+            variant="label"
+            weight="bold"
+            uppercase
+            color={rating ? 'accentWarm' : 'tertiary'}
+            style={styles.ratingLabel}
+            accessibilityLiveRegion="polite"
+          >
             {rating ? RATING_LABELS[rating] : 'Touchez une étoile pour noter'}
           </TText>
-        </Animated.View>
+        </View>
 
-        <Animated.View entering={enterUp(2)} style={styles.section}>
-          <TText variant="caption" weight="medium" color="secondary" style={{ marginBottom: Spacing.xs }}>
-            Ce que vous avez apprécié <TText variant="caption" color="tertiary">· optionnel</TText>
-          </TText>
+        <View style={styles.section}>
+          <Kicker tone="flame" style={styles.sectionKicker}>02 · Ce que vous avez apprécié</Kicker>
+          <TText variant="caption" color="tertiary" style={{ marginBottom: Spacing.xs }}>Optionnel</TText>
           <View style={styles.tags}>
             {REVIEW_TAGS.map((tag) => {
               const active = selectedTags.has(tag);
@@ -192,18 +196,20 @@ export default function ReviewScreen() {
                   onPress={() => toggleTag(tag)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: active }}
-                  style={[styles.chip, active && styles.chipActive]}
+                  hitSlop={4}
+                  style={(state) => [styles.chip, ((state as Hover).hovered || state.pressed) && !active && styles.chipHover, active && styles.chipActive]}
                 >
-                  <TText variant="caption" weight="medium" style={{ fontSize: 13, color: active ? Colors.textInverse : Colors.textSecondary }}>
+                  <TText variant="caption" weight="semibold" style={{ fontSize: 12.5, lineHeight: 16, color: active ? Colors.paper : Colors.ink }}>
                     {tag}
                   </TText>
                 </Pressable>
               );
             })}
           </View>
-        </Animated.View>
+        </View>
 
-        <Animated.View entering={enterUp(3)} style={styles.section}>
+        <View style={styles.section}>
+          <Kicker tone="flame" style={styles.sectionKicker}>03 · Votre retour</Kicker>
           <TInput
             label="Commentaire"
             optional
@@ -218,15 +224,15 @@ export default function ReviewScreen() {
             inputStyle={{ minHeight: 120, paddingTop: 14 }}
             containerStyle={{ marginBottom: 0 }}
           />
-        </Animated.View>
+        </View>
       </ScrollView>
 
-      <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
+      <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12, paddingHorizontal: gutter }]}>
         <View style={styles.barInner}>
           {!!submitError && (
             <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
-              <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
-              <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{submitError}</TText>
+              <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
+              <TText variant="caption" style={{ color: Colors.error, flex: 1 }}>{submitError}</TText>
             </View>
           )}
           {!canSubmit && !submitError && (
@@ -247,43 +253,42 @@ export default function ReviewScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  body: {
-    width: '100%', maxWidth: FORM_MAX + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter,
-  },
+  body: { width: '100%', maxWidth: FORM_MAX + 112, alignSelf: 'center' },
 
-  hero: { paddingTop: Spacing.lg, paddingBottom: Spacing.md, gap: Spacing.sm },
+  hero: { paddingTop: Spacing.lg, paddingBottom: Spacing.xl, gap: Spacing.sm },
   artistRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
 
   section: {
-    paddingVertical: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: Spacing.lg, paddingBottom: Spacing.xl,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
-  stars: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  star: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  ratingLabel: { textAlign: 'center', marginTop: Spacing.xs },
+  sectionKicker: { marginBottom: Spacing.md },
+  stars: { flexDirection: 'row', gap: 6 },
+  star: {
+    width: 52, height: 52, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.line,
+    ...webPointer,
+  },
+  starHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  ratingLabel: { marginTop: Spacing.sm },
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    height: 36, paddingHorizontal: 14, borderRadius: 18,
+    minHeight: 36, paddingHorizontal: 14, borderRadius: Radius.full,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: Colors.borderDefault,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    borderWidth: 1, borderColor: Colors.line,
+    ...webPointer,
   },
-  chipActive: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
+  chipHover: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  chipActive: { backgroundColor: Colors.ink, borderColor: Colors.ink },
 
   bar: {
-    paddingTop: 12, paddingHorizontal: Layout.gutter,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: Colors.line,
   },
   barInner: { width: '100%', maxWidth: FORM_MAX, alignSelf: 'center', gap: Spacing['2xs'] },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
-  success: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: Layout.gutter },
-  successRing: {
-    width: 76, height: 76, borderRadius: 38, marginBottom: Spacing.lg,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
-  },
+  success: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
+  successRule: { width: 96, height: 1, backgroundColor: Colors.flame, marginVertical: Spacing.xs },
 });
-

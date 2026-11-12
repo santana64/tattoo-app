@@ -12,12 +12,13 @@ import Animated, {
   Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Colors, Gradients, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
 import { Toast } from '@/components/ui/TToast';
 import { BottomSheet } from '@/components/motion';
+import { IconButton } from '@/components/v5';
 import { useAuthStore } from '@/store/auth-store';
 import { deleteStory, recordStoryView, storyAge, type StoryGroup } from '@/lib/care';
 import { markStorySeen } from './story-seen';
@@ -231,8 +232,8 @@ export function StoryViewer({ groups, startIndex, visible, onClose, onChanged }:
             />
             {failedId === story.id && (
               <View style={[StyleSheet.absoluteFill, styles.failed]} pointerEvents="none">
-                <Ionicons name="image-outline" size={26} color={Colors.textTertiary} />
-                <TText variant="caption" color="tertiary">Image indisponible</TText>
+                <Ionicons name="image-outline" size={26} color={Colors.onInkMuted} />
+                <TText variant="caption" color="onInkMuted">Image indisponible</TText>
               </View>
             )}
 
@@ -263,7 +264,7 @@ export function StoryViewer({ groups, startIndex, visible, onClose, onChanged }:
 
             {/* Top: progress and header */}
             <LinearGradient
-              colors={['rgba(7,6,5,0.6)', 'rgba(7,6,5,0)']}
+              colors={[Gradients.heroOverlay[2], Gradients.heroOverlay[0]]}
               style={[styles.topShade, { height: insets.top + 110 }]}
               pointerEvents="none"
             />
@@ -292,36 +293,30 @@ export function StoryViewer({ groups, startIndex, visible, onClose, onChanged }:
                   style={({ pressed }) => [styles.identity, pressed && { opacity: 0.7 }]}
                 >
                   <TAvatar uri={group.avatarUrl} name={group.blaze} size="sm" />
-                  <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={styles.blaze}>{group.blaze}</TText>
-                  <TText variant="caption" color="secondary" numberOfLines={1}>{storyAge(story.created_at)}</TText>
+                  <TText variant="title2" serif color="onInk" numberOfLines={1} style={styles.blaze}>{group.blaze}</TText>
+                  <TText variant="caption" color="onInkMuted" numberOfLines={1}>{storyAge(story.created_at)}</TText>
                 </Pressable>
                 <View style={styles.headerActions}>
                   {isOwner && (
                     <>
                       <View style={styles.views} accessible accessibilityLabel={viewsLabel(story.view_count)}>
-                        <Ionicons name="eye-outline" size={15} color={Colors.textPrimary} />
-                        <TText variant="caption" weight="medium" tabular>{viewsLabel(story.view_count)}</TText>
+                        <Ionicons name="eye-outline" size={15} color={Colors.onInk} />
+                        <TText variant="caption" weight="medium" tabular color="onInk">{viewsLabel(story.view_count)}</TText>
                       </View>
-                      <Pressable
+                      <IconButton
+                        icon="trash-outline"
+                        label="Supprimer cette story"
                         onPress={() => setConfirmDelete(true)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Supprimer cette story"
-                        hitSlop={6}
-                        style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={Colors.textPrimary} />
-                      </Pressable>
+                        onInk
+                      />
                     </>
                   )}
-                  <Pressable
+                  <IconButton
+                    icon="close"
+                    label="Fermer les stories"
                     onPress={onClose}
-                    accessibilityRole="button"
-                    accessibilityLabel="Fermer les stories"
-                    hitSlop={6}
-                    style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-                  >
-                    <Ionicons name="close" size={22} color={Colors.textPrimary} />
-                  </Pressable>
+                    onInk
+                  />
                 </View>
               </View>
             </View>
@@ -330,12 +325,12 @@ export function StoryViewer({ groups, startIndex, visible, onClose, onChanged }:
             {!!story.caption && (
               <>
                 <LinearGradient
-                  colors={['rgba(7,6,5,0)', 'rgba(7,6,5,0.85)']}
+                  colors={Gradients.cardBottom}
                   style={styles.bottomShade}
                   pointerEvents="none"
                 />
                 <View style={[styles.caption, { paddingBottom: insets.bottom + Spacing.lg }]} pointerEvents="none">
-                  <TText variant="body" style={styles.captionText}>{story.caption}</TText>
+                  <TText variant="body" color="onInk" style={styles.captionText}>{story.caption}</TText>
                 </View>
               </>
             )}
@@ -368,9 +363,9 @@ export function StoryViewer({ groups, startIndex, visible, onClose, onChanged }:
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.bgInk, alignItems: 'center' },
-  stage: { flex: 1, overflow: 'hidden', backgroundColor: Colors.bgInk },
-  dim: { backgroundColor: 'rgba(7,6,5,0.55)' },
+  root: { flex: 1, backgroundColor: Colors.inkPanel, alignItems: 'center' },
+  stage: { flex: 1, overflow: 'hidden', backgroundColor: Colors.inkPanel },
+  dim: { backgroundColor: Colors.scrim },
   failed: { alignItems: 'center', justifyContent: 'center', gap: 8 },
   zone: { position: 'absolute', top: 0, bottom: 0 },
 
@@ -378,20 +373,19 @@ const styles = StyleSheet.create({
   top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: Spacing.xs },
   segments: { flexDirection: 'row', gap: 4 },
   segment: {
-    flex: 1, height: 2.5, borderRadius: 2, overflow: 'hidden',
-    backgroundColor: 'rgba(244,239,230,0.28)',
+    flex: 1, height: 3, overflow: 'hidden',
+    backgroundColor: Colors.onInkLine,
   },
-  segmentFill: { height: '100%', backgroundColor: Colors.textPrimary },
+  segmentFill: { height: '100%', backgroundColor: Colors.flame },
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'], marginTop: 10 },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, minHeight: 40 },
   blaze: { flexShrink: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' },
   views: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    height: 30, paddingHorizontal: 10, marginRight: 2,
-    borderRadius: Radius.full, backgroundColor: 'rgba(7,6,5,0.5)',
+    height: 32, paddingHorizontal: 10, marginRight: 2,
+    backgroundColor: Colors.scrim,
   },
-  iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 200 },
   caption: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: Spacing.md },

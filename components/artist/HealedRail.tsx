@@ -2,22 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useReducedMotion } from 'react-native-reanimated';
 import { format } from 'date-fns/format';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { fr } from 'date-fns/locale/fr';
-import { Colors, Layout, Radius, Spacing } from '@/constants/theme';
+import { Colors, Layout, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { PressableScale, RevealImage } from '@/components/motion';
+import { PressableScale } from '@/components/motion';
+import { IconButton, Kicker, SectionHead } from '@/components/v5';
+import { WorkPlate } from '@/components/gallery/WorkPlate';
 import { fetchArtistHealedPhotos, type HealedPhoto } from '@/lib/care';
 
 interface HealedRailProps {
   artistId: string;
+  /** Side padding of the page the rail bleeds out of. */
+  gutter?: number;
 }
 
-const TILE_W = 132;
+const TILE_W = 148;
 const TILE_H = Math.round(TILE_W * 5 / 4);
 
 function monthLabel(iso: string): string {
@@ -29,9 +32,10 @@ function monthLabel(iso: string): string {
  * "Cicatrisés": healed results sent by the artist's clients and made public by
  * them. Nothing is rendered when there is none (or when loading fails).
  */
-export function HealedRail({ artistId }: HealedRailProps) {
+export function HealedRail({ artistId, gutter = Layout.gutter }: HealedRailProps) {
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
+  // The viewer covers the whole window, rail included.
   const { width, height } = useWindowDimensions();
   const [photos, setPhotos] = useState<HealedPhoto[]>([]);
   const [open, setOpen] = useState<HealedPhoto | null>(null);
@@ -47,15 +51,23 @@ export function HealedRail({ artistId }: HealedRailProps) {
   if (photos.length === 0) return null;
 
   const viewerW = Math.min(width - Spacing.md * 2, 720);
-  const viewerH = Math.min(height - insets.top - insets.bottom - 180, viewerW * 1.4);
+  const viewerH = Math.max(160, Math.min(height - insets.top - insets.bottom - 200, viewerW * 1.4));
+  const count = `${photos.length} photo${photos.length > 1 ? 's' : ''}`;
 
   return (
-    <View style={styles.section}>
-      <TText variant="label" color="accentWarm" uppercase accessibilityRole="header">Cicatrisés</TText>
-      <TText variant="bodySmall" color="tertiary" style={styles.caption}>
-        Photos envoyées par des clients après cicatrisation.
-      </TText>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.rail}>
+    <View>
+      <SectionHead
+        kicker={`Cicatrisés · ${count}`}
+        title="Après la"
+        emphasis="cicatrisation."
+        description="Photos envoyées par des clients après cicatrisation."
+      />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={[styles.scroller, { marginHorizontal: -gutter }]}
+        contentContainerStyle={[styles.rail, { paddingHorizontal: gutter }]}
+      >
         {photos.map((p, i) => (
           <PressableScale
             key={p.id}
@@ -64,7 +76,7 @@ export function HealedRail({ artistId }: HealedRailProps) {
             accessibilityLabel={`Tatouage cicatrisé ${i + 1} sur ${photos.length}${p.note ? ` : ${p.note}` : ''}`}
             accessibilityHint="Affiche la photo en grand."
           >
-            <RevealImage uri={p.photo_url} style={styles.tile} />
+            <WorkPlate uri={p.photo_url} mark={`N° ${String(i + 1).padStart(2, '0')}`} style={styles.tile} />
           </PressableScale>
         ))}
       </ScrollView>
@@ -82,28 +94,25 @@ export function HealedRail({ artistId }: HealedRailProps) {
             <View style={[styles.viewer, { width: viewerW }]} pointerEvents="box-none">
               <Image
                 source={{ uri: open.photo_url }}
-                style={{ width: viewerW, height: viewerH, borderRadius: Radius.md }}
+                style={{ width: viewerW, height: viewerH }}
                 contentFit="contain"
                 cachePolicy="memory-disk"
                 accessibilityLabel={open.note ? `Tatouage cicatrisé : ${open.note}` : 'Tatouage cicatrisé'}
               />
-              {!!open.note && (
-                <TText variant="body" style={styles.note}>« {open.note} »</TText>
-              )}
-              <TText variant="caption" color="tertiary" style={styles.meta}>
-                Photo d’un client{monthLabel(open.created_at) ? `, ${monthLabel(open.created_at)}` : ''}
-              </TText>
+              <View style={styles.cartel}>
+                <Kicker tone="flameOnInk">Cicatrisé</Kicker>
+                {!!open.note && (
+                  <TText variant="title2" serif italic color="onInk" style={styles.note}>« {open.note} »</TText>
+                )}
+                <TText variant="caption" color="onInkMuted" style={styles.meta}>
+                  Photo d’un client{monthLabel(open.created_at) ? `, ${monthLabel(open.created_at)}` : ''}
+                </TText>
+              </View>
             </View>
           )}
-          <Pressable
-            onPress={() => setOpen(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Fermer la photo"
-            hitSlop={8}
-            style={({ pressed }) => [styles.close, { top: insets.top + Spacing.sm }, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name="close" size={22} color={Colors.textPrimary} />
-          </Pressable>
+          <View style={[styles.close, { top: insets.top + Spacing.sm }]}>
+            <IconButton icon="close" label="Fermer la photo" onPress={() => setOpen(null)} onInk />
+          </View>
         </View>
       </Modal>
     </View>
@@ -111,21 +120,17 @@ export function HealedRail({ artistId }: HealedRailProps) {
 }
 
 const styles = StyleSheet.create({
-  section: { paddingVertical: Spacing.lg },
-  caption: { marginTop: 4, marginBottom: Spacing.sm },
-  scroller: { marginHorizontal: -Layout.gutter, flexGrow: 0 },
-  rail: { gap: Spacing['2xs'], paddingHorizontal: Layout.gutter },
-  tile: { width: TILE_W, height: TILE_H, borderRadius: Radius.md },
+  scroller: { flexGrow: 0 },
+  rail: { gap: 2 },
+  tile: { width: TILE_W, height: TILE_H },
 
-  backdrop: { flex: 1, backgroundColor: 'rgba(5,4,3,0.94)', alignItems: 'center', justifyContent: 'center' },
-  viewer: { alignItems: 'center' },
-  note: { marginTop: Spacing.sm, textAlign: 'center', fontStyle: 'italic', maxWidth: Layout.maxReading },
-  meta: { marginTop: 6, textAlign: 'center' },
-  close: {
-    position: 'absolute', right: Spacing.sm,
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.glassBorderBright,
-    backgroundColor: 'rgba(11,10,9,0.55)',
+  backdrop: { flex: 1, backgroundColor: Colors.inkPanel, alignItems: 'center', justifyContent: 'center' },
+  viewer: { alignItems: 'stretch' },
+  cartel: {
+    marginTop: Spacing.sm, alignSelf: 'flex-start', maxWidth: Layout.maxReading,
+    borderLeftWidth: 2, borderLeftColor: Colors.flame, paddingLeft: Spacing.sm,
   },
+  note: { marginTop: 8, fontSize: 22, lineHeight: 27 },
+  meta: { marginTop: 6 },
+  close: { position: 'absolute', right: Spacing.sm },
 });

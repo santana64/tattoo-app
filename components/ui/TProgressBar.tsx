@@ -27,8 +27,8 @@ const clamp = (n: number) => Math.min(Math.max(Number.isFinite(n) ? n : 0, 0), 1
 export function TProgressBar({
   progress,
   from,
-  height = 4,
-  color = Colors.accentWarm,
+  height = 3,
+  color = Colors.flame,
   style,
   accessibilityLabel,
 }: TProgressBarProps) {
@@ -47,9 +47,9 @@ export function TProgressBar({
       accessibilityRole="progressbar"
       accessibilityLabel={accessibilityLabel}
       accessibilityValue={{ min: 0, max: 100, now: Math.round(target * 100) }}
-      style={[styles.track, { height, borderRadius: height / 2 }, style]}
+      style={[styles.track, { height }, style]}
     >
-      <Animated.View style={[styles.fill, { height, borderRadius: height / 2, backgroundColor: color }, barStyle]} />
+      <Animated.View style={[styles.fill, { height, backgroundColor: color }, barStyle]} />
     </View>
   );
 }

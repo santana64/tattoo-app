@@ -3,14 +3,24 @@ import {
   StyleSheet, ViewStyle, TextStyle, ActivityIndicator, View, Pressable, Platform,
 } from 'react-native';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring,
+  useSharedValue, useAnimatedStyle, withTiming, useReducedMotion,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Radius, GlowShadow, SpringConfig } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
+import { EASE_OUT, MotionDuration } from '@/components/motion/tokens';
 import { TText } from './TText';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'glass' | 'glow';
+/**
+ * v5 buttons are square, set in tracked capitals.
+ *   primary     ink fill on paper — the one main action of a screen
+ *   secondary   ink outline
+ *   ghost       quiet text action
+ *   destructive vermilion-red outline
+ *   glow        vermilion fill — premium and "book now" moments only
+ *   glass       paper fill — for ink panels and over photography
+ *   inverse     paper outline — secondary action on ink
+ */
+type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'glass' | 'glow' | 'inverse';
 type Size = 'sm' | 'md' | 'lg';
 
 interface TButtonProps {
@@ -31,8 +41,19 @@ interface TButtonProps {
 // RN-web adds hover/focus to the Pressable state; native only reports `pressed`.
 type InteractionState = { pressed: boolean; hovered?: boolean; focused?: boolean };
 
-const HEIGHTS: Record<Size, number> = { sm: 38, md: 46, lg: 54 };
-const PAD_X: Record<Size, number> = { sm: 14, md: 18, lg: 24 };
+const HEIGHTS: Record<Size, number> = { sm: 36, md: 46, lg: 56 };
+const PAD_X: Record<Size, number> = { sm: 12, md: 18, lg: 24 };
+const FONT: Record<Size, number> = { sm: 10, md: 11, lg: 11.5 };
+
+const LABEL: Record<Variant, string> = {
+  primary: Colors.paper,
+  secondary: Colors.textPrimary,
+  ghost: Colors.textSecondary,
+  destructive: Colors.error,
+  glass: Colors.ink,
+  glow: '#FFFFFF',
+  inverse: Colors.onInk,
+};
 
 export function TButton({
   title,
@@ -48,15 +69,16 @@ export function TButton({
   fullWidth = true,
   accessibilityLabel,
 }: TButtonProps) {
+  const reduced = useReducedMotion();
   const scale = useSharedValue(1);
   const inactive = disabled || loading;
 
   const handlePressIn = useCallback(() => {
-    scale.value = withSpring(0.975, SpringConfig.snappy);
-  }, [scale]);
+    if (!reduced) scale.value = withTiming(0.98, { duration: MotionDuration.press, easing: EASE_OUT });
+  }, [reduced, scale]);
 
   const handlePressOut = useCallback(() => {
-    scale.value = withSpring(1, SpringConfig.gentle);
+    scale.value = withTiming(1, { duration: MotionDuration.state, easing: EASE_OUT });
   }, [scale]);
 
   const handlePress = () => {
@@ -66,13 +88,6 @@ export function TButton({
   };
 
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  const filled = variant === 'primary' || variant === 'glow';
-  const labelColor = filled
-    ? Colors.textInverse
-    : variant === 'destructive' ? Colors.errorLight
-    : variant === 'ghost' ? Colors.textSecondary
-    : Colors.textPrimary;
 
   return (
     <Animated.View style={[animStyle, fullWidth && { width: '100%' }, style]}>
@@ -86,50 +101,39 @@ export function TButton({
         accessibilityState={{ disabled: inactive, busy: loading }}
         style={(state) => {
           const { hovered, focused, pressed } = state as InteractionState;
+          const lit = (hovered || pressed) && !inactive;
           return [
             styles.base,
-            { height: HEIGHTS[size], paddingHorizontal: PAD_X[size] },
-            variant === 'primary' && styles.primary,
-            variant === 'glow' && styles.glow,
-            variant === 'secondary' && styles.secondary,
-            variant === 'glass' && styles.glass,
-            variant === 'ghost' && styles.ghost,
-            variant === 'destructive' && styles.destructive,
-            hovered && !inactive && (filled ? styles.filledHover : styles.outlineHover),
-            pressed && !filled && styles.outlinePressed,
+            { minHeight: HEIGHTS[size], paddingHorizontal: PAD_X[size] },
+            styles[variant],
+            lit && HOVER[variant],
             focused && styles.focused,
             inactive && styles.disabled,
           ];
         }}
       >
-        {variant === 'glow' && (
-          <LinearGradient
-            colors={[Colors.premiumGradStart, Colors.premiumGradEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        )}
-
-        {loading ? (
-          <ActivityIndicator color={labelColor} size="small" />
-        ) : (
-          <View style={styles.inner}>
-            {icon && iconPosition === 'left' && <View style={styles.iconLeft}>{icon}</View>}
-            <TText
-              variant={size === 'sm' ? 'caption' : 'bodySmall'}
-              weight="semibold"
-              style={[
-                { color: labelColor, fontSize: size === 'lg' ? 15 : size === 'md' ? 14 : 13, letterSpacing: -0.1 },
-                textStyle,
-              ]}
-              numberOfLines={1}
-            >
-              {title}
-            </TText>
-            {icon && iconPosition === 'right' && <View style={styles.iconRight}>{icon}</View>}
-          </View>
-        )}
+        {(state) => {
+          const { hovered, pressed } = state as InteractionState;
+          const lit = (hovered || pressed) && !inactive;
+          const color = lit ? HOVER_LABEL[variant] : LABEL[variant];
+          return loading ? (
+            <ActivityIndicator color={color} size="small" />
+          ) : (
+            <View style={styles.inner}>
+              {icon && iconPosition === 'left' && <View style={styles.iconLeft}>{icon}</View>}
+              <TText
+                variant="label"
+                weight="bold"
+                uppercase
+                style={[{ color, fontSize: FONT[size], letterSpacing: 0.8, lineHeight: 16 }, textStyle]}
+                numberOfLines={1}
+              >
+                {title}
+              </TText>
+              {icon && iconPosition === 'right' && <View style={styles.iconRight}>{icon}</View>}
+            </View>
+          );
+        }}
       </Pressable>
     </Animated.View>
   );
@@ -137,36 +141,52 @@ export function TButton({
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer', transitionDuration: '180ms' } as object : null),
+    borderWidth: 1,
+    borderColor: 'transparent',
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '200ms' } as object)
+      : null),
   },
   inner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  iconLeft:  { marginRight: 8 },
-  iconRight: { marginLeft: 8 },
-  primary: { backgroundColor: Colors.accentAction },
-  glow: { ...GlowShadow.amber },
-  secondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.borderDefault,
-  },
-  glass: {
-    backgroundColor: Colors.glassBgMid,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-  },
+  iconLeft:  { marginRight: 10 },
+  iconRight: { marginLeft: 10 },
+  primary: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  glow: { backgroundColor: Colors.flame, borderColor: Colors.flame },
+  secondary: { backgroundColor: 'transparent', borderColor: Colors.ink },
+  glass: { backgroundColor: Colors.paper, borderColor: Colors.paper },
+  inverse: { backgroundColor: 'transparent', borderColor: Colors.onInk },
   ghost: { backgroundColor: 'transparent' },
-  destructive: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(217,105,95,0.45)',
-  },
-  filledHover: { opacity: 0.9 },
-  outlineHover: { backgroundColor: Colors.glassBgHover, borderColor: Colors.borderGlass },
-  outlinePressed: { backgroundColor: Colors.bgSubtle },
-  focused: { borderWidth: 1.5, borderColor: Colors.borderFocus },
-  disabled: { opacity: 0.38 },
+  destructive: { backgroundColor: 'transparent', borderColor: Colors.error },
+  focused: { borderColor: Colors.flame, borderWidth: 2 },
+  disabled: { opacity: 0.42 },
 });
+
+const hover = StyleSheet.create({
+  toFlame: { backgroundColor: Colors.flame, borderColor: Colors.flame },
+  toInk: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  toPaper: { backgroundColor: Colors.paper, borderColor: Colors.paper },
+  toWash: { backgroundColor: Colors.wash },
+  toError: { backgroundColor: Colors.error, borderColor: Colors.error },
+});
+
+const HOVER: Record<Variant, ViewStyle> = {
+  primary: hover.toFlame,
+  glass: hover.toFlame,
+  glow: hover.toInk,
+  secondary: hover.toInk,
+  inverse: hover.toPaper,
+  ghost: hover.toWash,
+  destructive: hover.toError,
+};
+
+const HOVER_LABEL: Record<Variant, string> = {
+  primary: '#FFFFFF',
+  glass: '#FFFFFF',
+  glow: Colors.paper,
+  secondary: Colors.paper,
+  inverse: Colors.ink,
+  ghost: Colors.textPrimary,
+  destructive: '#FFFFFF',
+};

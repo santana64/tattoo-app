@@ -10,6 +10,7 @@ interface TChipProps {
   style?: ViewStyle;
 }
 
+/** Filter pill — the only rounded control in v5. Selected = ink fill. */
 export function TChip({ label, selected = false, onPress, style }: TChipProps) {
   return (
     <Pressable
@@ -17,19 +18,20 @@ export function TChip({ label, selected = false, onPress, style }: TChipProps) {
       accessibilityRole="button"
       accessibilityState={{ selected }}
       style={(state) => {
-        const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+        const { pressed, hovered, focused } = state as { pressed: boolean; hovered?: boolean; focused?: boolean };
         return [
           styles.chip,
           (hovered || pressed) && !selected && styles.active,
           selected && styles.selected,
+          focused && styles.focused,
           style,
         ];
       }}
     >
       <TText
         variant="caption"
-        weight="medium"
-        style={{ color: selected ? Colors.textInverse : Colors.textSecondary, fontSize: 13 }}
+        weight="semibold"
+        style={{ color: selected ? Colors.paper : Colors.textPrimary, fontSize: 12.5, lineHeight: 16 }}
       >
         {label}
       </TText>
@@ -39,23 +41,20 @@ export function TChip({ label, selected = false, onPress, style }: TChipProps) {
 
 const styles = StyleSheet.create({
   chip: {
-    minHeight: 34,
+    minHeight: 36,
     justifyContent: 'center',
     paddingHorizontal: 14,
     borderRadius: Radius.full,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: Colors.borderDefault,
+    borderColor: Colors.line,
     marginRight: 8,
     marginBottom: 8,
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+      : null),
   },
-  active: {
-    backgroundColor: Colors.glassBgMid,
-    borderColor: Colors.borderGlass,
-  },
-  selected: {
-    backgroundColor: Colors.accentAction,
-    borderColor: Colors.accentAction,
-  },
+  active: { backgroundColor: Colors.wash, borderColor: Colors.ink },
+  selected: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  focused: { borderColor: Colors.flame },
 });

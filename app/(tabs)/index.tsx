@@ -1,14 +1,19 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import {
-  StyleSheet, View, RefreshControl, ScrollView, useWindowDimensions, ActivityIndicator, Pressable, Platform,
+  StyleSheet,
+  View,
+  RefreshControl,
+  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
+import { useContentDimensions, useShell } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, {
-  useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, useReducedMotion,
+  useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation,
 } from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout, Shadow } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { useAutoRetry } from '@/hooks/use-auto-retry';
 import { TAvatar } from '@/components/ui/TAvatar';
@@ -18,7 +23,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PostCard, type PostCardData } from '@/components/PostCard';
 import { BOOKING_STATUS } from '@/components/ArtistCard';
 import { Logo } from '@/components/ui/Logo';
-import { GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
+import { PressableScale, enterUp, fadeIn } from '@/components/motion';
+import {
+  ArtCanvas, EditorialTitle, IconButton, InkPanel, Kicker, Masthead, SectionHead, StatusDot,
+} from '@/components/v5';
+import { SectionTabs } from '@/components/v5/SectionTabs';
 import { useFeedStore, FeedPost, type FeedScope, followingKeyOf } from '@/store/feed-store';
 import { useFollowStore } from '@/store/follow-store';
 import { useAuthStore } from '@/store/auth-store';
@@ -27,7 +36,7 @@ import { Toast } from '@/components/ui/TToast';
 import { StoriesRail } from '@/components/social/StoriesRail';
 import { useReactionStore } from '@/components/social/reaction-store';
 
-const HEADER_H = 56;
+const HEADER_H = 60;
 const GAP = Spacing.md;
 const ROW_GAP = Spacing['2xl'];
 /** Below this, a "selection" is just a couple of posts: the rail stays hidden. */
@@ -40,13 +49,14 @@ const SCOPES: { value: FeedScope; label: string }[] = [
 
 // ── Editorial rhythm ──────────────────────────────────────────────────────────
 // Phones: one large piece, a pair, a wide piece, repeat.
-// Tablets/desktop: a feature row (lead spanning two columns) then regular rows.
+// Tablets/desktop: never a row of equal cards — a lead spanning two columns
+// beside a single piece, the same mirrored, then a pair of halves.
 type FeedRow =
   | { key: string; kind: 'lead'; post: FeedPost }
   | { key: string; kind: 'pair'; posts: FeedPost[] }
   | { key: string; kind: 'wide'; post: FeedPost }
-  | { key: string; kind: 'feature'; lead: FeedPost; rest: FeedPost[] }
-  | { key: string; kind: 'grid'; posts: FeedPost[] };
+  | { key: string; kind: 'feature'; lead: FeedPost; rest: FeedPost[]; mirror: boolean }
+  | { key: string; kind: 'duo'; posts: FeedPost[] };
 
 function buildRows(posts: FeedPost[], cols: number): FeedRow[] {
   const rows: FeedRow[] = [];
@@ -60,14 +70,16 @@ function buildRows(posts: FeedPost[], cols: number): FeedRow[] {
         const pair = posts.slice(i, i + 2);
         rows.push({ key: pair.map((p) => p.id).join('|'), kind: 'pair', posts: pair }); i += 2;
       } else { rows.push({ key: posts[i].id, kind: 'wide', post: posts[i] }); i += 1; }
-    } else if (beat === 0) {
-      const rest = posts.slice(i + 1, i + 1 + (cols - 2));
-      rows.push({ key: [posts[i], ...rest].map((p) => p.id).join('|'), kind: 'feature', lead: posts[i], rest });
-      i += 1 + rest.length;
-    } else {
-      const group = posts.slice(i, i + cols);
-      rows.push({ key: group.map((p) => p.id).join('|'), kind: 'grid', posts: group });
+    } else if (beat === 2 || (beat === 1 && cols === 2)) {
+      const group = posts.slice(i, i + 2);
+      rows.push({ key: group.map((p) => p.id).join('|'), kind: 'duo', posts: group });
       i += group.length;
+    } else {
+      const rest = posts.slice(i + 1, i + 1 + (cols - 2));
+      rows.push({
+        key: [posts[i], ...rest].map((p) => p.id).join('|'), kind: 'feature', lead: posts[i], rest, mirror: beat === 1,
+      });
+      i += 1 + rest.length;
     }
     r += 1;
   }
@@ -98,38 +110,29 @@ function ArtistChip({ artist, index }: { artist: RailArtist; index: number }) {
         accessibilityLabel={`${artist.blaze}, ${status.label}`}
         style={styles.chip}
       >
-        <View style={[styles.chipRing, artist.isPremium && styles.chipRingPremium]}>
+        <View style={[styles.chipFrame, artist.isPremium && styles.chipFramePremium]}>
           <TAvatar uri={artist.avatarUrl} name={artist.blaze} size="xl" />
         </View>
-        <TText variant="caption" weight="medium" numberOfLines={1} style={styles.chipName}>{artist.blaze}</TText>
-        <View style={styles.chipStatus}>
-          <View style={[styles.dot, { backgroundColor: status.color }]} />
-          <TText variant="micro" color="tertiary" numberOfLines={1}>{status.short}</TText>
-        </View>
+        <TText variant="title2" serif numberOfLines={1} style={styles.chipName}>{artist.blaze}</TText>
+        <StatusDot tone={status.tone} label={status.short} />
       </PressableScale>
     </Animated.View>
   );
 }
 
-function IconButton({ icon, label, onPress, badge }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; badge?: number;
+/** Header control with an optional count: the kit's square icon button plus a vermilion tab. */
+function HeaderButton({ icon, label, onPress, badge }: {
+  icon: React.ComponentProps<typeof IconButton>['icon']; label: string; onPress: () => void; badge?: number;
 }) {
   return (
-    <PressableScale
-      onPress={onPress}
-      pressedScale={0.92}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      hitSlop={4}
-      style={styles.iconBtn}
-    >
-      <Ionicons name={icon} size={19} color={Colors.textPrimary} />
+    <View>
+      <IconButton icon={icon} label={label} onPress={onPress} />
       {!!badge && badge > 0 && (
-        <View style={styles.badge} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <View style={styles.badge} pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
           <TText variant="micro" tabular style={styles.badgeText}>{badge > 9 ? '9+' : badge}</TText>
         </View>
       )}
-    </PressableScale>
+    </View>
   );
 }
 
@@ -138,70 +141,36 @@ function FirstRun({ isArtist, signedIn, onExplore, onPublish, onSignIn }: {
   isArtist: boolean; signedIn: boolean; onExplore: () => void; onPublish: () => void; onSignIn: () => void;
 }) {
   return (
-    <View style={styles.firstRun}>
-      <Animated.View entering={enterUp(0, 80)} style={styles.firstRunRing}>
-        <Ionicons name="images-outline" size={22} color={Colors.accentWarm} />
-      </Animated.View>
-      <Animated.View entering={enterUp(1, 80)}>
-        <TText variant="label" color="accentWarm" uppercase style={styles.center}>Le fil</TText>
-        <TText variant="displayM" accessibilityRole="header" style={[styles.center, styles.firstRunTitle]}>
-          Le fil attend ses <TText variant="displayM" italic color="accentGlow">premières pièces</TText>
-        </TText>
-      </Animated.View>
-      <Animated.View entering={enterUp(2, 80)}>
-        <TText variant="body" color="secondary" style={[styles.center, styles.firstRunText]}>
+    <Animated.View entering={enterUp(0, 80)} style={styles.firstRun}>
+      <InkPanel>
+        <Kicker tone="flameOnInk">La communauté commence</Kicker>
+        <EditorialTitle size="section" onInk emphasis="premières pièces." style={styles.firstRunTitle}>
+          Le fil attend ses
+        </EditorialTitle>
+        <TText variant="body" color="onInkMuted" style={styles.firstRunText}>
           {isArtist
             ? 'Publiez une première réalisation : elle ouvrira le fil et rendra votre profil visible.'
             : 'Les réalisations des artistes apparaîtront ici dès leur publication. Commencez par découvrir les profils.'}
         </TText>
-      </Animated.View>
-      <Animated.View entering={enterUp(3, 80)} style={styles.firstRunActions}>
-        {isArtist ? (
-          <>
-            <TButton title="Publier une réalisation" onPress={onPublish} size="md" fullWidth={false} />
-            <TButton title="Explorer les artistes" variant="secondary" onPress={onExplore} size="md" fullWidth={false} />
-          </>
-        ) : (
-          <>
-            <TButton title="Explorer les artistes" onPress={onExplore} size="md" fullWidth={false} />
-            {!signedIn && <TButton title="Se connecter" variant="ghost" onPress={onSignIn} size="md" fullWidth={false} />}
-          </>
-        )}
-      </Animated.View>
-    </View>
+        <View style={styles.firstRunActions}>
+          {isArtist ? (
+            <>
+              <TButton title="Publier une réalisation" variant="glass" onPress={onPublish} size="md" fullWidth={false} />
+              <TButton title="Explorer les artistes" variant="inverse" onPress={onExplore} size="md" fullWidth={false} />
+            </>
+          ) : (
+            <>
+              <TButton title="Explorer les artistes" variant="glass" onPress={onExplore} size="md" fullWidth={false} />
+              {!signedIn && <TButton title="Se connecter" variant="inverse" onPress={onSignIn} size="md" fullWidth={false} />}
+            </>
+          )}
+        </View>
+      </InkPanel>
+    </Animated.View>
   );
 }
 
-/** "Pour vous" / "Abonnements": two words on a hairline, the active one underlined in gold. */
-function ScopeTabs({ scope, onChange }: { scope: FeedScope; onChange: (scope: FeedScope) => void }) {
-  return (
-    <View style={styles.tabs} accessibilityRole="tablist">
-      {SCOPES.map((s) => {
-        const active = s.value === scope;
-        return (
-          <Pressable
-            key={s.value}
-            onPress={() => onChange(s.value)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
-            style={(state) => {
-              const { hovered } = state as { pressed: boolean; hovered?: boolean };
-              return [styles.tab, hovered && !active && styles.tabHover];
-            }}
-          >
-            <TText variant="bodySmall" weight={active ? 'semibold' : 'medium'} color={active ? 'primary' : 'tertiary'}>
-              {s.label}
-            </TText>
-            <View style={[styles.tabLine, active && styles.tabLineActive]} />
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-/** One print of the weekly selection: tall, unframed, the artist's name as its wall label. */
+/** One print of the weekly selection: a numbered plate, the artist's name as its cartel. */
 function SelectionTile({ post, index, width, onPress }: {
   post: FeedPost; index: number; width: number; onPress: () => void;
 }) {
@@ -213,10 +182,9 @@ function SelectionTile({ post, index, width, onPress }: {
         accessibilityLabel={`Pièce de ${post.artistName}`}
         style={{ width }}
       >
-        <RevealImage uri={post.mediaUrl} style={[styles.print, { width, height: Math.round(width * 1.4) }]} />
-        <TText variant="caption" weight="medium" color="secondary" numberOfLines={1} style={styles.printName}>
-          {post.artistName}
-        </TText>
+        <ArtCanvas uri={post.mediaUrl} aspectRatio={5 / 7} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
+        <TText variant="title2" serif numberOfLines={1} style={styles.printName}>{post.artistName}</TText>
+        {!!post.artistCity && <TText variant="caption" color="secondary" numberOfLines={1}>{post.artistCity}</TText>}
       </PressableScale>
     </Animated.View>
   );
@@ -262,40 +230,35 @@ function FollowingEmpty({ signedIn, followsNobody, onExplore, onSignIn }: {
   );
 }
 
-function FeedSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
+function FeedSkeleton({ cols, cellW, innerW }: { cols: number; cellW: number; innerW: number }) {
   const tileH = Math.round(cellW * 1.25);
   return (
     <View>
-      <View style={styles.masthead}>
-        <TSkeleton width={90} height={11} />
-        <TSkeleton width="70%" height={36} style={{ marginTop: 12 }} />
-        <TSkeleton width="50%" height={14} style={{ marginTop: 10 }} />
-      </View>
       <View style={styles.skeletonRail}>
         {[0, 1, 2, 3, 4].map((i) => (
           <View key={i} style={{ alignItems: 'center', gap: 8 }}>
-            <TSkeleton width={70} height={70} radius={35} />
-            <TSkeleton width={52} height={10} />
+            <TSkeleton width={72} height={72} radius={0} />
+            <TSkeleton width={52} height={10} radius={0} />
           </View>
         ))}
       </View>
       <View style={[styles.rowLine, { marginTop: Spacing.xl }]}>
         {cols === 1 ? (
           <View style={{ flex: 1 }}>
-            <TSkeleton height={tileH} radius={Radius.xl} />
+            <TSkeleton height={tileH} radius={0} />
             <View style={styles.skeletonLabel}>
-              <TSkeleton width={32} height={32} radius={16} />
+              <TSkeleton width={32} height={32} radius={0} />
               <View style={{ flex: 1, gap: 8 }}>
-                <TSkeleton width="45%" height={16} />
-                <TSkeleton width="30%" height={11} />
+                <TSkeleton width="45%" height={18} radius={0} />
+                <TSkeleton width="30%" height={11} radius={0} />
               </View>
             </View>
           </View>
         ) : (
-          Array.from({ length: cols - 1 }).map((_, i) => (
-            <View key={i} style={{ width: i === 0 ? cellW * 2 + GAP : cellW }}>
-              <TSkeleton height={tileH} radius={Radius.xl} />
-              <TSkeleton width="40%" height={14} style={{ marginTop: 14 }} />
+          [0, 1].slice(0, cols === 2 ? 1 : 2).map((i) => (
+            <View key={i} style={{ width: cols === 2 ? innerW : i === 0 ? cellW * 2 + GAP : cellW }}>
+              <TSkeleton height={tileH} radius={0} />
+              <TSkeleton width="40%" height={18} radius={0} style={{ marginTop: 14 }} />
             </View>
           ))
         )}
@@ -308,8 +271,8 @@ function FeedSkeleton({ cols, cellW }: { cols: number; cellW: number }) {
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduced = useReducedMotion();
-  const { width } = useWindowDimensions();
+  const { width, gutter } = useContentDimensions();
+  const { hasSidebar } = useShell();
   const { user } = useAuthStore();
   const {
     posts, error, isLoading, isRefreshing, hasMore, scope, followingKey, selection,
@@ -324,19 +287,12 @@ export default function FeedScreen() {
   const reactionsOwner = useReactionStore((s) => s.mineOwner);
   const loadReactions = useReactionStore((s) => s.load);
 
-  // ── Scroll-driven chrome: the masthead recedes, the header frosts over the work.
+  // ── The header takes a paper ground and a hairline once the feed scrolls under it.
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => { scrollY.set(e.contentOffset.y); });
-  const glassStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.get(), [8, 72], [0, 1], Extrapolation.CLAMP),
+  const groundStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [8, 48], [0, 1], Extrapolation.CLAMP),
   }));
-  const mastheadStyle = useAnimatedStyle(() => {
-    const y = scrollY.get();
-    return {
-      opacity: interpolate(y, [0, 150], [1, 0], Extrapolation.CLAMP),
-      transform: [{ translateY: reduced ? 0 : interpolate(y, [0, 150], [0, 48], Extrapolation.CLAMP) }],
-    };
-  });
 
   useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
   useEffect(() => { void fetchFollowed(user?.id); }, [user?.id, fetchFollowed]);
@@ -375,10 +331,11 @@ export default function FeedScreen() {
 
   // ── Responsive grid
   const frameW = Math.min(width, Layout.maxContent);
-  const innerW = frameW - Layout.gutter * 2;
+  const innerW = frameW - gutter * 2;
   const cols = innerW >= 960 ? 3 : innerW >= 640 ? 2 : 1;
   const cellW = (innerW - GAP * (cols - 1)) / cols;
   const tileH = Math.round(cellW * 1.25);
+  const duoW = (innerW - GAP) / 2;
   const rows = useMemo(() => buildRows(posts, cols), [posts, cols]);
 
   const railArtists = useMemo<RailArtist[]>(
@@ -429,89 +386,78 @@ export default function FeedScreen() {
           </View>
         );
         break;
-      case 'feature':
-        content = (
-          <View style={styles.rowLine}>
-            <View style={{ width: cols === 2 ? innerW : cellW * 2 + GAP }}>
-              <PostCard {...cardProps(row.lead)} variant="wide" imageHeight={tileH} />
-            </View>
-            {row.rest.map((p) => (
-              <View key={p.id} style={{ width: cellW }}><PostCard {...cardProps(p)} variant="half" imageHeight={tileH} /></View>
-            ))}
+      case 'feature': {
+        const lead = (
+          <View key={row.lead.id} style={{ width: cols === 2 ? innerW : cellW * 2 + GAP }}>
+            <PostCard {...cardProps(row.lead)} variant="wide" imageHeight={tileH} />
           </View>
         );
+        const rest = row.rest.map((p) => (
+          <View key={p.id} style={{ width: cellW }}><PostCard {...cardProps(p)} variant="half" imageHeight={tileH} /></View>
+        ));
+        content = <View style={styles.rowLine}>{row.mirror ? [...rest, lead] : [lead, ...rest]}</View>;
         break;
-      case 'grid':
+      }
+      case 'duo':
         content = (
           <View style={styles.rowLine}>
             {row.posts.map((p) => (
-              <View key={p.id} style={{ width: cellW }}><PostCard {...cardProps(p)} variant="half" imageHeight={tileH} /></View>
+              <View key={p.id} style={{ width: duoW }}><PostCard {...cardProps(p)} variant="half" imageHeight={tileH} /></View>
             ))}
           </View>
         );
         break;
     }
     return <View style={styles.row}>{content}</View>;
-  }, [cardProps, router, cols, cellW, innerW, tileH]);
+  }, [cardProps, router, cols, cellW, innerW, tileH, duoW]);
 
   const goExplore = useCallback(() => router.push('/(tabs)/explore'), [router]);
   const goSignIn = useCallback(() => router.push('/(auth)/sign-in'), [router]);
+  const goPublish = useCallback(() => router.push('/create'), [router]);
   const hasPosts = posts.length > 0;
   const following = scope === 'following';
+  const isArtist = user?.role === 'artist';
   const showSelection = !following && selection.length >= SELECTION_MIN;
-  const printW = cols === 1 ? 136 : 168;
+  const printW = cols === 1 ? 150 : 196;
+  // Rails bleed to the page edge while their first item stays on the gutter.
+  const bleed = { scroller: { marginHorizontal: -gutter }, content: { paddingHorizontal: gutter } };
+
+  const top = (
+    <View>
+      <View style={{ height: HEADER_H + insets.top }} />
+      <Masthead
+        key={following ? 'following' : 'all'}
+        kicker={following ? '01 / Abonnements' : '01 / Le fil'}
+        title={following ? 'Les artistes que' : 'Les dernières'}
+        emphasis={following ? 'vous suivez.' : 'réalisations.'}
+        description={following
+          ? 'Leurs dernières pièces, des plus récentes aux plus anciennes.'
+          : 'Les pièces publiées par les artistes Inkr, des plus récentes aux plus anciennes.'}
+        action={isArtist && hasPosts && cols > 1 ? (
+          <TButton title="Publier une réalisation" variant="secondary" size="sm" fullWidth={false} onPress={goPublish} />
+        ) : undefined}
+        style={styles.masthead}
+      />
+      <SectionTabs tabs={SCOPES} value={scope} onChange={selectScope} style={styles.tabs} />
+    </View>
+  );
 
   const ListHeader = (
     <View>
-      <View style={{ height: HEADER_H + insets.top }} />
-      <ScopeTabs scope={scope} onChange={selectScope} />
+      {top}
 
       {/* Stories: everyone's on "Pour vous" (artists can add theirs), followed artists' on "Abonnements". */}
       {following
         ? <StoriesRail key="following" artistIds={followedList} />
         : <StoriesRail key="all" showAdd />}
 
-      {hasPosts && (
-        <Animated.View style={mastheadStyle}>
-          {following ? (
-            <View key="following" style={styles.masthead}>
-              <Animated.View entering={enterUp(0)}>
-                <TText variant="label" color="accentWarm" uppercase>Abonnements</TText>
-              </Animated.View>
-              <Animated.View entering={enterUp(1)}>
-                <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-                  Les artistes que <TText variant="displayM" italic color="accentGlow">vous suivez</TText>
-                </TText>
-              </Animated.View>
-              <Animated.View entering={enterUp(2)}>
-                <TText variant="bodySmall" color="tertiary">Leurs dernières pièces, des plus récentes aux plus anciennes.</TText>
-              </Animated.View>
-            </View>
-          ) : (
-            <View key="all" style={styles.masthead}>
-              <Animated.View entering={enterUp(0)}>
-                <TText variant="label" color="accentWarm" uppercase>Le fil</TText>
-              </Animated.View>
-              <Animated.View entering={enterUp(1)}>
-                <TText variant="displayM" accessibilityRole="header" style={styles.title}>
-                  Les dernières <TText variant="displayM" italic color="accentGlow">réalisations</TText>
-                </TText>
-              </Animated.View>
-              <Animated.View entering={enterUp(2)}>
-                <TText variant="bodySmall" color="tertiary">Les pièces publiées récemment par les artistes INKR.</TText>
-              </Animated.View>
-            </View>
-          )}
-        </Animated.View>
-      )}
-
       {showSelection && (
         <View style={styles.railSection}>
-          <View style={styles.sectionHead}>
-            <TText variant="label" color="tertiary" uppercase accessibilityRole="header">Sélection de la semaine</TText>
-            <TText variant="caption" color="tertiary">Les plus aimées</TText>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.printRail}>
+          <SectionHead
+            kicker="Sélection de la semaine"
+            description="Les pièces les plus aimées ces sept derniers jours."
+          />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={bleed.scroller} contentContainerStyle={[styles.printRail, bleed.content]}>
             {selection.map((p, i) => (
               <SelectionTile key={p.id} post={p} index={i} width={printW} onPress={() => router.push(`/post/${p.id}`)} />
             ))}
@@ -521,14 +467,8 @@ export default function FeedScreen() {
 
       {railArtists.length > 0 && (
         <View style={styles.railSection}>
-          <View style={styles.sectionHead}>
-            <TText variant="label" color="tertiary" uppercase>Récemment actifs</TText>
-            <PressableScale onPress={goExplore} accessibilityRole="link" hitSlop={8} style={styles.textLink}>
-              <TText variant="caption" weight="medium" color="secondary">Tous les artistes</TText>
-              <Ionicons name="arrow-forward" size={13} color={Colors.textSecondary} />
-            </PressableScale>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.railScroller} contentContainerStyle={styles.rail}>
+          <SectionHead kicker="Récemment actifs" action={{ label: 'Tous les artistes', onPress: goExplore }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={bleed.scroller} contentContainerStyle={[styles.rail, bleed.content]}>
             {railArtists.map((a, i) => <ArtistChip key={a.id} artist={a} index={i} />)}
           </ScrollView>
         </View>
@@ -536,15 +476,17 @@ export default function FeedScreen() {
 
       {!!error && hasPosts && (
         <Animated.View entering={fadeIn()} style={styles.notice} accessibilityLiveRegion="polite">
-          <Ionicons name="cloud-offline-outline" size={16} color={Colors.warning} />
+          <StatusDot tone="alert" label="Hors ligne" />
           <TText variant="caption" color="secondary" style={{ flex: 1 }}>Actualisation impossible. Vérifiez votre connexion.</TText>
-          <PressableScale onPress={handleRefresh} accessibilityRole="button" hitSlop={8} style={styles.noticeAction}>
-            <TText variant="caption" weight="semibold">Réessayer</TText>
-          </PressableScale>
+          <TButton title="Réessayer" variant="ghost" size="sm" fullWidth={false} onPress={() => { void handleRefresh(); }} />
         </Animated.View>
       )}
 
-      {hasPosts && <View style={styles.feedHead} />}
+      {hasPosts && (
+        <View style={styles.feedHead}>
+          <Kicker tone="muted">{following ? 'Dernières pièces suivies' : 'Dernières pièces'}</Kicker>
+        </View>
+      )}
     </View>
   );
 
@@ -552,17 +494,14 @@ export default function FeedScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Floating header — frosts over the work once the feed scrolls */}
+      {/* Header: paper ground under it once the feed scrolls. The rail carries the brand on wide web. */}
       <View style={[styles.floatingHeader, { paddingTop: insets.top }]} pointerEvents="box-none">
-        <Animated.View style={[StyleSheet.absoluteFill, glassStyle]} pointerEvents="none">
-          <GlassSurface style={StyleSheet.absoluteFill} />
-          <View style={styles.headerBorder} />
-        </Animated.View>
-        <View style={styles.headerInner}>
-          <Logo size="sm" variant="full" />
+        <Animated.View style={[StyleSheet.absoluteFill, styles.headerGround, groundStyle]} pointerEvents="none" />
+        <View style={[styles.headerInner, { paddingHorizontal: gutter }, hasSidebar && styles.headerInnerRail]}>
+          {!hasSidebar && <Logo size="sm" variant="full" />}
           <View style={styles.headerActions}>
-            <IconButton icon="search-outline" label="Rechercher un artiste" onPress={goExplore} />
-            <IconButton
+            <HeaderButton icon="search-outline" label="Rechercher un artiste" onPress={goExplore} />
+            <HeaderButton
               icon="notifications-outline"
               label={unreadCount > 0 ? `Notifications, ${unreadCount} non lue${unreadCount > 1 ? 's' : ''}` : 'Notifications'}
               onPress={() => router.push('/notifications')}
@@ -573,26 +512,26 @@ export default function FeedScreen() {
       </View>
 
       {showSkeleton ? (
-        <View style={[styles.frame, { paddingTop: insets.top + HEADER_H }]}>
-          <ScopeTabs scope={scope} onChange={selectScope} />
+        <ScrollView style={styles.list} contentContainerStyle={[styles.frame, { paddingHorizontal: gutter }]} scrollEnabled={false}>
+          {top}
           <View accessibilityLabel="Chargement du fil">
-            <FeedSkeleton cols={cols} cellW={cellW} />
+            <FeedSkeleton cols={cols} cellW={cellW} innerW={innerW} />
           </View>
-        </View>
+        </ScrollView>
       ) : (
         <Animated.FlatList
           data={rows}
           keyExtractor={(row) => `${cols}:${row.key}`}
           renderItem={renderRow}
           style={styles.list}
-          contentContainerStyle={[styles.frame, { paddingBottom: insets.bottom + 110 }]}
+          contentContainerStyle={[styles.frame, { paddingHorizontal: gutter, paddingBottom: insets.bottom + 110 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor={Colors.accentWarm}
-              colors={[Colors.accentWarm]}
+              tintColor={Colors.flame}
+              colors={[Colors.flame]}
               progressViewOffset={insets.top + HEADER_H}
             />
           }
@@ -620,10 +559,10 @@ export default function FeedScreen() {
               />
             ) : (
               <FirstRun
-                isArtist={user?.role === 'artist'}
+                isArtist={isArtist}
                 signedIn={!!user}
                 onExplore={goExplore}
-                onPublish={() => router.push('/create')}
+                onPublish={goPublish}
                 onSignIn={goSignIn}
               />
             )
@@ -635,10 +574,9 @@ export default function FeedScreen() {
               </View>
             ) : (
               <Animated.View entering={fadeIn()} style={styles.end}>
-                <TText variant="displayS" style={styles.center}>
-                  Vous êtes <TText variant="displayS" italic color="accentGlow">à jour</TText>
-                </TText>
-                <TText variant="bodySmall" color="tertiary" style={[styles.center, styles.endText]}>
+                <Kicker tone="muted">Fin du fil</Kicker>
+                <EditorialTitle size="section" emphasis="à jour." style={styles.endTitle}>Vous êtes</EditorialTitle>
+                <TText variant="bodySmall" color="secondary" style={styles.endText}>
                   Découvrez d’autres artistes par style ou par ville.
                 </TText>
                 <TButton title="Explorer les artistes" variant="secondary" size="md" fullWidth={false} onPress={goExplore} />
@@ -648,20 +586,19 @@ export default function FeedScreen() {
         />
       )}
 
-      {/* Artist shortcut: publish a new piece (hidden on first run, where the CTA is inline) */}
-      {user?.role === 'artist' && hasPosts && (
+      {/* Artist shortcut on phones and tablets: publish a new piece (the masthead carries it on wide screens). */}
+      {isArtist && hasPosts && cols === 1 && (
         <Animated.View
           entering={fadeIn(500)}
-          style={[styles.fab, { bottom: 88 + insets.bottom, right: Math.max(Layout.gutter, (width - Layout.maxContent) / 2 + Layout.gutter) }]}
+          style={[styles.fab, { bottom: 88 + insets.bottom, right: gutter }]}
         >
           <PressableScale
-            onPress={() => router.push('/create')}
+            onPress={goPublish}
             accessibilityRole="button"
             accessibilityLabel="Publier une réalisation"
-            style={[styles.fabBtn, cols > 1 && styles.fabBtnWide]}
+            style={styles.fabBtn}
           >
-            <Ionicons name="add" size={24} color={Colors.textInverse} />
-            {cols > 1 && <TText variant="bodySmall" weight="semibold" color="inverse">Publier</TText>}
+            <Ionicons name="add" size={24} color={Colors.paper} />
           </PressableScale>
         </Animated.View>
       )}
@@ -670,140 +607,84 @@ export default function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  container: { flex: 1, backgroundColor: Colors.paper },
   list: { flex: 1 },
-  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter },
-  center: { textAlign: 'center' },
+  frame: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center' },
 
   // Header
   floatingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100 },
-  headerBorder: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault,
-  },
+  headerGround: { backgroundColor: Colors.paper, borderBottomWidth: 1, borderBottomColor: Colors.line },
   headerInner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    height: HEADER_H, paddingHorizontal: Layout.gutter,
+    height: HEADER_H,
     width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
   },
+  headerInnerRail: { justifyContent: 'flex-end' },
   headerActions: { flexDirection: 'row', gap: Spacing['2xs'] },
-  iconBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: 'rgba(11,10,9,0.35)',
-  },
   badge: {
-    position: 'absolute', top: -3, right: -3,
-    minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4,
+    position: 'absolute', top: -4, right: -4,
+    minWidth: 18, height: 18, paddingHorizontal: 4,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.accentWarm,
-    borderWidth: 2, borderColor: Colors.bgPrimary,
+    backgroundColor: Colors.flame,
+    borderWidth: 2, borderColor: Colors.paper,
   },
-  badgeText: { color: Colors.textInverse, fontSize: 9, lineHeight: 11, letterSpacing: 0 },
+  badgeText: { color: '#FFFFFF', fontSize: 9, lineHeight: 11, letterSpacing: 0 },
 
-  // Scope tabs
-  tabs: {
-    flexDirection: 'row', gap: Spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderDefault,
-    marginBottom: Spacing.xs,
-  },
-  tab: {
-    minHeight: 44, justifyContent: 'flex-end',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  tabHover: { opacity: 0.85 },
-  // Sits on the container hairline, so the active word reads as underlined in gold.
-  tabLine: { height: 2, marginTop: 10, marginBottom: -StyleSheet.hairlineWidth, backgroundColor: 'transparent' },
-  tabLineActive: { backgroundColor: Colors.accentWarm },
+  masthead: { marginBottom: 0 },
+  tabs: { marginBottom: Spacing.lg },
 
-  // Masthead
-  masthead: { paddingTop: Spacing.sm, paddingBottom: Spacing.lg },
-  title: { marginTop: 6, marginBottom: 6 },
-
-  // Rail
-  railSection: { marginBottom: Spacing.lg },
-  sectionHead: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Spacing.sm, marginBottom: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
-  },
-  textLink: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32 },
-  // The rail bleeds to the screen edge while its first item stays on the gutter.
-  railScroller: { marginHorizontal: -Layout.gutter },
-  rail: { gap: Spacing.xs, paddingHorizontal: Layout.gutter },
-  chip: { width: 80, alignItems: 'center' },
-  chipRing: {
-    padding: 3, borderRadius: 37,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  chipRingPremium: { borderColor: Colors.borderGlow },
-  chipName: { marginTop: 8, maxWidth: 76, textAlign: 'center' },
-  chipStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  // Rails
+  railSection: { marginTop: Spacing.lg, marginBottom: Spacing.lg },
+  rail: { gap: Spacing.sm },
+  chip: { width: 96, alignItems: 'flex-start', gap: 6 },
+  chipFrame: { padding: 3, borderWidth: 1, borderColor: Colors.line },
+  chipFramePremium: { borderColor: Colors.flame },
+  chipName: { fontSize: 18, lineHeight: 20, maxWidth: 94 },
 
   // Weekly selection
-  printRail: { gap: Spacing.sm, paddingHorizontal: Layout.gutter },
-  print: { borderRadius: Radius.md },
-  printName: { marginTop: Spacing['2xs'] },
+  printRail: { gap: Spacing.md },
+  printName: { fontSize: 20, lineHeight: 22, marginTop: 10 },
 
   notice: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: Spacing.xs, marginBottom: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+    paddingVertical: Spacing['2xs'], marginBottom: Spacing.md,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
   },
-  noticeAction: { minHeight: 32, justifyContent: 'center' },
 
   feedHead: {
-    marginBottom: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    marginTop: Spacing.xs, marginBottom: Spacing.lg, paddingTop: Spacing.xs,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
 
   // Rows
   row: { marginBottom: ROW_GAP },
   rowLine: { flexDirection: 'row', gap: GAP, alignItems: 'flex-start' },
-  flexCell: { flex: 1 },
+  flexCell: { flex: 1, minWidth: 0 },
 
-  skeletonRail: { flexDirection: 'row', gap: Spacing.sm, overflow: 'hidden' },
+  skeletonRail: { flexDirection: 'row', gap: Spacing.sm, overflow: 'hidden', marginTop: Spacing.xs },
   skeletonLabel: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
 
   // First run / empty
   empty: { paddingTop: Spacing['2xl'] },
-  firstRun: {
-    alignItems: 'center', alignSelf: 'center',
-    width: '100%', maxWidth: Layout.maxReading,
-    paddingTop: Spacing['3xl'], paddingBottom: Spacing['2xl'],
-  },
-  firstRunRing: {
-    width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow,
-    backgroundColor: Colors.glassAmber,
-    marginBottom: Spacing.lg,
-  },
-  firstRunTitle: { marginTop: Spacing['2xs'] },
-  firstRunText: { marginTop: Spacing.sm, maxWidth: 440, alignSelf: 'center' },
-  firstRunActions: {
-    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: Spacing.xs,
-    marginTop: Spacing.xl,
-  },
+  firstRun: { marginTop: Spacing.md, marginBottom: Spacing['2xl'] },
+  firstRunTitle: { marginTop: Spacing.sm },
+  firstRunText: { marginTop: Spacing.md, maxWidth: 480 },
+  firstRunActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginTop: Spacing.xl },
 
   footer: { height: 80, alignItems: 'center', justifyContent: 'center' },
   end: {
-    alignItems: 'center',
-    paddingTop: Spacing.xl, paddingBottom: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: Spacing.md, paddingBottom: Spacing.lg,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
-  endText: { marginTop: 6, marginBottom: Spacing.md },
+  endTitle: { marginTop: Spacing.xs },
+  endText: { marginTop: Spacing['2xs'], marginBottom: Spacing.md },
 
-  // FAB
+  // FAB: a square ink plate
   fab: { position: 'absolute', zIndex: 50 },
   fabBtn: {
-    height: 56, minWidth: 56, borderRadius: 28,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: Colors.accentAction,
-    ...Shadow.md,
+    width: 56, height: 56,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.ink,
+    borderWidth: 1, borderColor: Colors.paper,
   },
-  fabBtnWide: { paddingHorizontal: Spacing.md + 2 },
 });

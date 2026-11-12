@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { Colors, Radius } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import { useFollowStore } from '@/store/follow-store';
 
@@ -13,14 +13,26 @@ interface FollowButtonProps {
   artistId: string;
   artistName: string;
   size?: 'sm' | 'md';
+  /** On an ink panel: paper outline instead of an ink fill. */
+  onInk?: boolean;
+  style?: StyleProp<ViewStyle>;
   onChange?(following: boolean): void;
 }
 
-const HEIGHT = { sm: 34, md: 42 } as const;
-const MIN_WIDTH = { sm: 84, md: 104 } as const;
-const PAD_X = { sm: 12, md: 16 } as const;
+type Interaction = { pressed: boolean; hovered?: boolean };
 
-export function FollowButton({ artistId, artistName, size = 'md', onChange }: FollowButtonProps) {
+const HEIGHT = { sm: 36, md: 46 } as const;
+const MIN_WIDTH = { sm: 88, md: 112 } as const;
+const PAD_X = { sm: 12, md: 18 } as const;
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '200ms' } as object)
+  : null;
+
+/**
+ * Square, tracked-capitals follow control. On paper: ink fill to follow, hairline
+ * once followed. On ink: paper outline to follow, quiet hairline once followed.
+ */
+export function FollowButton({ artistId, artistName, size = 'md', onInk = false, style, onChange }: FollowButtonProps) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const fetchFollowed = useFollowStore((s) => s.fetchFollowed);
@@ -35,6 +47,7 @@ export function FollowButton({ artistId, artistName, size = 'md', onChange }: Fo
       router.push({ pathname: '/(auth)/sign-in', params: { next: `/artist/${artistId}` } });
       return;
     }
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const next = !following;
     if (await toggle(user.id, artistId)) onChange?.(next);
     else Toast.error(next ? `Impossible de suivre ${artistName}. Réessayez.` : 'Désabonnement impossible. Réessayez.');
@@ -43,42 +56,62 @@ export function FollowButton({ artistId, artistName, size = 'md', onChange }: Fo
   // An artist does not follow their own page.
   if (user?.artistId && user.artistId === artistId) return null;
 
-  const iconSize = size === 'sm' ? 13 : 15;
+  const tone = onInk ? (following ? ink.following : ink.idle) : (following ? paper.following : paper.idle);
   return (
-    <PressableScale
-      onPress={handlePress}
-      haptic
+    <Pressable
+      onPress={() => { void handlePress(); }}
       disabled={pending}
       accessibilityRole="button"
       accessibilityLabel={following ? `Vous suivez ${artistName}` : `Suivre ${artistName}`}
       accessibilityHint={following ? 'Appuyez pour ne plus suivre cet artiste.' : undefined}
       accessibilityState={{ selected: following, busy: pending }}
-      hitSlop={size === 'sm' ? 6 : 2}
-      style={[
-        styles.base,
-        { height: HEIGHT[size], minWidth: MIN_WIDTH[size], paddingHorizontal: PAD_X[size] },
-        following ? styles.following : styles.idle,
-      ]}
+      hitSlop={size === 'sm' ? 4 : 0}
+      style={(state) => {
+        const { hovered, pressed } = state as Interaction;
+        return [
+          styles.base,
+          { minHeight: HEIGHT[size], minWidth: MIN_WIDTH[size], paddingHorizontal: PAD_X[size] },
+          tone.box,
+          webPointer,
+          (hovered || pressed) && !pending && styles.lit,
+          style,
+        ];
+      }}
     >
-      <View style={styles.inner}>
-        {following && <Ionicons name="checkmark" size={iconSize} color={Colors.accentGlow} />}
-        <TText
-          variant={size === 'sm' ? 'caption' : 'bodySmall'}
-          weight="semibold"
-          numberOfLines={1}
-          style={[styles.label, { fontSize: size === 'sm' ? 13 : 14, color: following ? Colors.textPrimary : Colors.textInverse }]}
-        >
-          {following ? 'Suivi' : 'Suivre'}
-        </TText>
-      </View>
-    </PressableScale>
+      {(state) => {
+        const { hovered, pressed } = state as Interaction;
+        const lit = (hovered || pressed) && !pending;
+        const color = lit ? '#FFFFFF' : tone.label;
+        return (
+          <View style={styles.inner}>
+            {following && <Ionicons name="checkmark" size={size === 'sm' ? 13 : 15} color={lit ? color : tone.mark} />}
+            <TText
+              variant="label"
+              weight="bold"
+              uppercase
+              numberOfLines={1}
+              style={{ color, fontSize: size === 'sm' ? 10 : 11, letterSpacing: 0.8, lineHeight: 16 }}
+            >
+              {following ? 'Suivi' : 'Suivre'}
+            </TText>
+          </View>
+        );
+      }}
+    </Pressable>
   );
 }
 
+const paper = {
+  idle: { box: { backgroundColor: Colors.ink, borderColor: Colors.ink }, label: Colors.paper, mark: Colors.paper },
+  following: { box: { backgroundColor: 'transparent', borderColor: Colors.line }, label: Colors.ink, mark: Colors.flameText },
+};
+const ink = {
+  idle: { box: { backgroundColor: 'transparent', borderColor: Colors.onInk }, label: Colors.onInk, mark: Colors.onInk },
+  following: { box: { backgroundColor: 'transparent', borderColor: Colors.onInkLine }, label: Colors.onInk, mark: Colors.flameOnInk },
+};
+
 const styles = StyleSheet.create({
-  base: { borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  idle: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  following: { backgroundColor: 'transparent', borderColor: Colors.borderDefault },
+  base: { alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  lit: { backgroundColor: Colors.flame, borderColor: Colors.flame },
   inner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  label: { letterSpacing: -0.1 },
 });

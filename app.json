@@ -9,9 +9,9 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "inkr",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#0B0A09",
-    "primaryColor": "#C9A46A",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F0ECE3",
+    "primaryColor": "#EA583B",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -31,7 +31,7 @@
       "package": "com.inkr.tattoo",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#0B0A09",
+        "backgroundColor": "#121310",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"

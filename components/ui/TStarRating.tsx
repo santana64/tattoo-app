@@ -26,7 +26,7 @@ function Star({ index, filled, onPress, size }: {
     <Ionicons
       name={filled ? 'star' : 'star-outline'}
       size={size}
-      color={filled ? Colors.accentWarm : Colors.textTertiary}
+      color={filled ? Colors.flame : Colors.metal}
     />
   );
 

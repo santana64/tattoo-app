@@ -1,9 +1,8 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { PressableScale } from '@/components/motion';
 import { styleName } from '@/components/ArtistCard';
 import { artworkLabel } from '@/lib/studio';
 
@@ -15,8 +14,10 @@ interface ArtworkLabelProps {
   onPressArtist?: () => void;
 }
 
+type Interaction = { pressed: boolean; hovered?: boolean };
+
 /**
- * The museum wall label ("cartel") of a piece: artist in gold small caps,
+ * The museum wall label ("cartel") of a piece: artist in vermilion small caps,
  * the title in serif italic, then medium / placement / session / year.
  * Read by assistive technologies as a single summary.
  */
@@ -24,20 +25,20 @@ export function ArtworkLabel({ post, artistName, onPressArtist }: ArtworkLabelPr
   const { title, lines } = artworkLabel(post, styleName);
   const summary = [artistName, title, ...lines].join(', ');
 
-  const content = (
+  const content = (lit: boolean) => (
     <>
       <View style={styles.artistRow}>
-        <TText variant="label" color="accentWarm" uppercase numberOfLines={1} style={styles.artist}>
+        <TText variant="label" weight="bold" uppercase numberOfLines={1} style={[styles.artist, lit && styles.artistLit]}>
           {artistName}
         </TText>
-        {onPressArtist && <Ionicons name="arrow-forward" size={11} color={Colors.accentWarm} />}
+        {onPressArtist && <Ionicons name="arrow-forward" size={11} color={lit ? Colors.ink : Colors.flameText} />}
       </View>
-      <TText variant="title1" serif italic style={styles.title}>{title}</TText>
+      <TText variant="displayS" italic style={styles.title}>{title}</TText>
       {lines.length > 0 && (
         <TText variant="caption" color="secondary" style={styles.lines}>
           {lines.map((line, i) => (
             <React.Fragment key={`${i}-${line}`}>
-              {i > 0 && <TText variant="caption" color="tertiary">{'  ·  '}</TText>}
+              {i > 0 && <TText variant="caption" color="tertiary">{'  /  '}</TText>}
               {line}
             </React.Fragment>
           ))}
@@ -48,37 +49,40 @@ export function ArtworkLabel({ post, artistName, onPressArtist }: ArtworkLabelPr
 
   if (onPressArtist) {
     return (
-      <PressableScale
+      <Pressable
         onPress={onPressArtist}
-        pressedScale={0.99}
         accessibilityRole="link"
         accessibilityLabel={summary}
         accessibilityHint={`Ouvre le profil de ${artistName}`}
-        style={styles.label}
+        style={[styles.label, Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null]}
       >
-        {content}
-      </PressableScale>
+        {(state) => {
+          const { hovered, pressed } = state as Interaction;
+          return content(!!(hovered || pressed));
+        }}
+      </Pressable>
     );
   }
 
   return (
     <View style={styles.label} accessible accessibilityRole="text" accessibilityLabel={summary}>
-      {content}
+      {content(false)}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // A thin gold rule on the left edge, like the brass strip of a wall label.
+  // A vermilion rule on the left edge, like the strip of a wall label.
   label: {
-    borderLeftWidth: 1,
-    borderLeftColor: Colors.accentWarm,
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.flame,
     paddingLeft: Spacing.sm,
     paddingVertical: 2,
     alignSelf: 'stretch',
   },
-  artistRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  artist: { flexShrink: 1 },
-  title: { fontSize: 24, lineHeight: 29, letterSpacing: -0.2, marginTop: 6 },
-  lines: { marginTop: 6, lineHeight: 19 },
+  artistRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 18 },
+  artist: { flexShrink: 1, color: Colors.flameText },
+  artistLit: { color: Colors.ink },
+  title: { fontSize: 28, lineHeight: 30, letterSpacing: -0.6, marginTop: 8, color: Colors.ink },
+  lines: { marginTop: 8, lineHeight: 19 },
 });

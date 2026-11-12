@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions,
+  View,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -15,8 +17,10 @@ import { TImagePicker } from '@/components/ui/TImagePicker';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale, enterUp, fadeIn } from '@/components/motion';
+import { Kicker, Masthead, PageWrap, Rule } from '@/components/v5';
+import { CartelPreview, Panel, StepControl } from '@/components/v5/studio';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
 import { uploadPostMedia } from '@/lib/storage';
 import { createGuestSpot, guestSpotInputError, type GuestSpotInput } from '@/lib/studio';
@@ -35,32 +39,13 @@ const sameDay = (a: Date, b: Date) => startOfDay(a).getTime() === startOfDay(b).
 const dayFmt = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const dayFmtYear = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const formatDay = (d: Date) => (d.getFullYear() === new Date().getFullYear() ? dayFmt : dayFmtYear).format(d);
+const shortFmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
 
 /** "180" → 180; empty → null; anything else → NaN. */
 function parseEuros(text: string): number | null {
   const clean = text.trim().replace(/\s/g, '');
   if (!clean) return null;
   return /^\d{1,6}$/.test(clean) ? Number(clean) : NaN;
-}
-
-function StepButton({ icon, label, onPress, disabled }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; disabled: boolean;
-}) {
-  return (
-    <PressableScale
-      onPress={onPress}
-      disabled={disabled}
-      haptic
-      pressedScale={0.92}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      hitSlop={4}
-      style={[styles.stepBtn, disabled && styles.stepBtnDisabled]}
-    >
-      <Ionicons name={icon} size={17} color={Colors.textPrimary} />
-    </PressableScale>
-  );
 }
 
 /** One day, moved by a day (‹ ›) or a week (« »), kept within [min, max]. */
@@ -75,7 +60,7 @@ function DayStepper({ label, value, min, max, onChange }: {
   const atMax = sameDay(value, max) || value > max;
   return (
     <View style={styles.dayRow}>
-      <TText variant="caption" weight="medium" color="secondary">{label}</TText>
+      <TText variant="micro" uppercase color="secondary">{label}</TText>
       <View
         style={styles.dayStepper}
         accessible
@@ -88,13 +73,13 @@ function DayStepper({ label, value, min, max, onChange }: {
           if (e.nativeEvent.actionName === 'decrement' && !atMin) move(-1);
         }}
       >
-        <StepButton icon="play-back-outline" label={`${label} : une semaine plus tôt`} disabled={atMin} onPress={() => move(-7)} />
-        <StepButton icon="remove" label={`${label} : un jour plus tôt`} disabled={atMin} onPress={() => move(-1)} />
-        <TText variant="bodySmall" weight="medium" tabular numberOfLines={2} style={styles.dayValue}>
+        <StepControl icon="play-back-outline" label={`${label} : une semaine plus tôt`} disabled={atMin} onPress={() => move(-7)} />
+        <StepControl icon="remove" label={`${label} : un jour plus tôt`} disabled={atMin} onPress={() => move(-1)} />
+        <TText variant="bodySmall" weight="semibold" tabular numberOfLines={2} style={styles.dayValue}>
           {formatDay(value)}
         </TText>
-        <StepButton icon="add" label={`${label} : un jour plus tard`} disabled={atMax} onPress={() => move(1)} />
-        <StepButton icon="play-forward-outline" label={`${label} : une semaine plus tard`} disabled={atMax} onPress={() => move(7)} />
+        <StepControl icon="add" label={`${label} : un jour plus tard`} disabled={atMax} onPress={() => move(1)} />
+        <StepControl icon="play-forward-outline" label={`${label} : une semaine plus tard`} disabled={atMax} onPress={() => move(7)} />
       </View>
     </View>
   );
@@ -127,8 +112,7 @@ export default function NewGuestSpotScreen() {
 function GuestForm({ artistId }: { artistId: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const wide = width >= 900;
+  const { isWide } = useContentDimensions();
 
   const today = startOfDay(new Date());
   const [hostCity, setHostCity] = useState('');
@@ -199,17 +183,14 @@ function GuestForm({ artistId }: { artistId: string }) {
   };
 
   const picker = (
-    <View>
-      <TImagePicker
-        value={coverUri}
-        onPicked={(uri) => { setCoverUri(uri); setFormError(null); }}
-        aspect={[4, 3]}
-        placeholder="Ajouter une image de couverture"
-      />
-      <TText variant="caption" color="tertiary" style={styles.pickerHint}>
-        Le studio, une pièce récente ou un flash disponible sur place.
-      </TText>
-    </View>
+    <TImagePicker
+      value={coverUri}
+      onPicked={(uri) => { setCoverUri(uri); setFormError(null); }}
+      aspect={[4, 3]}
+      fillAspect
+      placeholder="Ajouter une image de couverture"
+      hint="Le studio, une pièce récente ou un flash disponible sur place."
+    />
   );
 
   const form = (
@@ -232,8 +213,8 @@ function GuestForm({ artistId }: { artistId: string }) {
 
       <View style={styles.dates}>
         <View style={styles.datesHead}>
-          <TText variant="label" color="tertiary" uppercase>Dates</TText>
-          <TText variant="caption" color="tertiary" tabular>
+          <Kicker>Dates</Kicker>
+          <TText variant="caption" color="secondary" tabular>
             {lengthDays} jour{lengthDays > 1 ? 's' : ''}
           </TText>
         </View>
@@ -262,13 +243,13 @@ function GuestForm({ artistId }: { artistId: string }) {
         inputMode="numeric"
         maxLength={6}
         error={priceError}
-        rightElement={<TText variant="bodySmall" color="tertiary">€</TText>}
+        rightElement={<TText variant="bodySmall" color="secondary">€</TText>}
       />
 
       <View style={styles.stepperRow}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <TText variant="body" weight="medium">Places</TText>
-          <TText variant="caption" color="tertiary" style={{ marginTop: 2 }}>Le nombre de projets que vous prenez sur place.</TText>
+          <TText variant="displayS" style={styles.rowTitle}>Places</TText>
+          <TText variant="caption" color="secondary" style={{ marginTop: 2 }}>Le nombre de projets que vous prenez sur place.</TText>
         </View>
         <View
           style={styles.stepper}
@@ -282,9 +263,9 @@ function GuestForm({ artistId }: { artistId: string }) {
             if (e.nativeEvent.actionName === 'decrement') setSlots((n) => Math.max(MIN_SLOTS, n - 1));
           }}
         >
-          <StepButton icon="remove" label="Une place de moins" disabled={slots <= MIN_SLOTS} onPress={() => setSlots((n) => Math.max(MIN_SLOTS, n - 1))} />
-          <TText variant="title2" serif tabular style={styles.stepValue}>{slots}</TText>
-          <StepButton icon="add" label="Une place de plus" disabled={slots >= MAX_SLOTS} onPress={() => setSlots((n) => Math.min(MAX_SLOTS, n + 1))} />
+          <StepControl icon="remove" label="Une place de moins" disabled={slots <= MIN_SLOTS} onPress={() => setSlots((n) => Math.max(MIN_SLOTS, n - 1))} />
+          <TText variant="displayS" tabular style={styles.stepValue}>{slots}</TText>
+          <StepControl icon="add" label="Une place de plus" disabled={slots >= MAX_SLOTS} onPress={() => setSlots((n) => Math.min(MAX_SLOTS, n + 1))} />
         </View>
       </View>
 
@@ -299,14 +280,38 @@ function GuestForm({ artistId }: { artistId: string }) {
         inputStyle={{ minHeight: 110, textAlignVertical: 'top', paddingTop: 14 }}
         helper={description.length > MAX_DESCRIPTION - 100 ? `${description.length} / ${MAX_DESCRIPTION}` : undefined}
       />
+    </View>
+  );
 
+  const city = hostCity.trim();
+  const preview = (
+    <CartelPreview
+      kicker="Aperçu / Guest spot"
+      title={city ? `Guest à ${city}` : ''}
+      emptyTitle="Ville à préciser"
+      rows={[
+        { label: 'Studio d’accueil', value: hostStudio },
+        {
+          label: 'Dates',
+          value: sameDay(dateFrom, dateTo) ? shortFmt.format(dateFrom) : `${shortFmt.format(dateFrom)} – ${shortFmt.format(dateTo)}`,
+        },
+        { label: 'Prix', value: price !== null && !Number.isNaN(price) ? `dès ${price.toLocaleString('fr-FR')} €` : null },
+        { label: 'Places', value: String(slots) },
+        { label: 'Ville habituelle', value: artistCity },
+      ]}
+      note={description.trim() ? description.trim() : undefined}
+    />
+  );
+
+  const submit = (
+    <View>
       {publishing && (
-        <Animated.View entering={fadeIn()} style={styles.progressWrap}>
-          <TProgressBar progress={progress} color={Colors.accentWarm} />
-          <TText variant="caption" color="tertiary" tabular style={{ marginTop: 6 }}>
+        <View style={styles.progressWrap}>
+          <TProgressBar progress={progress} color={Colors.flame} />
+          <TText variant="caption" color="secondary" tabular style={{ marginTop: 6 }}>
             Envoi en cours… {Math.round(progress * 100)} %
           </TText>
-        </Animated.View>
+        </View>
       )}
 
       {!!formError && (
@@ -328,14 +333,40 @@ function GuestForm({ artistId }: { artistId: string }) {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <THeader title="Annoncer un guest" showBack />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing['2xl'] }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + Spacing['3xl'] }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={wide ? styles.columnsWide : undefined}>
-          <Animated.View entering={enterUp(0)} style={wide ? styles.colMedia : undefined}>{picker}</Animated.View>
-          <Animated.View entering={enterUp(1)} style={wide ? styles.colForm : styles.formStacked}>{form}</Animated.View>
-        </View>
+        <PageWrap>
+          <Masthead
+            kicker="Guest spot / Nouveau"
+            title="L’atelier"
+            emphasis="voyage."
+            description="Annoncez la ville, les dates, le studio qui vous accueille et le nombre de projets que vous prenez sur place."
+          />
+          {isWide ? (
+            <View style={styles.columns}>
+              <Panel style={styles.colForm}>
+                {form}
+                <Rule tone="ink" style={{ marginBottom: Spacing.md }} />
+                {submit}
+              </Panel>
+              <View style={styles.colPreview}>
+                <Kicker tone="muted" style={{ marginBottom: Spacing.sm }}>Aperçu / Avant envoi</Kicker>
+                {picker}
+                <View style={{ marginTop: Spacing.lg }}>{preview}</View>
+              </View>
+            </View>
+          ) : (
+            <>
+              {picker}
+              <View style={styles.formStacked}>{form}</View>
+              <Rule tone="ink" />
+              <View style={{ paddingVertical: Spacing.lg }}>{preview}</View>
+              {submit}
+            </>
+          )}
+        </PageWrap>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -343,45 +374,31 @@ function GuestForm({ artistId }: { artistId: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  content: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg,
-  },
-  columnsWide: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
-  colMedia: { flex: 1, maxWidth: 480 },
-  colForm: { flex: 1, maxWidth: Layout.maxReading },
+  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
+  colForm: { flex: 1.25, minWidth: 0 },
+  colPreview: { flex: 1, minWidth: 0, maxWidth: 480 },
   formStacked: { marginTop: Spacing.lg },
-
-  pickerHint: { marginTop: Spacing['2xs'] },
 
   dates: {
     marginBottom: Spacing.md, paddingTop: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
   datesHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing['2xs'] },
-  dayRow: { marginTop: Spacing.xs, gap: 6 },
+  dayRow: { marginTop: Spacing.sm, gap: 6 },
   dayStepper: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    padding: 6, borderRadius: Radius.lg,
-    backgroundColor: Colors.bgElevated,
-    borderWidth: 1, borderColor: Colors.borderDefault,
+    paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: Colors.line,
   },
-  dayValue: { flex: 1, textAlign: 'center' },
+  dayValue: { flex: 1, minWidth: 0, textAlign: 'center' },
 
   stepperRow: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingVertical: Spacing.xs, marginBottom: Spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.borderDefault,
+    paddingVertical: 16, marginBottom: Spacing.md,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: Colors.line,
   },
+  rowTitle: { fontSize: 24, lineHeight: 28, letterSpacing: -0.4 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
-  stepBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  stepBtnDisabled: { opacity: 0.38 },
-  stepValue: { minWidth: 32, textAlign: 'center', fontSize: 22 },
+  stepValue: { minWidth: 36, textAlign: 'center', fontSize: 28, lineHeight: 30 },
 
   progressWrap: { marginBottom: Spacing.md },
   formError: { marginBottom: Spacing.sm },

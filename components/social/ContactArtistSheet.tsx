@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
-import { Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
+import { Kicker } from '@/components/v5';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
 import { BottomSheet } from '@/components/motion';
@@ -77,7 +78,8 @@ export function ContactArtistSheet({ visible, onClose, artistId, artistName }: C
       <GestureHandlerRootView style={styles.root}>
         <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <BottomSheet visible={visible} onClose={onClose} accessibilityLabel={`Écrire à ${artistName}`}>
-            <TText variant="displayS" accessibilityRole="header">Écrire à {artistName}</TText>
+            <Kicker tone="flame" style={styles.kicker}>Message sans projet</Kicker>
+            <TText variant="displayS" accessibilityRole="header" style={styles.title}>Écrire à {artistName}</TText>
             <TText variant="bodySmall" color="secondary" style={styles.helper}>
               Une question avant de vous lancer ? {artistName} vous répondra ici.
             </TText>
@@ -108,7 +110,9 @@ export function ContactArtistSheet({ visible, onClose, artistId, artistName }: C
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  helper: { marginTop: 4, marginBottom: Spacing.sm },
+  kicker: { marginBottom: Spacing['2xs'] },
+  title: { fontSize: 34, lineHeight: 34, letterSpacing: -1 },
+  helper: { marginTop: Spacing['2xs'], marginBottom: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.line },
   field: { marginBottom: Spacing.xs },
   input: { minHeight: 110, maxHeight: 220, textAlignVertical: 'top', paddingTop: 14 },
   actions: { gap: Spacing['2xs'] },

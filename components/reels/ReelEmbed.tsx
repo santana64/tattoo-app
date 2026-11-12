@@ -51,7 +51,7 @@ export function ReelEmbed({ provider, pageUrl, active }: ReelEmbedProps) {
           allowFullScreen: true,
           sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation',
           referrerPolicy: 'strict-origin-when-cross-origin',
-          style: { border: 0, width: '100%', height: '100%', backgroundColor: Colors.bgInk },
+          style: { border: 0, width: '100%', height: '100%', backgroundColor: Colors.inkPanel },
         })}
       </View>
     );
@@ -61,22 +61,22 @@ export function ReelEmbed({ provider, pageUrl, active }: ReelEmbedProps) {
   return (
     <View style={styles.notice}>
       <View style={styles.ring}>
-        <Ionicons name={PROVIDER_ICON[provider]} size={26} color={Colors.accentGlow} />
+        <Ionicons name={PROVIDER_ICON[provider]} size={26} color={Colors.flameOnInk} />
       </View>
-      <TText variant="title2" serif style={styles.title}>Vidéo publiée sur {name}</TText>
-      <TText variant="bodySmall" color="secondary" style={styles.text}>
+      <TText variant="displayS" color="onInk" style={styles.title}>Vidéo publiée sur {name}</TText>
+      <TText variant="bodySmall" color="onInkMuted" style={styles.text}>
         {canPlayHere
           ? `La lecture charge le lecteur de ${name}, qui peut déposer des cookies sur votre appareil.`
           : `Cette vidéo s’ouvre dans ${name}.`}
       </TText>
       <View style={styles.actions}>
         {canPlayHere && (
-          <TButton title="Lire la vidéo" size="md" fullWidth={false} onPress={() => setLoaded(true)} />
+          <TButton title="Lire la vidéo" variant="glass" size="md" fullWidth={false} onPress={() => setLoaded(true)} />
         )}
         {!!embedUrl && (
           <TButton
             title={`Ouvrir sur ${name}`}
-            variant={canPlayHere ? 'ghost' : 'primary'}
+            variant={canPlayHere ? 'inverse' : 'glass'}
             size="md"
             fullWidth={false}
             onPress={openOutside}
@@ -89,10 +89,10 @@ export function ReelEmbed({ provider, pageUrl, active }: ReelEmbedProps) {
 
 const styles = StyleSheet.create({
   frame: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  notice: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
+  notice: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, backgroundColor: Colors.inkPanel },
   ring: {
-    width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault, backgroundColor: Colors.bgElevated,
+    width: 64, height: 64, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.onInkLine,
   },
   title: { marginTop: Spacing.md, textAlign: 'center' },
   text: { marginTop: Spacing['2xs'], textAlign: 'center', maxWidth: 320 },

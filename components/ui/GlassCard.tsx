@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Radius, Shadow, Gradients } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
 
 interface GlassCardProps {
   children: React.ReactNode;
@@ -11,77 +10,51 @@ interface GlassCardProps {
   padding?: number;
 }
 
+/**
+ * v5 panel: a flat white sheet on the paper page, hairline border, square.
+ * (The name is legacy — nothing is glass any more.)
+ *   default / surface  hairline sheet
+ *   elevated           ink top rule — the lead panel of a section
+ *   glow / premium     vermilion top rule — featured or premium content
+ *   violet             quiet paper-wash panel
+ */
 export function GlassCard({
   children,
   variant = 'default',
   style,
-  radius = Radius.xl,
+  radius = 0,
   padding,
 }: GlassCardProps) {
-  const baseStyle: ViewStyle = {
-    borderRadius: radius,
-    overflow: 'hidden' as const,
-    ...VARIANT_STYLES[variant],
-    ...(padding !== undefined ? { padding } : {}),
-    ...style,
-  };
-
-  // Gold-lit variants: a soft wash from the top-left, like a spotlight on a plinth.
-  if (variant === 'glow' || variant === 'premium') {
-    return (
-      <View style={baseStyle}>
-        <LinearGradient
-          colors={Gradients.premiumCard}
-          start={{ x: 0, y: 0 }} end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        {children}
-      </View>
-    );
-  }
-
-  return <View style={baseStyle}>{children}</View>;
+  return (
+    <View
+      style={[
+        styles.base,
+        VARIANT_STYLES[variant],
+        { borderRadius: radius },
+        padding !== undefined ? { padding } : undefined,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
-const hairline = StyleSheet.hairlineWidth;
+const styles = StyleSheet.create({
+  base: {
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    padding: 22,
+    overflow: 'hidden',
+  },
+});
 
 const VARIANT_STYLES: Record<NonNullable<GlassCardProps['variant']>, ViewStyle> = {
-  default: {
-    backgroundColor: Colors.bgCard,
-    borderWidth: hairline,
-    borderColor: Colors.borderDefault,
-    padding: 18,
-  },
-  elevated: {
-    backgroundColor: Colors.bgElevated,
-    borderWidth: hairline,
-    borderColor: Colors.borderDefault,
-    padding: 18,
-    ...Shadow.md,
-  },
-  glow: {
-    backgroundColor: Colors.bgCard,
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-    padding: 18,
-  },
-  premium: {
-    backgroundColor: Colors.bgCard,
-    borderWidth: 1,
-    borderColor: Colors.borderGlow,
-    padding: 18,
-  },
-  violet: {
-    backgroundColor: Colors.bgCard,
-    borderWidth: hairline,
-    borderColor: Colors.borderViolet,
-    padding: 18,
-  },
-  surface: {
-    backgroundColor: Colors.bgCard,
-    borderWidth: hairline,
-    borderColor: Colors.borderSubtle,
-    padding: 18,
-  },
+  default: {},
+  surface: {},
+  elevated: { borderTopWidth: 2, borderTopColor: Colors.ink },
+  glow: { borderTopWidth: 2, borderTopColor: Colors.flame },
+  premium: { borderTopWidth: 2, borderTopColor: Colors.flame },
+  violet: { backgroundColor: Colors.bgSurface },
 };

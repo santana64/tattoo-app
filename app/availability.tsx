@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, StyleSheet, ScrollView, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions,
+  View,
+  StyleSheet,
+  ScrollView,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
+import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { TInput } from '@/components/ui/TInput';
@@ -15,8 +18,13 @@ import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { BottomSheet, PressableScale, enterUp } from '@/components/motion';
+import { BottomSheet } from '@/components/motion';
+import {
+  IconButton, InkPanel, Kicker, Masthead, PageWrap, Rule, SectionHead, TextLink, Toggle,
+} from '@/components/v5';
+import { Panel, StepControl } from '@/components/v5/studio';
 import { useAuthStore } from '@/store/auth-store';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
 import { durationLabel, type BookingSettings } from '@/lib/care';
 import { BookingSettingsSection } from '@/components/booking/BookingSettingsSection';
@@ -84,60 +92,16 @@ const sameWeek = (a: DayHours[], b: DayHours[]) => JSON.stringify(a) === JSON.st
 const haptic = () => { if (Platform.OS !== 'web') Haptics.selectionAsync(); };
 
 // ─── Pieces ───────────────────────────────────────────────────────────────────
-function SectionHead({ kicker, title, intro }: { kicker: string; title: string; intro?: string }) {
-  return (
-    <View style={styles.sectionHead}>
-      <TText variant="label" color="accentWarm" uppercase>{kicker}</TText>
-      <TText variant="title2" serif accessibilityRole="header" style={styles.sectionTitle}>{title}</TText>
-      {!!intro && <TText variant="bodySmall" color="secondary" style={{ marginTop: 4 }}>{intro}</TText>}
-    </View>
-  );
-}
-
-function Switch({ value, onChange, label }: { value: boolean; onChange: (next: boolean) => void; label: string }) {
-  return (
-    <Pressable
-      onPress={() => { haptic(); onChange(!value); }}
-      accessibilityRole="switch"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
-      hitSlop={8}
-      style={[styles.switchTrack, value && styles.switchTrackOn]}
-    >
-      <View style={[styles.switchThumb, value && styles.switchThumbOn]} />
-    </Pressable>
-  );
-}
-
-function StepButton({ icon, label, disabled, onPress }: {
-  icon: 'remove' | 'add'; label: string; disabled: boolean; onPress: () => void;
-}) {
-  return (
-    <PressableScale
-      onPress={() => { if (!disabled) { haptic(); onPress(); } }}
-      disabled={disabled}
-      pressedScale={0.9}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      hitSlop={4}
-      style={[styles.stepBtn, disabled && { opacity: 0.35 }]}
-    >
-      <Ionicons name={icon} size={16} color={Colors.textPrimary} />
-    </PressableScale>
-  );
-}
-
 /** − value + ; also an "adjustable" element for screen readers (swipe up / down). */
-function Stepper({ label, display, spoken, canDec, canInc, onDec, onInc, decLabel, incLabel, wide }: {
+function Stepper({ label, display, spoken, canDec, canInc, onDec, onInc, decLabel, incLabel, wide, onInk = false }: {
   label: string; display: string; spoken: string; canDec: boolean; canInc: boolean;
-  onDec: () => void; onInc: () => void; decLabel: string; incLabel: string; wide?: boolean;
+  onDec: () => void; onInc: () => void; decLabel: string; incLabel: string; wide?: boolean; onInk?: boolean;
 }) {
   return (
     <View style={styles.stepper}>
-      <TText variant="micro" color="tertiary" uppercase>{label}</TText>
+      <TText variant="micro" uppercase style={{ color: onInk ? Colors.onInkMuted : Colors.textSecondary }}>{label}</TText>
       <View style={styles.stepperRow}>
-        <StepButton icon="remove" label={decLabel} disabled={!canDec} onPress={onDec} />
+        <StepControl icon="remove" label={decLabel} disabled={!canDec} onPress={onDec} />
         <View
           accessible
           accessibilityRole="adjustable"
@@ -150,23 +114,33 @@ function Stepper({ label, display, spoken, canDec, canInc, onDec, onInc, decLabe
           }}
           style={[styles.stepValue, wide && styles.stepValueWide]}
         >
-          <TText variant="body" weight="semibold" tabular numberOfLines={1}>{display}</TText>
+          <TText variant="bodySmall" weight="semibold" tabular numberOfLines={1} style={{ color: onInk ? Colors.onInk : Colors.ink }}>
+            {display}
+          </TText>
         </View>
-        <StepButton icon="add" label={incLabel} disabled={!canInc} onPress={onInc} />
+        <StepControl icon="add" label={incLabel} disabled={!canInc} onPress={onInc} />
       </View>
     </View>
   );
 }
 
-function DayRow({ day, draft, onChange, last }: { day: number; draft: DayDraft; onChange: (next: DayDraft) => void; last: boolean }) {
+function DayRow({ day, draft, onChange }: { day: number; draft: DayDraft; onChange: (next: DayDraft) => void }) {
   const name = DAY_NAMES[day];
   const invalid = draft.open ? scheduleError([{ day, opens: draft.opens, closes: draft.closes }]) : null;
   return (
-    <View style={[styles.dayRow, !last && styles.dayRowDivider]}>
+    <View style={styles.dayRow}>
       <View style={styles.dayHead}>
-        <TText variant="body" weight="medium" style={{ flex: 1 }}>{name}</TText>
-        {!draft.open && <TText variant="caption" color="tertiary">Fermé</TText>}
-        <Switch value={draft.open} onChange={(open) => onChange({ ...draft, open })} label={`${name} : ${draft.open ? 'ouvert' : 'fermé'}`} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <TText variant="displayS" style={styles.dayName}>{name}</TText>
+          <TText variant="caption" color="secondary" tabular style={{ marginTop: 2 }}>
+            {draft.open ? `${draft.opens} — ${draft.closes}` : 'Fermé'}
+          </TText>
+        </View>
+        <Toggle
+          value={draft.open}
+          onChange={(open) => { haptic(); onChange({ ...draft, open }); }}
+          label={`${name} : ${draft.open ? 'ouvert' : 'fermé'}`}
+        />
       </View>
       {draft.open && (
         <>
@@ -207,14 +181,25 @@ function DayRow({ day, draft, onChange, last }: { day: number; draft: DayDraft; 
 
 function WeekSkeleton() {
   return (
-    <View style={styles.card}>
+    <View>
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-        <View key={i} style={[styles.dayRow, i < 6 && styles.dayRowDivider, styles.dayHead]}>
-          <TSkeleton width="35%" height={15} />
-          <View style={{ flex: 1 }} />
-          <TSkeleton width={44} height={26} radius={13} />
+        <View key={i} style={[styles.dayRow, styles.dayHead]}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <TSkeleton width="35%" height={20} />
+            <TSkeleton width="25%" height={11} />
+          </View>
+          <TSkeleton width={58} height={30} />
         </View>
       ))}
+    </View>
+  );
+}
+
+function InlineError({ message, onRetry, onInk = false }: { message: string; onRetry: () => void; onInk?: boolean }) {
+  return (
+    <View style={[styles.inlineError, onInk && { borderColor: Colors.onInkLine }]} accessibilityRole="alert">
+      <TText variant="bodySmall" style={{ flex: 1, color: onInk ? Colors.onInkMuted : Colors.textSecondary }}>{message}</TText>
+      <TextLink label="Réessayer" icon="refresh" onPress={onRetry} onInk={onInk} />
     </View>
   );
 }
@@ -223,8 +208,7 @@ function WeekSkeleton() {
 export default function AvailabilityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const wide = width >= 960;
+  const { isWide } = useContentDimensions();
   const { user, isLoading: authLoading } = useAuthStore();
   const artistId = user?.role === 'artist' ? user.artistId : undefined;
 
@@ -316,7 +300,7 @@ export default function AvailabilityScreen() {
       <View style={styles.container}>
         <THeader showBack title="Horaires et disponibilités" />
         {authLoading && !user ? (
-          <View style={styles.page}><WeekSkeleton /></View>
+          <PageWrap style={{ paddingTop: Spacing.xl }}><WeekSkeleton /></PageWrap>
         ) : (
           <EmptyState
             icon="lock-closed-outline"
@@ -390,126 +374,126 @@ export default function AvailabilityScreen() {
 
   // ── Section A ──
   const weekSection = (
-    <Animated.View entering={enterUp(0)} style={styles.section}>
+    <Panel style={styles.section}>
       <SectionHead
-        kicker="Semaine type"
-        title="Vos horaires d’ouverture"
-        intro="Les clients choisissent parmi les créneaux libres de ces plages, hors séances déjà prévues et jours bloqués."
+        kicker="01 / Horaires habituels"
+        title="Votre semaine."
+        description="Les clients choisissent parmi les créneaux libres de ces plages, hors séances déjà prévues et jours bloqués."
+        style={styles.sectionHead}
       />
+      <Rule tone="ink" />
       {weekState === 'loading' || !draft ? (
         weekState === 'error' ? (
-          <View style={styles.inlineError} accessibilityRole="alert">
-            <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>Vos horaires n’ont pas pu être chargés.</TText>
-            <TButton title="Réessayer" variant="secondary" size="sm" fullWidth={false} onPress={() => setWeekAttempt((n) => n + 1)} />
-          </View>
+          <InlineError message="Vos horaires n’ont pas pu être chargés." onRetry={() => setWeekAttempt((n) => n + 1)} />
         ) : <WeekSkeleton />
       ) : (
-        <View style={styles.card}>
-          {WEEK_ORDER.map((d, i) => (
-            <DayRow key={d} day={d} draft={draft[d]} onChange={(next) => updateDay(d, next)} last={i === WEEK_ORDER.length - 1} />
+        <View>
+          {WEEK_ORDER.map((d) => (
+            <DayRow key={d} day={d} draft={draft[d]} onChange={(next) => updateDay(d, next)} />
           ))}
         </View>
       )}
-    </Animated.View>
+    </Panel>
   );
 
   // ── Section B ──
   const blockedSection = (
-    <Animated.View entering={enterUp(2)} style={styles.section}>
+    <InkPanel style={styles.section}>
       <SectionHead
-        kicker="Jours bloqués"
-        title="Congés, conventions"
-        intro="Aucun créneau n’est proposé pendant ces jours."
+        onInk
+        kicker="03 / Jours bloqués"
+        title="Quand l’atelier ferme."
+        description="Congés, conventions, déplacements : aucun créneau n’est proposé pendant ces jours."
+        style={styles.sectionHead}
       />
 
       {blocked === null && !blockedError ? (
         <View style={{ gap: Spacing['2xs'], marginBottom: Spacing.md }}>
-          <TSkeleton height={48} radius={Radius.md} />
-          <TSkeleton height={48} radius={Radius.md} />
+          <TSkeleton height={48} />
+          <TSkeleton height={48} />
         </View>
       ) : blockedError ? (
-        <View style={[styles.inlineError, { marginBottom: Spacing.md }]} accessibilityRole="alert">
-          <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>Les jours bloqués n’ont pas pu être chargés.</TText>
-          <TButton title="Réessayer" variant="secondary" size="sm" fullWidth={false} onPress={() => { void loadBlocked(); }} />
+        <View style={{ marginBottom: Spacing.md }}>
+          <InlineError onInk message="Les jours bloqués n’ont pas pu être chargés." onRetry={() => { void loadBlocked(); }} />
         </View>
       ) : blocked && blocked.length > 0 ? (
-        <View style={[styles.card, { marginBottom: Spacing.md }]}>
-          {blocked.map((p, i) => {
+        <View style={styles.blockedList}>
+          {blocked.map((p) => {
             const range = formatBlockedRange(p);
             return (
-              <View key={p.id} style={[styles.blockedRow, i < blocked.length - 1 && styles.dayRowDivider]}>
-                <Ionicons name="remove-circle-outline" size={18} color={Colors.textTertiary} />
+              <View key={p.id} style={styles.blockedRow}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <TText variant="bodySmall" weight="medium" tabular>{range}</TText>
-                  {!!p.label && <TText variant="caption" color="tertiary" numberOfLines={1}>{p.label}</TText>}
+                  <TText variant="bodySmall" weight="semibold" tabular color="onInk">{range}</TText>
+                  {!!p.label && <TText variant="caption" color="onInkMuted" numberOfLines={1}>{p.label}</TText>}
                 </View>
-                <Pressable
+                <IconButton
+                  icon="trash-outline"
+                  onInk
+                  label={`Supprimer le blocage : ${range}${p.label ? `, ${p.label}` : ''}`}
                   onPress={() => { setRemoveError(null); setToRemove(p); }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Supprimer le blocage : ${range}${p.label ? `, ${p.label}` : ''}`}
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="trash-outline" size={17} color={Colors.textSecondary} />
-                </Pressable>
+                />
               </View>
             );
           })}
         </View>
       ) : (
-        <TText variant="bodySmall" color="tertiary" style={{ marginBottom: Spacing.md }}>Aucun jour bloqué à venir.</TText>
+        <TText variant="bodySmall" color="onInkMuted" style={{ marginBottom: Spacing.md }}>Aucun jour bloqué à venir.</TText>
       )}
 
-      <View style={styles.card}>
-        <View style={styles.blockForm}>
-          <TText variant="bodySmall" weight="semibold">Bloquer une période</TText>
-          <View style={styles.dayTimes}>
-            <Stepper
-              wide
-              label="Du"
-              display={shortDate(blockFrom)}
-              spoken={longDateFmt.format(blockFrom)}
-              canDec={blockFrom > tomorrow}
-              canInc={blockFrom < maxBlockDate}
-              onDec={() => changeFrom(-1)}
-              onInc={() => changeFrom(1)}
-              decLabel="Début : jour précédent"
-              incLabel="Début : jour suivant"
-            />
-            <Stepper
-              wide
-              label="Au"
-              display={shortDate(blockTo)}
-              spoken={longDateFmt.format(blockTo)}
-              canDec={blockTo > blockFrom}
-              canInc={blockTo < maxBlockDate}
-              onDec={() => setBlockTo((d) => addDays(d, -1))}
-              onInc={() => setBlockTo((d) => addDays(d, 1))}
-              decLabel="Fin : jour précédent"
-              incLabel="Fin : jour suivant"
-            />
+      <View style={styles.blockForm}>
+        <Kicker tone="onInk">Bloquer une période</Kicker>
+        <View style={styles.dayTimes}>
+          <Stepper
+            wide
+            onInk
+            label="Du"
+            display={shortDate(blockFrom)}
+            spoken={longDateFmt.format(blockFrom)}
+            canDec={blockFrom > tomorrow}
+            canInc={blockFrom < maxBlockDate}
+            onDec={() => changeFrom(-1)}
+            onInc={() => changeFrom(1)}
+            decLabel="Début : jour précédent"
+            incLabel="Début : jour suivant"
+          />
+          <Stepper
+            wide
+            onInk
+            label="Au"
+            display={shortDate(blockTo)}
+            spoken={longDateFmt.format(blockTo)}
+            canDec={blockTo > blockFrom}
+            canInc={blockTo < maxBlockDate}
+            onDec={() => setBlockTo((d) => addDays(d, -1))}
+            onInc={() => setBlockTo((d) => addDays(d, 1))}
+            decLabel="Fin : jour précédent"
+            incLabel="Fin : jour suivant"
+          />
+        </View>
+        <View>
+          <View style={styles.inkLabelRow}>
+            <TText variant="caption" weight="semibold" color="onInk" style={{ fontSize: 12 }}>Motif</TText>
+            <TText variant="caption" color="onInkMuted">Optionnel</TText>
           </View>
           <TInput
-            label="Motif"
-            optional
+            accessibilityLabel="Motif"
             value={blockLabel}
             onChangeText={setBlockLabel}
             placeholder="Convention, congés…"
             maxLength={80}
             containerStyle={{ marginBottom: 0 }}
           />
-          <TButton
-            title="Bloquer ces jours"
-            variant="secondary"
-            size="md"
-            loading={blocking}
-            onPress={block}
-            accessibilityLabel={`Bloquer ${blockDayCount} jour${blockDayCount > 1 ? 's' : ''}, ${longDateFmt.format(blockFrom)}${blockDayCount > 1 ? ` au ${longDateFmt.format(blockTo)}` : ''}`}
-            icon={<Ionicons name="close-circle-outline" size={16} color={Colors.textPrimary} />}
-          />
         </View>
+        <TButton
+          title="Bloquer ces jours"
+          variant="glass"
+          size="md"
+          loading={blocking}
+          onPress={block}
+          accessibilityLabel={`Bloquer ${blockDayCount} jour${blockDayCount > 1 ? 's' : ''}, ${longDateFmt.format(blockFrom)}${blockDayCount > 1 ? ` au ${longDateFmt.format(blockTo)}` : ''}`}
+        />
       </View>
-    </Animated.View>
+    </InkPanel>
   );
 
   // ── Section C ──
@@ -524,40 +508,35 @@ export default function AvailabilityScreen() {
       : null;
 
   const previewSection = (
-    <Animated.View entering={enterUp(3)} style={styles.section}>
-      <SectionHead kicker="Aperçu" title="Ce que voient les clients" />
+    <Panel style={styles.section}>
+      <SectionHead kicker="04 / Aperçu" title="Ce que voient les clients." style={styles.sectionHead} />
       <View style={styles.preview} accessibilityLiveRegion="polite">
-        <Ionicons name="eye-outline" size={18} color={Colors.accentWarm} />
-        <View style={{ flex: 1, gap: 6 }}>
-          {previewError ? (
-            <>
-              <TText variant="bodySmall" color="secondary">L’aperçu n’a pas pu être calculé.</TText>
-              <Pressable onPress={() => { void loadPreview(); }} accessibilityRole="button" hitSlop={8} style={{ alignSelf: 'flex-start' }}>
-                <TText variant="caption" color="accentWarm" style={{ textDecorationLine: 'underline' }}>Réessayer</TText>
-              </Pressable>
-            </>
-          ) : freeCount === null ? (
-            <TSkeleton width="80%" height={14} />
-          ) : countLabel === null ? (
-            <TText variant="bodySmall" color="secondary">
-              Sur les {PREVIEW_DAYS} prochains jours, aucun créneau libre de {sessionLength} n’est visible pour les clients.
-            </TText>
-          ) : (
-            <TText variant="bodySmall" color="secondary">
-              Sur les {PREVIEW_DAYS} prochains jours, les clients voient{' '}
-              <TText variant="bodySmall" weight="semibold" tabular>{countLabel}</TText>
-              {' '}de {sessionLength}.
-            </TText>
-          )}
-          {!!pausedCopy && (
-            <TText variant="caption" color="warning">{pausedCopy}</TText>
-          )}
-          {dirty && (
-            <TText variant="caption" color="tertiary">Enregistrez vos horaires pour mettre l’aperçu à jour.</TText>
-          )}
-        </View>
+        {previewError ? (
+          <>
+            <TText variant="bodySmall" color="secondary">L’aperçu n’a pas pu être calculé.</TText>
+            <TextLink label="Réessayer" icon="refresh" onPress={() => { void loadPreview(); }} style={{ alignSelf: 'flex-start' }} />
+          </>
+        ) : freeCount === null ? (
+          <TSkeleton width="80%" height={14} />
+        ) : countLabel === null ? (
+          <TText variant="bodySmall" color="secondary">
+            Sur les {PREVIEW_DAYS} prochains jours, aucun créneau libre de {sessionLength} n’est visible pour les clients.
+          </TText>
+        ) : (
+          <TText variant="bodySmall" color="secondary">
+            Sur les {PREVIEW_DAYS} prochains jours, les clients voient{' '}
+            <TText variant="bodySmall" weight="semibold" tabular>{countLabel}</TText>
+            {' '}de {sessionLength}.
+          </TText>
+        )}
+        {!!pausedCopy && (
+          <TText variant="caption" color="warning">{pausedCopy}</TText>
+        )}
+        {dirty && (
+          <TText variant="caption" color="tertiary">Enregistrez vos horaires pour mettre l’aperçu à jour.</TText>
+        )}
       </View>
-    </Animated.View>
+    </Panel>
   );
 
   const settingsSection = <BookingSettingsSection artistId={artistId} onSettings={handleSettings} index={1} />;
@@ -570,38 +549,39 @@ export default function AvailabilityScreen() {
       <THeader showBack title="Horaires et disponibilités" />
 
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingBottom: insets.bottom + (showBar ? 140 : Spacing['2xl']) }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + (showBar ? 150 : Spacing['2xl']) }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.intro}>
-          <TText variant="displayM" accessibilityRole="header">
-            Vos créneaux, <TText variant="displayM" italic color="accentGlow">réservables</TText>
-          </TText>
-          <TText variant="bodySmall" color="secondary" style={{ marginTop: Spacing['2xs'], maxWidth: Layout.maxReading }}>
-            Publiez vos horaires : vos clients choisissent jusqu’à trois créneaux libres dans leur demande, et vous confirmez l’un d’eux en un geste.
-          </TText>
-        </View>
+        <PageWrap>
+          <Masthead
+            kicker="Réservation / Maîtrise du temps"
+            title="Ouvrir du temps."
+            emphasis="Garder de l’air."
+            breakEmphasis
+            description="Publiez vos horaires : vos clients choisissent jusqu’à trois créneaux libres dans leur demande, et vous confirmez l’un d’eux en un geste."
+          />
 
-        {wide ? (
-          <View style={styles.columns}>
-            <View style={styles.column}>
-              {weekSection}
-              {previewSection}
+          {isWide ? (
+            <View style={styles.columns}>
+              <View style={styles.column}>
+                {weekSection}
+                {previewSection}
+              </View>
+              <View style={styles.column}>
+                {settingsSection}
+                {blockedSection}
+              </View>
             </View>
-            <View style={styles.column}>
+          ) : (
+            <View style={styles.stack}>
+              {weekSection}
               {settingsSection}
               {blockedSection}
+              {previewSection}
             </View>
-          </View>
-        ) : (
-          <>
-            {weekSection}
-            {settingsSection}
-            {blockedSection}
-            {previewSection}
-          </>
-        )}
+          )}
+        </PageWrap>
       </ScrollView>
 
       {showBar && (
@@ -609,8 +589,8 @@ export default function AvailabilityScreen() {
           <View style={styles.barInner}>
             {!!barMessage && (
               <View style={styles.errorRow} accessibilityRole="alert" accessibilityLiveRegion="assertive">
-                <Ionicons name="alert-circle-outline" size={16} color={Colors.errorLight} />
-                <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{barMessage}</TText>
+                <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
+                <TText variant="caption" color="error" style={{ flex: 1 }}>{barMessage}</TText>
               </View>
             )}
             <TButton
@@ -631,7 +611,7 @@ export default function AvailabilityScreen() {
           Vos créneaux libres seront de nouveau proposés aux clients.
         </TText>
         {!!removeError && (
-          <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{removeError}</TText>
+          <TText variant="caption" color="error" style={{ marginTop: Spacing.xs }} accessibilityRole="alert">{removeError}</TText>
         )}
         <View style={styles.sheetActions}>
           <TButton title="Supprimer le blocage" variant="destructive" onPress={confirmRemove} loading={removing} />
@@ -644,69 +624,41 @@ export default function AvailabilityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
-  page: {
-    width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter,
-  },
-  intro: { paddingTop: Spacing.lg, paddingBottom: Spacing.sm },
-  columns: { flexDirection: 'row', gap: Spacing['2xl'], alignItems: 'flex-start' },
-  column: { flex: 1, minWidth: 0 },
+  columns: { flexDirection: 'row', gap: 17, alignItems: 'flex-start' },
+  column: { flex: 1, minWidth: 0, gap: 17 },
+  stack: { gap: Spacing.md },
 
-  section: { paddingTop: Spacing.lg },
-  sectionHead: { marginBottom: Spacing.sm },
-  sectionTitle: { fontSize: 24, lineHeight: 28, marginTop: 4 },
+  section: {},
+  sectionHead: { marginBottom: Spacing.md },
 
-  card: {
-    borderRadius: Radius.xl, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    backgroundColor: Colors.bgElevated, paddingHorizontal: Spacing.sm,
-  },
-  dayRow: { paddingVertical: Spacing.xs },
-  dayRowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle },
-  dayHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, minHeight: 36 },
-  dayTimes: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, marginTop: Spacing['2xs'] },
-
-  switchTrack: {
-    width: 44, height: 26, borderRadius: 13, padding: 3,
-    backgroundColor: Colors.bgSubtle, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-    justifyContent: 'center',
-    ...(Platform.OS === 'web' ? { cursor: 'pointer' } as object : null),
-  },
-  switchTrackOn: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
-  switchThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.textTertiary },
-  switchThumbOn: { backgroundColor: Colors.textInverse, transform: [{ translateX: 18 }] },
+  dayRow: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.line },
+  dayHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  dayName: { fontSize: 25, lineHeight: 28, letterSpacing: -0.4 },
+  dayTimes: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.lg, rowGap: Spacing.sm, marginTop: Spacing.sm },
 
   stepper: { gap: 6 },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  stepBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
   stepValue: { minWidth: 60, alignItems: 'center' },
   stepValueWide: { minWidth: 112 },
 
-  blockedRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingVertical: Spacing.xs },
-  iconBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
+  blockedList: { marginBottom: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.onInkLine },
+  blockedRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingVertical: Spacing.xs,
+    borderTopWidth: 1, borderTopColor: Colors.onInkLine,
   },
-  blockForm: { paddingVertical: Spacing.sm, gap: Spacing.sm },
+  blockForm: { gap: Spacing.md },
+  inkLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
 
-  preview: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs,
-    padding: Spacing.sm, borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
-  },
+  preview: { gap: 8, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.ink },
   inlineError: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    padding: Spacing.sm, borderRadius: Radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.xs,
+    paddingVertical: Spacing.sm, borderBottomWidth: 1, borderColor: Colors.line,
   },
 
   bar: {
     paddingTop: 12, paddingHorizontal: Layout.gutter,
-    backgroundColor: 'rgba(11,10,9,0.96)',
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    backgroundColor: Colors.paper,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
   barInner: { width: '100%', maxWidth: Layout.maxReading, alignSelf: 'center', gap: Spacing['2xs'] },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

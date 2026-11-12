@@ -37,14 +37,14 @@ export function TSkeleton({ width = '100%', height = 16, radius = Radius.sm, sty
   return (
     <View
       onLayout={(e) => setW(e.nativeEvent.layout.width)}
-      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgElevated, overflow: 'hidden' }, style]}
+      style={[{ width, height, borderRadius: radius, backgroundColor: Colors.bgSubtle, overflow: 'hidden' }, style]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
       {!reduced && w > 0 && (
         <Animated.View style={[StyleSheet.absoluteFill, bandStyle]}>
           <LinearGradient
-            colors={['rgba(244,239,230,0)', 'rgba(244,239,230,0.055)', 'rgba(244,239,230,0)']}
+            colors={['rgba(255,253,249,0)', 'rgba(255,253,249,0.55)', 'rgba(255,253,249,0)']}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={StyleSheet.absoluteFill}
@@ -61,7 +61,7 @@ export function PostCardSkeleton() {
     <View style={skStyles.card}>
       <TSkeleton height={360} radius={Radius.xl} />
       <View style={skStyles.footer}>
-        <TSkeleton width={36} height={36} radius={18} />
+        <TSkeleton width={36} height={36} radius={0} />
         <View style={{ flex: 1, marginLeft: 10, gap: 6 }}>
           <TSkeleton width="60%" height={12} />
           <TSkeleton width="40%" height={10} />
@@ -76,7 +76,7 @@ export function ArtistCardSkeleton() {
     <View style={skStyles.artistCard}>
       <TSkeleton height={232} radius={Radius.xl} />
       <View style={skStyles.artistFooter}>
-        <TSkeleton width={44} height={44} radius={22} />
+        <TSkeleton width={44} height={44} radius={0} />
         <View style={{ flex: 1, marginLeft: 10, gap: 6 }}>
           <TSkeleton width="50%" height={12} />
           <TSkeleton width="35%" height={10} />
@@ -90,7 +90,7 @@ export function RequestCardSkeleton() {
   return (
     <View style={skStyles.requestCard}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <TSkeleton width={44} height={44} radius={22} />
+        <TSkeleton width={44} height={44} radius={0} />
         <View style={{ flex: 1, gap: 6 }}>
           <TSkeleton width="55%" height={12} />
           <TSkeleton width="80%" height={10} />

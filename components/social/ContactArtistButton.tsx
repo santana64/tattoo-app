@@ -1,22 +1,30 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { Colors, Radius } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
-import { PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import { ContactArtistSheet } from './ContactArtistSheet';
 
 interface ContactArtistButtonProps {
   artistId: string;
   artistName: string;
-  /** "icon": a round 42 px button; "button": an outlined "Écrire" button (default). */
+  /** "icon": a square 44 px control; "button": an outlined "Écrire" button (default). */
   variant?: 'icon' | 'button';
+  /** On an ink panel: paper hairline and label. */
+  onInk?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
+type Interaction = { pressed: boolean; hovered?: boolean };
+
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '200ms' } as object)
+  : null;
+
 /** "Écrire" to an artist without a project. Hidden on the artist's own page. */
-export function ContactArtistButton({ artistId, artistName, variant = 'button' }: ContactArtistButtonProps) {
+export function ContactArtistButton({ artistId, artistName, variant = 'button', onInk = false, style }: ContactArtistButtonProps) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
@@ -33,26 +41,45 @@ export function ContactArtistButton({ artistId, artistName, variant = 'button' }
 
   if (user?.artistId && user.artistId === artistId) return null;
 
+  const icon = variant === 'icon';
+  const rest = onInk ? Colors.onInk : Colors.ink;
+  const border = icon
+    ? (onInk ? Colors.onInkLine : Colors.line)
+    : (onInk ? Colors.onInk : Colors.ink);
+
   return (
     <>
-      <PressableScale
+      <Pressable
         onPress={handlePress}
         accessibilityRole="button"
         accessibilityLabel={`Écrire à ${artistName}`}
         accessibilityHint="Posez une question sans envoyer de projet."
-        hitSlop={variant === 'icon' ? 4 : 2}
-        pressedScale={variant === 'icon' ? 0.92 : 0.97}
-        style={variant === 'icon' ? styles.icon : styles.button}
+        style={(state) => {
+          const { hovered, pressed } = state as Interaction;
+          return [
+            icon ? styles.icon : styles.button,
+            { borderColor: border },
+            webPointer,
+            (hovered || pressed) && styles.lit,
+            style,
+          ];
+        }}
       >
-        {variant === 'icon' ? (
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.textPrimary} />
-        ) : (
-          <View style={styles.inner}>
-            <Ionicons name="chatbubble-ellipses-outline" size={15} color={Colors.textPrimary} />
-            <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={styles.label}>Écrire</TText>
-          </View>
-        )}
-      </PressableScale>
+        {(state) => {
+          const { hovered, pressed } = state as Interaction;
+          const color = hovered || pressed ? '#FFFFFF' : rest;
+          return icon ? (
+            <Ionicons name="chatbubble-outline" size={18} color={color} />
+          ) : (
+            <View style={styles.inner}>
+              <Ionicons name="chatbubble-outline" size={15} color={color} />
+              <TText variant="label" weight="bold" uppercase numberOfLines={1} style={[styles.label, { color }]}>
+                Écrire
+              </TText>
+            </View>
+          );
+        }}
+      </Pressable>
       {!!user && (
         <ContactArtistSheet visible={open} onClose={close} artistId={artistId} artistName={artistName} />
       )}
@@ -61,16 +88,12 @@ export function ContactArtistButton({ artistId, artistName, variant = 'button' }
 }
 
 const styles = StyleSheet.create({
-  icon: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
+  icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   button: {
-    height: 42, minWidth: 104, paddingHorizontal: 16,
-    borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderDefault,
-    alignItems: 'center', justifyContent: 'center',
+    minHeight: 46, minWidth: 112, paddingHorizontal: 18,
+    borderWidth: 1, alignItems: 'center', justifyContent: 'center',
   },
-  inner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  label: { fontSize: 14, letterSpacing: -0.1 },
+  lit: { backgroundColor: Colors.flame, borderColor: Colors.flame },
+  inner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  label: { fontSize: 11, letterSpacing: 0.8, lineHeight: 16 },
 });

@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  View, StyleSheet, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform,
-  ActivityIndicator, useWindowDimensions,
-  type NativeSyntheticEvent, type TextInputKeyPressEventData,
+  View,
+  StyleSheet,
+  TextInput,
+  Pressable,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from 'react-native';
+import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -16,12 +24,13 @@ import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { differenceInMinutes } from 'date-fns/differenceInMinutes';
 import { fr } from 'date-fns/locale/fr';
-import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
+import { Colors, Spacing, FontSize, Fonts } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { GlassSurface, RevealImage, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
+import { IconButton, Kicker, TextLink } from '@/components/v5';
+import { RevealImage, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
 import { INQUIRY_LABEL, RequestStatusLine, formatBudget, projectTypeLabel } from '@/components/RequestCard';
 import { useMessageStore, Message } from '@/store/message-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
@@ -29,7 +38,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { pickImage, uploadFile } from '@/lib/storage';
 import { AppointmentPanel } from '@/components/AppointmentPanel';
 
-const THREAD_MAX = 720;
+const THREAD_MAX = 760;
 const MAX_LENGTH = 1000;
 const GROUP_WINDOW_MIN = 5;
 
@@ -38,6 +47,8 @@ const bubbleEnter = FadeInDown.duration(200)
   .easing(EASE_OUT)
   .reduceMotion(ReduceMotion.System);
 const rowLayout = LinearTransition.duration(200).easing(EASE_IN_OUT).reduceMotion(ReduceMotion.System);
+
+type Hover = { pressed: boolean; hovered?: boolean };
 
 interface Row {
   msg: Message;
@@ -78,7 +89,7 @@ function DaySeparator({ label }: { label: string }) {
   return (
     <View style={styles.daySep} accessibilityRole="header">
       <View style={styles.daySepLine} />
-      <TText variant="caption" color="tertiary" style={{ textTransform: 'capitalize' }}>{label}</TText>
+      <Kicker tone="muted">{label}</Kicker>
       <View style={styles.daySepLine} />
     </View>
   );
@@ -97,25 +108,20 @@ function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; max
     );
   }
 
-  // Sender-side corners tighten inside a group; the first bubble keeps a soft top corner.
-  const corner = isMe
-    ? { borderTopRightRadius: firstInGroup ? 18 : 6, borderBottomRightRadius: 6 }
-    : { borderTopLeftRadius: firstInGroup ? 18 : 6, borderBottomLeftRadius: 6 };
-
   return (
     <Animated.View
       entering={animate ? bubbleEnter : undefined}
-      style={[styles.bubbleRow, isMe ? styles.rowMe : styles.rowThem, { marginTop: firstInGroup ? 10 : 2 }]}
+      style={[isMe ? styles.rowMe : styles.rowThem, { marginTop: firstInGroup ? 12 : 3 }]}
     >
       {msg.messageType === 'image' ? (
         <RevealImage
           uri={msg.content}
-          style={[styles.imageBubble, corner, msg.pending && styles.pending]}
+          style={[styles.imageBubble, !isMe && styles.imageThem, msg.pending && styles.pending]}
           accessibilityLabel={isMe ? 'Image envoyée' : 'Image reçue'}
         />
       ) : (
-        <View style={[styles.bubble, { maxWidth }, isMe ? styles.bubbleMe : styles.bubbleThem, corner, msg.pending && styles.pending]}>
-          <TText variant="body" style={{ color: isMe ? Colors.textInverse : Colors.textPrimary, fontSize: 15, lineHeight: 22 }} selectable>
+        <View style={[styles.bubble, { maxWidth }, isMe ? styles.bubbleMe : styles.bubbleThem, msg.pending && styles.pending]}>
+          <TText variant="body" style={{ color: isMe ? Colors.onInk : Colors.ink, fontSize: 15, lineHeight: 23 }} selectable>
             {msg.content}
           </TText>
         </View>
@@ -124,8 +130,8 @@ function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; max
         <View style={[styles.meta, isMe ? { justifyContent: 'flex-end' } : null]}>
           {msg.failed ? (
             <View style={styles.metaFailed} accessibilityRole="alert">
-              <Ionicons name="alert-circle-outline" size={12} color={Colors.errorLight} />
-              <TText variant="micro" style={{ color: Colors.errorLight }}>Non envoyé</TText>
+              <Ionicons name="alert-circle-outline" size={12} color={Colors.error} />
+              <TText variant="micro" style={{ color: Colors.error }}>Non envoyé</TText>
             </View>
           ) : msg.pending ? (
             <TText variant="micro" color="tertiary">Envoi…</TText>
@@ -143,7 +149,7 @@ function ThreadSkeleton() {
     <View style={{ gap: 10, paddingTop: Spacing.md }} accessibilityLabel="Chargement des messages">
       {[160, 220, 120, 240, 180].map((w, i) => (
         <View key={i} style={{ alignItems: i % 2 ? 'flex-end' : 'flex-start' }}>
-          <TSkeleton width={w} height={i === 3 ? 58 : 38} radius={16} />
+          <TSkeleton width={w} height={i === 3 ? 58 : 40} />
         </View>
       ))}
     </View>
@@ -155,7 +161,7 @@ export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, gutter } = useContentDimensions();
   const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const {
@@ -278,45 +284,29 @@ export default function ConversationScreen() {
       keyboardVerticalOffset={0}
     >
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingHorizontal: gutter }]}>
         <View style={styles.headerInner}>
-          <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Retour" hitSlop={6} style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}>
-            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-          </Pressable>
+          <IconButton icon="arrow-back" label="Retour" onPress={goBack} />
           <View style={styles.headerCenter}>
-            <TText variant="title2" serif numberOfLines={1} style={{ fontSize: 20, lineHeight: 24 }} accessibilityRole="header">
+            <TText variant="displayS" numberOfLines={1} style={styles.headerName} accessibilityRole="header">
               {counterpart || 'Conversation'}
             </TText>
             {!!summary && <TText variant="caption" color="tertiary" numberOfLines={1} tabular>{summary}</TText>}
           </View>
-          <Pressable
-            onPress={() => router.push(`/request/${id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={detailsLabel}
-            hitSlop={6}
-            style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="document-text-outline" size={18} color={Colors.textPrimary} />
-          </Pressable>
+          <IconButton icon="document-text-outline" label={detailsLabel} onPress={() => router.push(`/request/${id}`)} />
         </View>
         {request && (
           <View style={styles.contextRow}>
             <RequestStatusLine status={request.status} viewAs={isArtist ? 'artist' : 'client'} inquiry={inquiry} />
             <View style={styles.contextLinks}>
               {inquiry && !isArtist && (
-                <Pressable
+                <TextLink
+                  label="Transformer en projet"
                   onPress={() => router.push(`/request/new?artistId=${request.artistId}`)}
-                  accessibilityRole="link"
                   accessibilityLabel={`Transformer en projet : décrire un projet à ${counterpart || 'l’artiste'}`}
-                  hitSlop={8}
-                  style={styles.contextLink}
-                >
-                  <TText variant="caption" weight="medium" color="accentWarm">Transformer en projet</TText>
-                </Pressable>
+                />
               )}
-              <Pressable onPress={() => router.push(`/request/${id}`)} accessibilityRole="link" hitSlop={8} style={styles.contextLink}>
-                <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>{detailsLabel}</TText>
-              </Pressable>
+              <TextLink label={detailsLabel} onPress={() => router.push(`/request/${id}`)} />
             </View>
           </View>
         )}
@@ -342,7 +332,7 @@ export default function ConversationScreen() {
         renderItem={renderRow}
         itemLayoutAnimation={reduced ? undefined : rowLayout}
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.list, rows.length === 0 && { flexGrow: 1 }]}
+        contentContainerStyle={[styles.list, { paddingHorizontal: gutter }, rows.length === 0 && { flexGrow: 1 }]}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
@@ -366,8 +356,8 @@ export default function ConversationScreen() {
         }
       />
 
-      {/* ── Composer ── */}
-      <GlassSurface style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
+      {/* ── Composer: a ruled bar, square controls ── */}
+      <View style={[styles.composer, { paddingBottom: insets.bottom + 10, paddingHorizontal: gutter }]}>
         <View style={styles.composerInner}>
           <Pressable
             onPress={handleImageSend}
@@ -375,12 +365,11 @@ export default function ConversationScreen() {
             accessibilityRole="button"
             accessibilityLabel="Envoyer une image"
             accessibilityState={{ disabled: isUploading, busy: isUploading }}
-            hitSlop={4}
-            style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
+            style={(state) => [styles.squareBtn, styles.attachBtn, ((state as Hover).hovered || state.pressed) && !isUploading && styles.attachActive]}
           >
             {isUploading
               ? <ActivityIndicator size="small" color={Colors.textSecondary} />
-              : <Ionicons name="image-outline" size={20} color={Colors.textSecondary} />}
+              : <Ionicons name="image-outline" size={20} color={Colors.ink} />}
           </Pressable>
 
           <View style={[styles.inputWrap, focused && styles.inputWrapFocused]}>
@@ -393,7 +382,7 @@ export default function ConversationScreen() {
               onBlur={() => setFocused(false)}
               placeholder={counterpart ? `Écrire à ${counterpart}` : 'Écrire un message'}
               placeholderTextColor={Colors.textTertiary}
-              selectionColor={Colors.accentWarm}
+              selectionColor={Colors.flame}
               multiline
               maxLength={MAX_LENGTH}
               accessibilityLabel="Message"
@@ -406,104 +395,107 @@ export default function ConversationScreen() {
             accessibilityRole="button"
             accessibilityLabel="Envoyer le message"
             accessibilityState={{ disabled: !canSend, busy: isSending }}
-            style={({ pressed }) => [styles.sendBtn, !canSend && styles.sendBtnDisabled, pressed && canSend && { opacity: 0.85 }]}
+            style={(state) => [
+              styles.squareBtn,
+              styles.sendBtn,
+              ((state as Hover).hovered || state.pressed) && canSend && styles.sendActive,
+              !canSend && styles.sendBtnDisabled,
+            ]}
           >
             {isSending
-              ? <ActivityIndicator size="small" color={Colors.textInverse} />
-              : <Ionicons name="arrow-up" size={18} color={Colors.textInverse} />}
+              ? <ActivityIndicator size="small" color={Colors.paper} />
+              : <Ionicons name="arrow-up" size={18} color={Colors.paper} />}
           </Pressable>
         </View>
         {text.length > MAX_LENGTH - 100 && (
           <TText variant="micro" color="tertiary" tabular style={styles.counter}>{text.length} / {MAX_LENGTH}</TText>
         )}
-      </GlassSurface>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+const webPointer = Platform.OS === 'web'
+  ? ({ cursor: 'pointer', transitionProperty: 'background-color, border-color', transitionDuration: '180ms' } as object)
+  : null;
+
 const styles = StyleSheet.create({
-  appointmentSlot: { marginTop: 10 },
+  appointmentSlot: { marginTop: 10, width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center' },
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
 
   header: {
-    paddingHorizontal: Spacing.sm,
-    paddingTop: 6,
-    paddingBottom: Spacing['2xs'],
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.borderSubtle,
+    paddingTop: 8,
+    paddingBottom: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.line,
   },
   headerInner: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    width: '100%', maxWidth: THREAD_MAX + Layout.gutter * 2, alignSelf: 'center',
-  },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  roundBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
-  contextRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
-    paddingTop: Spacing['2xs'], paddingHorizontal: 4,
   },
-  contextLinks: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  contextLink: { minHeight: 28, justifyContent: 'center' },
+  headerCenter: { flex: 1, minWidth: 0, alignItems: 'center' },
+  headerName: { fontSize: 24, lineHeight: 26, letterSpacing: -0.4 },
+  contextRow: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
+    columnGap: Spacing.sm, rowGap: 4,
+    width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
+    paddingTop: Spacing['2xs'],
+  },
+  contextLinks: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: Spacing.md },
 
   list: {
-    width: '100%', maxWidth: THREAD_MAX + Layout.gutter * 2, alignSelf: 'center',
-    paddingHorizontal: Layout.gutter, paddingTop: Spacing.xs, paddingBottom: Spacing.md,
+    width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
+    paddingTop: Spacing.xs, paddingBottom: Spacing.md,
   },
 
   daySep: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: Spacing.lg, marginBottom: Spacing['2xs'] },
-  daySepLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderDefault },
+  daySepLine: { flex: 1, height: 1, backgroundColor: Colors.line },
 
   systemMsg: { alignItems: 'center', marginVertical: Spacing.sm, paddingHorizontal: Spacing.lg },
 
-  bubbleRow: {},
   rowMe: { alignItems: 'flex-end' },
   rowThem: { alignItems: 'flex-start' },
-  bubble: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9 },
-  bubbleMe: { backgroundColor: Colors.accentAction },
-  bubbleThem: {
-    backgroundColor: Colors.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
-  },
+  bubble: { paddingHorizontal: 16, paddingVertical: 11 },
+  bubbleMe: { backgroundColor: Colors.inkPanel },
+  bubbleThem: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.line },
   pending: { opacity: 0.55 },
-  imageBubble: { width: 220, height: 220, borderRadius: 18 },
-  meta: { flexDirection: 'row', alignItems: 'center', marginTop: 4, paddingHorizontal: 4 },
+  imageBubble: { width: 220, height: 220 },
+  imageThem: { borderWidth: 1, borderColor: Colors.line },
+  meta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   metaFailed: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   composer: {
-    paddingTop: 10, paddingHorizontal: Layout.gutter,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
+    paddingTop: 10,
+    backgroundColor: Colors.paper,
+    borderTopWidth: 1, borderTopColor: Colors.ink,
   },
   composerInner: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing['2xs'],
     width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
   },
-  attachBtn: {
-    width: 44, height: 44, borderRadius: 22,
+  squareBtn: {
+    width: 46, height: 46,
     alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+    ...webPointer,
   },
+  attachBtn: { borderColor: Colors.line, backgroundColor: 'transparent' },
+  attachActive: { backgroundColor: Colors.wash, borderColor: Colors.ink },
   inputWrap: {
-    flex: 1, minHeight: 44, justifyContent: 'center',
-    backgroundColor: Colors.bgElevated, borderRadius: Radius.xl,
-    borderWidth: 1, borderColor: Colors.borderDefault,
+    flex: 1, minHeight: 46, justifyContent: 'center',
+    backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.line,
     paddingHorizontal: 14,
   },
-  inputWrapFocused: { borderColor: Colors.borderFocus },
+  inputWrapFocused: { borderColor: Colors.ink },
   input: {
-    maxHeight: 140, paddingVertical: Platform.OS === 'ios' ? 11 : 8,
-    color: Colors.textPrimary, fontFamily: Fonts.sans, fontSize: FontSize.body,
+    maxHeight: 140, paddingVertical: Platform.OS === 'ios' ? 12 : 9,
+    color: Colors.ink, fontFamily: Fonts.sans, fontSize: FontSize.body,
     ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null),
   },
-  sendBtn: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.accentAction,
-  },
+  sendBtn: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  sendActive: { backgroundColor: Colors.flame, borderColor: Colors.flame },
   sendBtnDisabled: { opacity: 0.38 },
   counter: { textAlign: 'right', width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center', marginTop: 4 },
 });
