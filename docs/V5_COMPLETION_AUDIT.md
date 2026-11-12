@@ -10,6 +10,8 @@ Une session Chromium locale a rendu `/explore` à 360, 390, 768, 1024 et 1440 px
 
 Inspection **en lecture seule** du projet Supabase connecté `inkr` : il est actif et expose les tables principales du produit, mais son historique contient neuf migrations (`001` à `009`) aux noms différents de ceux du dépôt (`001_initial` à `012_booking_care`). `search_artists` y existe, `artist_portfolio_previews` n'y existe pas. Le bucket `request-references` est privé et limité à 10 Mio, mais `allowed_mime_types` vaut `NULL`, contrairement à la migration locale. L'écart exige une réconciliation de schéma avant tout déploiement ; aucune requête d'écriture n'a été envoyée à ce projet. Les conseillers de sécurité Supabase signalent aussi des fonctions à `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; leur caractère intentionnel reste à examiner ([guide Supabase](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable)).
 
+Une seconde exportation locale avec la clé **publiable** du projet actif a permis de tester uniquement les lectures publiques : `/explore` a affiché un artiste réel ; la navigation vers son profil a affiché son nom, ses spécialités, son statut et « Demander un projet » dans la première hauteur à 390 px, sans débordement ; le bouton a ouvert `/sign-in` avec un paramètre `next` pointant vers le brief de cet artiste. Le profil a aussi été capturé à 1440 px (`/workspace/shared/inkr-live-artist-*.png`). Le RPC d'aperçus répond 404 tant que la migration n'est pas déployée ; la carte reste affichée grâce au repli. Une ouverture directe du profil a produit une erreur React d'hydratation `#418` en console avant de se rendre normalement : défaut de rendu à diagnostiquer. La base publique ne contient qu'un artiste visible au moment du test ; elle ne peut pas prouver l'équilibrage multiartiste.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -20,7 +22,7 @@ Inspection **en lecture seule** du projet Supabase connecté `inkr` : il est act
 | Route | Rôle prévu | Fonction et composants principaux | V5 | États chargement / vide / erreur / succès | Navigation / action, accessibilité et formats | Classement |
 |---|---|---|---|---|---|---|
 | `/(auth)/welcome` | public | entrée galerie, Stage | P | ? | NV | NOT VERIFIED |
-| `/(auth)/sign-in` | public | connexion, Auth | P | ? | NV | NOT VERIFIED |
+| `/(auth)/sign-in` | public | connexion, Auth | P, V | formulaire visible ; envoi NV | retour depuis le profil vérifié à 390 px | PARTIAL |
 | `/(auth)/role-select` | compte | rôle client/artiste | P | ? | NV | NOT VERIFIED |
 | `/auth/callback` | public | retour OAuth | P | ? | NV | NOT VERIFIED |
 | `/(onboarding)/client/step1` | client | identité | P | ? | NV | NOT VERIFIED |
@@ -33,7 +35,7 @@ Inspection **en lecture seule** du projet Supabase connecté `inkr` : il est act
 | `/(onboarding)/artist/step5` | artiste | formule et fin | P | succès serveur corrigé ; autres NV | NV | PARTIAL |
 | `/(tabs)/index` | public | fil et abonnements | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/explore` | public | recherche RPC, ArtistCard, filtres | P, V | E ; chargement/vides NV | largeurs 360–1440, autres NV | PARTIAL |
-| `/artist/[id]` | public | profil, portfolio, réservation | P | C, autres NV | CTA mobile à mesurer avec données ; NV | NOT VERIFIED |
+| `/artist/[id]` | public | profil, portfolio, réservation | P, V | chargé avec données publiques ; autres NV | CTA visible à 390 px ; hydratation à diagnostiquer | PARTIAL |
 | `/post/[id]` | public | œuvre | P | ? | NV | NOT VERIFIED |
 | `/reels/[id]` | public | vidéo | P | ? | NV | NOT VERIFIED |
 | `/series/[id]` | public | série | P | ? | NV | NOT VERIFIED |
@@ -76,6 +78,7 @@ Inspection **en lecture seule** du projet Supabase connecté `inkr` : il est act
 4. **P2 — Studio** : les chiffres précédaient les demandes à traiter. Ordre et hauteur de titre ajustés ; validation avec un compte artiste chargé encore requise.
 5. **P2 — Actions factices** : lien App Store `id000000000` et commande photo ouvrant seulement une alerte retirés. Il reste à concevoir une vraie modification de photo.
 6. **P1 — Écart de schéma connecté** : l'historique du projet actif et le dépôt ne concordent pas. Ne pas appliquer aveuglément les migrations du dépôt au projet actif.
+7. **P2 — Hydratation du profil** : ouverture directe d'un profil réel : erreur React `#418` puis rendu normal. Vérifier la différence entre HTML statique et état client avant publication.
 
 ## Validation restante avant de qualifier la V5 de complète
 
