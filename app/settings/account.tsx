@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View, Platform, Alert, KeyboardAvoidingView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { ScrollView, StyleSheet, View, Platform, KeyboardAvoidingView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -26,7 +25,6 @@ const PROVIDERS: Record<string, { label: string; icon: keyof typeof Ionicons.gly
 
 // ── Main screen ─────────────────────────────────────────────────
 export default function AccountSettingsScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isWide, gutter } = useContentDimensions();
   const { user, session, updateProfile } = useAuthStore();
@@ -36,19 +34,29 @@ export default function AccountSettingsScreen() {
   const email = user?.email ?? '';
   const [city, setCity] = useState(user?.city ?? '');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const isDirty =
     displayName !== (user?.displayName ?? '') ||
     city !== (user?.city ?? '');
 
-  const handleSave = () => {
-    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    updateProfile({ displayName, email, city } as any);
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      router.back();
-    }, 900);
+  const handleSave = async () => {
+    if (saving || !isDirty) return;
+    if (!displayName.trim()) { setSaveError('Indiquez un nom affiché.'); return; }
+    setSaved(false);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const result = await updateProfile({ displayName: displayName.trim(), city: city.trim() });
+      if (result.error) { setSaveError(result.error); return; }
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSaved(true);
+    } catch {
+      setSaveError('Enregistrement impossible. Vérifiez votre connexion.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Sign-in methods actually linked to this account (from the Supabase session).
@@ -80,14 +88,6 @@ export default function AccountSettingsScreen() {
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <TText variant="displayS" numberOfLines={2}>{displayName || user?.displayName || 'Votre nom'}</TText>
               <Kicker tone="muted">{user?.role === 'artist' ? 'Compte artiste' : 'Compte client'}</Kicker>
-              <TButton
-                title="Changer la photo"
-                variant="secondary"
-                size="sm"
-                fullWidth={false}
-                style={{ marginTop: Spacing.xs, alignSelf: 'flex-start' }}
-                onPress={() => Alert.alert('Photo de profil', 'Cette fonctionnalité arrive bientôt.')}
-              />
             </View>
           </View>
 
@@ -97,7 +97,7 @@ export default function AccountSettingsScreen() {
           <TInput
             label="Nom affiché"
             value={displayName}
-            onChangeText={setDisplayName}
+            onChangeText={(value) => { setDisplayName(value); setSaved(false); }}
             placeholder="Votre prénom ou pseudonyme"
             autoCapitalize="words"
             autoComplete="name"
@@ -106,7 +106,7 @@ export default function AccountSettingsScreen() {
           <TInput
             label="Ville"
             value={city}
-            onChangeText={setCity}
+            onChangeText={(value) => { setCity(value); setSaved(false); }}
             placeholder="Paris, Lyon, Bordeaux…"
             autoCapitalize="words"
             textContentType="addressCity"
@@ -143,11 +143,13 @@ export default function AccountSettingsScreen() {
             <TButton
               title={saved ? 'Enregistré' : 'Enregistrer les modifications'}
               onPress={handleSave}
-              disabled={!isDirty || saved}
+              disabled={!isDirty || saved || saving}
+              loading={saving}
               fullWidth={!isWide}
               style={isWide ? { alignSelf: 'flex-start' } : undefined}
               icon={saved ? <Ionicons name="checkmark" size={18} color={Colors.textInverse} /> : undefined}
             />
+            {!!saveError && <TText variant="bodySmall" color="error" accessibilityRole="alert" style={styles.saveHint}>{saveError}</TText>}
             {!isDirty && !saved && (
               <TText variant="caption" color="secondary" style={styles.saveHint}>
                 Aucune modification à enregistrer.

@@ -90,26 +90,25 @@ export default function ArtistStep5() {
   const { completeOnboarding } = useAuthStore();
   const [selected, setSelected] = useState<Plan>('premium');
   const [busy, setBusy] = useState<Plan | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const finale = useOnboardingFinale();
 
-  const handleFree = async () => {
-    await completeOnboarding();
-    router.replace('/(tabs)');
-  };
-
-  const handlePremium = async () => {
-    await completeOnboarding();
-    router.replace('/settings/subscription');
-  };
-
-  // Rare moment: a short welcome, then the original handler. Guards against double taps.
-  const run = (plan: Plan, action: () => Promise<void>) => () => {
+  const run = (plan: Plan) => async () => {
     if (busy) return;
     setBusy(plan);
-    finale.celebrate(
-      { title: 'Bienvenue', accent: 'dans l’atelier.', lede: 'Votre profil d’artiste est prêt.' },
-      () => { void action().finally(() => setBusy(null)); },
-    );
+    setError(null);
+    try {
+      const completed = await completeOnboarding();
+      if (completed.error) { setError(completed.error); return; }
+      finale.celebrate(
+        { title: 'Bienvenue', accent: 'dans l’atelier.', lede: 'Votre profil d’artiste est prêt.' },
+        () => router.replace(plan === 'premium' ? '/settings/subscription' : '/(tabs)'),
+      );
+    } catch {
+      setError('Enregistrement impossible. Vérifiez votre connexion.');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const select = (plan: Plan) => setSelected(plan);
@@ -134,28 +133,29 @@ export default function ArtistStep5() {
               title="Continuer avec Premium"
               variant="glow"
               loading={busy === 'premium'}
-              disabled={!!busy}
-              onPress={run('premium', handlePremium)}
+              disabled={!!busy || finale.active}
+              onPress={() => { void run('premium')(); }}
             />
             <TButton
               title="Commencer gratuitement"
               variant="ghost"
               size="md"
               loading={busy === 'free'}
-              disabled={!!busy}
-              onPress={run('free', handleFree)}
+              disabled={!!busy || finale.active}
+              onPress={() => { void run('free')(); }}
             />
           </>
         ) : (
           <TButton
             title="Commencer gratuitement"
             loading={busy === 'free'}
-            disabled={!!busy}
-            onPress={run('free', handleFree)}
+            disabled={!!busy || finale.active}
+            onPress={() => { void run('free')(); }}
           />
         )
       }
     >
+      {!!error && <TText variant="bodySmall" color="error" accessibilityRole="alert">{error}</TText>}
       <View accessibilityRole="radiogroup" style={[styles.cards, twoUp && styles.cardsWide]}>
         <PlanCard plan="free" selected={selected === 'free'} onSelect={() => select('free')} style={twoUp ? styles.cardWide : undefined}>
           <Kicker tone="muted" style={styles.kicker}>01 / Gratuit</Kicker>

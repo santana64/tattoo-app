@@ -87,7 +87,7 @@ interface AuthState {
   setRole: (role: UserRole) => Promise<void>;
   /** Permanently deletes the account server-side, then clears the local session. */
   deleteAccount: () => Promise<{ error: string | null }>;
-  completeOnboarding: () => Promise<void>;
+  completeOnboarding: () => Promise<{ error: string | null }>;
   updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<{ error: string | null }>;
   /** Creates the artist row if needed, then saves the public artist fields. */
   saveArtist: (updates: ArtistUpdates) => Promise<{ error: string | null }>;
@@ -292,9 +292,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   completeOnboarding: async () => {
     const { session } = get();
-    if (!session) return;
-    await supabase.from('profiles').update({ onboarding_completed: true }).eq('id', session.user.id);
+    if (!session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const { data, error } = await supabase.from('profiles')
+      .update({ onboarding_completed: true }).eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) return { error: error ? writeErrorMessage(error) : 'Profil non enregistré. Réessayez.' };
+    if (get().session?.user.id !== session.user.id) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({ user: s.user ? { ...s.user, onboardingCompleted: true } : null }));
+    return { error: null };
   },
 
   updateProfile: async (updates) => {
@@ -305,11 +309,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (updates.city !== undefined) dbUpdates.city = updates.city;
     if (updates.stylePreferences) dbUpdates.style_prefs = updates.stylePreferences;
     if (updates.avatarUrl) dbUpdates.avatar_url = updates.avatarUrl;
-    const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', session.user.id);
-    if (error) {
-      console.warn('[auth] profile update failed', error.code, error.message);
-      return { error: writeErrorMessage(error) };
+    const { data, error } = await supabase.from('profiles')
+      .update(dbUpdates).eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) {
+      if (error) console.warn('[auth] profile update failed', error.code, error.message);
+      return { error: error ? writeErrorMessage(error) : 'Modification non enregistrée. Réessayez.' };
     }
+    if (get().session?.user.id !== session.user.id) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({ user: s.user ? { ...s.user, ...updates } : null }));
     return { error: null };
   },
