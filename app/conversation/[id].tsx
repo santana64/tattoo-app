@@ -22,7 +22,7 @@ import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 import { GlassSurface, RevealImage, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
-import { RequestStatusLine, formatBudget, projectTypeLabel } from '@/components/RequestCard';
+import { INQUIRY_LABEL, RequestStatusLine, formatBudget, projectTypeLabel } from '@/components/RequestCard';
 import { useMessageStore, Message } from '@/store/message-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
@@ -248,9 +248,14 @@ export default function ConversationScreen() {
   // Same rule as the request page: whoever is not the client of this request is its artist.
   const isArtist = !!request && request.clientId !== user?.id;
   const counterpart = request ? ((isArtist ? request.clientName : request.artistName) ?? '') : '';
-  const summary = request
-    ? [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ')
-    : '';
+  // A question has placeholder project fields: the header only says what it is.
+  const inquiry = !!request?.isInquiry;
+  const summary = !request
+    ? ''
+    : inquiry
+      ? INQUIRY_LABEL
+      : [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ');
+  const detailsLabel = inquiry ? 'Voir la question' : 'Voir la demande';
   const bubbleMax = Math.min(width * 0.78, 520);
   const canSend = !!text.trim() && !isSending;
 
@@ -287,7 +292,7 @@ export default function ConversationScreen() {
           <Pressable
             onPress={() => router.push(`/request/${id}`)}
             accessibilityRole="button"
-            accessibilityLabel="Voir la demande"
+            accessibilityLabel={detailsLabel}
             hitSlop={6}
             style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}
           >
@@ -296,13 +301,26 @@ export default function ConversationScreen() {
         </View>
         {request && (
           <View style={styles.contextRow}>
-            <RequestStatusLine status={request.status} viewAs={isArtist ? 'artist' : 'client'} />
-            <Pressable onPress={() => router.push(`/request/${id}`)} accessibilityRole="link" hitSlop={8} style={styles.contextLink}>
-              <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Voir la demande</TText>
-            </Pressable>
+            <RequestStatusLine status={request.status} viewAs={isArtist ? 'artist' : 'client'} inquiry={inquiry} />
+            <View style={styles.contextLinks}>
+              {inquiry && !isArtist && (
+                <Pressable
+                  onPress={() => router.push(`/request/new?artistId=${request.artistId}`)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Transformer en projet : décrire un projet à ${counterpart || 'l’artiste'}`}
+                  hitSlop={8}
+                  style={styles.contextLink}
+                >
+                  <TText variant="caption" weight="medium" color="accentWarm">Transformer en projet</TText>
+                </Pressable>
+              )}
+              <Pressable onPress={() => router.push(`/request/${id}`)} accessibilityRole="link" hitSlop={8} style={styles.contextLink}>
+                <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>{detailsLabel}</TText>
+              </Pressable>
+            </View>
           </View>
         )}
-        {request && ['accepted', 'confirmed', 'completed'].includes(request.status) && (
+        {request && !inquiry && ['accepted', 'confirmed', 'completed'].includes(request.status) && (
           <View style={styles.appointmentSlot}>
             <AppointmentPanel
               compact
@@ -335,9 +353,13 @@ export default function ConversationScreen() {
               icon="chatbubbles-outline"
               title="Commencez l’échange"
               description={
-                isArtist
-                  ? `Écrivez à ${counterpart || 'votre client'} pour préciser le projet et convenir d’un rendez-vous.`
-                  : `Présentez-vous et précisez votre projet${counterpart ? ` à ${counterpart}` : ''}.`
+                inquiry
+                  ? isArtist
+                    ? `Répondez à la question de ${counterpart || 'votre client'}.`
+                    : `Posez votre question${counterpart ? ` à ${counterpart}` : ''}.`
+                  : isArtist
+                    ? `Écrivez à ${counterpart || 'votre client'} pour préciser le projet et convenir d’un rendez-vous.`
+                    : `Présentez-vous et précisez votre projet${counterpart ? ` à ${counterpart}` : ''}.`
               }
             />
           )
@@ -426,6 +448,7 @@ const styles = StyleSheet.create({
     width: '100%', maxWidth: THREAD_MAX, alignSelf: 'center',
     paddingTop: Spacing['2xs'], paddingHorizontal: 4,
   },
+  contextLinks: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   contextLink: { minHeight: 28, justifyContent: 'center' },
 
   list: {

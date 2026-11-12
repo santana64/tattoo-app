@@ -60,6 +60,11 @@ export interface Database {
           show_availability: boolean | null;
           show_stats: boolean | null;
           show_min_budget: boolean | null;
+          timezone: string;
+          session_durations: number[];
+          cancel_notice_hours: number;
+          latitude: number | null;
+          longitude: number | null;
           sections_config: Json | null;
           stripe_customer_id: string | null;
           stripe_subscription_id: string | null;
@@ -254,6 +259,70 @@ export interface Database {
           { foreignKeyName: 'guest_spots_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
         ];
       };
+      stories: {
+        Row: {
+          id: string;
+          artist_id: string;
+          media_url: string;
+          caption: string | null;
+          view_count: number;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: { id?: string; artist_id: string; media_url: string; caption?: string | null; expires_at: string };
+        Update: { caption?: string | null; expires_at?: string };
+        Relationships: [
+          { foreignKeyName: 'stories_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+        ];
+      };
+      healed_photos: {
+        Row: {
+          id: string;
+          appointment_id: string;
+          artist_id: string | null;
+          client_id: string | null;
+          photo_url: string;
+          note: string | null;
+          is_public: boolean;
+          created_at: string;
+        };
+        Insert: { id?: string; appointment_id: string; photo_url: string; note?: string | null; is_public?: boolean };
+        Update: { is_public?: boolean; note?: string | null };
+        Relationships: [
+          { foreignKeyName: 'healed_photos_appointment_id_fkey'; columns: ['appointment_id']; isOneToOne: false; referencedRelation: 'appointments'; referencedColumns: ['id'] },
+          { foreignKeyName: 'healed_photos_artist_id_fkey'; columns: ['artist_id']; isOneToOne: false; referencedRelation: 'artists'; referencedColumns: ['id'] },
+          { foreignKeyName: 'healed_photos_client_id_fkey'; columns: ['client_id']; isOneToOne: false; referencedRelation: 'profiles'; referencedColumns: ['id'] },
+        ];
+      };
+      post_reactions: {
+        Row: {
+          post_id: string;
+          user_id: string;
+          emoji: 'fire' | 'heart_eyes' | 'clap' | 'mind_blown' | 'black_heart';
+          created_at: string;
+        };
+        Insert: { post_id: string; user_id: string; emoji: 'fire' | 'heart_eyes' | 'clap' | 'mind_blown' | 'black_heart' };
+        Update: { emoji?: 'fire' | 'heart_eyes' | 'clap' | 'mind_blown' | 'black_heart' };
+        Relationships: [
+          { foreignKeyName: 'post_reactions_post_id_fkey'; columns: ['post_id']; isOneToOne: false; referencedRelation: 'posts'; referencedColumns: ['id'] },
+          { foreignKeyName: 'post_reactions_user_id_fkey'; columns: ['user_id']; isOneToOne: false; referencedRelation: 'profiles'; referencedColumns: ['id'] },
+        ];
+      };
+      client_errors: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          message: string;
+          stack: string | null;
+          route: string | null;
+          platform: string | null;
+          app_version: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       artist_series: {
         Row: {
           id: string;
@@ -384,6 +453,7 @@ export interface Database {
           is_first_tattoo: boolean | null;
           preferred_slots: string[];
           is_flash: boolean;
+          is_inquiry: boolean;
           flash_design_id: string | null;
           status: 'submitted' | 'accepted' | 'declined' | 'clarification_needed' | 'confirmed' | 'completed' | 'archived';
           decline_reason: string | null;
@@ -485,6 +555,10 @@ export interface Database {
           body_zone: string | null;
           notes: string | null;
           deposit_paid: boolean | null;
+          canceled_by: 'client' | 'artist' | null;
+          cancel_reason: string | null;
+          reminded_48h_at: string | null;
+          reminded_24h_at: string | null;
           created_at: string | null;
           updated_at: string | null;
         };
@@ -693,12 +767,44 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      set_booking_settings: {
+        Args: { p_timezone: string; p_session_durations: number[]; p_cancel_notice_hours: number };
+        Returns: undefined;
+      };
+      set_artist_location: {
+        Args: { p_latitude: number | null; p_longitude: number | null };
+        Returns: undefined;
+      };
+      artists_nearby: {
+        Args: { p_latitude: number; p_longitude: number; p_radius_km?: number; p_limit?: number };
+        Returns: { artist_id: string; distance_km: number }[];
+      };
+      cancel_appointment: {
+        Args: { p_appointment_id: string; p_reason?: string | null; p_new_slots?: string[] };
+        Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+      record_story_view: {
+        Args: { p_story_id: string };
+        Returns: undefined;
+      };
+      post_reaction_counts: {
+        Args: { p_post_ids: string[] };
+        Returns: { post_id: string; emoji: 'fire' | 'heart_eyes' | 'clap' | 'mind_blown' | 'black_heart'; total: number }[];
+      };
+      contact_artist: {
+        Args: { p_artist_id: string; p_message: string };
+        Returns: string;
+      };
+      report_client_error: {
+        Args: { p_message: string; p_stack?: string | null; p_route?: string | null; p_platform?: string | null; p_app_version?: string | null };
+        Returns: boolean;
+      };
       set_weekly_schedule: {
         Args: { p_days: { day: number; opens: string; closes: string }[] };
         Returns: Database['public']['Tables']['artist_weekly_schedule']['Row'][];
       };
       artist_free_slots: {
-        Args: { p_artist_id: string; p_days?: number; p_duration_min?: number };
+        Args: { p_artist_id: string; p_days?: number; p_duration_min?: number | null };
         Returns: { starts_at: string; ends_at: string }[];
       };
       artist_public_stats: {

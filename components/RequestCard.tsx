@@ -31,10 +31,27 @@ export const REQUEST_STATUS: Record<RequestStatus, { label: string; artistLabel?
   archived:             { label: 'Archivée', color: Colors.textTertiary },
 };
 
-export const requestStatusLabel = (status: RequestStatus, viewAs: RequestViewer) => {
-  const s = REQUEST_STATUS[status] ?? REQUEST_STATUS.archived;
+/**
+ * A question (no project) is never "waiting for an answer" as a project is: the
+ * reply happens in the conversation, so its open states read as a thread.
+ */
+const INQUIRY_STATUS: Partial<Record<RequestStatus, { label: string; artistLabel?: string; color: string }>> = {
+  submitted:            { label: 'Question envoyée', artistLabel: 'Question reçue', color: Colors.accentWarm },
+  clarification_needed: { label: 'Question envoyée', artistLabel: 'Question reçue', color: Colors.accentWarm },
+  accepted:             { label: 'Échange en cours', color: Colors.accentWarm },
+  declined:             { label: 'Échange clos', color: Colors.textTertiary },
+};
+
+const statusMeta = (status: RequestStatus, inquiry?: boolean) =>
+  (inquiry ? INQUIRY_STATUS[status] : undefined) ?? REQUEST_STATUS[status] ?? REQUEST_STATUS.archived;
+
+export const requestStatusLabel = (status: RequestStatus, viewAs: RequestViewer, inquiry?: boolean) => {
+  const s = statusMeta(status, inquiry);
   return viewAs === 'artist' && s.artistLabel ? s.artistLabel : s.label;
 };
+
+/** "Question" for an inquiry; the project summary otherwise. */
+export const INQUIRY_LABEL = 'Question';
 
 export const SIZE_RANGE: Record<TattooRequest['sizeCategory'], string> = {
   xs: 'moins de 3 cm',
@@ -78,13 +95,15 @@ export function formatListDate(iso: string | null | undefined): string {
   return format(d, 'dd/MM/yy', { locale: fr });
 }
 
-export function RequestStatusLine({ status, viewAs, strong }: { status: RequestStatus; viewAs: RequestViewer; strong?: boolean }) {
-  const s = REQUEST_STATUS[status] ?? REQUEST_STATUS.archived;
+export function RequestStatusLine({ status, viewAs, strong, inquiry }: {
+  status: RequestStatus; viewAs: RequestViewer; strong?: boolean; inquiry?: boolean;
+}) {
+  const s = statusMeta(status, inquiry);
   return (
     <View style={styles.statusLine}>
       <View style={[styles.statusDot, { backgroundColor: s.color }]} />
       <TText variant="caption" weight={strong ? 'medium' : 'regular'} color={strong ? 'primary' : 'secondary'}>
-        {requestStatusLabel(status, viewAs)}
+        {requestStatusLabel(status, viewAs, inquiry)}
       </TText>
     </View>
   );
@@ -102,18 +121,23 @@ interface RequestCardProps {
 export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestCardProps) {
   const router = useRouter();
 
+  const inquiry = request.isInquiry;
   const needsAction = viewAs === 'artist' && request.status === 'submitted';
   const name = (viewAs === 'artist' ? request.clientName : request.artistName) ?? '';
   const avatar = viewAs === 'artist' ? request.clientAvatarUrl : request.artistAvatarUrl;
   const place = viewAs === 'client' ? request.artistCity : undefined;
-  const summary = [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase()]
-    .filter(Boolean).join(' · ');
+  // A question has placeholder project fields ("Non précisé", size M): never show them.
+  const summary = inquiry
+    ? INQUIRY_LABEL
+    : [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase()].filter(Boolean).join(' · ');
   const date = formatListDate(request.submittedAt);
-  const budget = formatBudget(request);
-  const statusLabel = requestStatusLabel(request.status, viewAs);
+  const budget = inquiry ? null : formatBudget(request);
+  const statusLabel = requestStatusLabel(request.status, viewAs, inquiry);
+  const threadOpen = inquiry && request.status !== 'archived' && request.status !== 'declined';
 
   // Navigation, not a commit: press feedback is visual only (no haptic).
   const open = useCallback(() => router.push(`/request/${request.id}`), [request.id, router]);
+  const openThread = useCallback(() => router.push(`/conversation/${request.id}`), [request.id, router]);
 
   return (
     <PressableScale
@@ -140,9 +164,12 @@ export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestC
             )}
           </View>
 
-          <TText variant="caption" color="secondary" numberOfLines={1}>
-            {summary}{place ? ` · ${place}` : ''}
-          </TText>
+          <View style={styles.summaryRow}>
+            {inquiry && <Ionicons name="help-circle-outline" size={13} color={Colors.accentWarm} />}
+            <TText variant="caption" color={inquiry ? 'accentWarm' : 'secondary'} numberOfLines={1} style={styles.summary}>
+              {summary}{place ? ` · ${place}` : ''}
+            </TText>
+          </View>
 
           {!!request.description && (
             <TText variant="bodySmall" color="tertiary" numberOfLines={2} style={styles.description}>
@@ -151,10 +178,22 @@ export function RequestCard({ request, viewAs, onPressIn, onPressOut }: RequestC
           )}
 
           <View style={styles.footer}>
-            <RequestStatusLine status={request.status} viewAs={viewAs} strong={needsAction} />
+            <RequestStatusLine status={request.status} viewAs={viewAs} strong={needsAction} inquiry={inquiry} />
             <View style={styles.footerRight}>
-              <TText variant="caption" color="secondary" tabular>{budget}</TText>
-              {request.status === 'accepted' && viewAs === 'client' && (
+              {!!budget && <TText variant="caption" color="secondary" tabular>{budget}</TText>}
+              {threadOpen && (
+                <Pressable
+                  onPress={openThread}
+                  accessibilityRole="button"
+                  accessibilityLabel={viewAs === 'artist' ? `Répondre à ${name}` : `Voir la conversation avec ${name}`}
+                  hitSlop={10}
+                  style={({ pressed }) => [styles.messageLink, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="chatbubble-outline" size={13} color={Colors.accentWarm} />
+                  <TText variant="caption" weight="medium" color="accentWarm">{viewAs === 'artist' ? 'Répondre' : 'Conversation'}</TText>
+                </Pressable>
+              )}
+              {!inquiry && request.status === 'accepted' && viewAs === 'client' && (
                 <Pressable
                   onPress={() => router.push(`/conversation/${request.id}`)}
                   accessibilityRole="button"
@@ -287,6 +326,8 @@ const styles = StyleSheet.create({
   },
 
   body: { flex: 1, gap: 3, minWidth: 0 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  summary: { flexShrink: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.xs },
   name: { flex: 1, fontSize: 21, lineHeight: 26 },
   description: { marginTop: 4 },

@@ -16,6 +16,8 @@ import { PressableScale } from '@/components/motion';
 import { Seo } from '@/components/Seo';
 import { ReelPlayer } from '@/components/reels/ReelPlayer';
 import { ReelEmbed } from '@/components/reels/ReelEmbed';
+import { ReactionBar } from '@/components/social/ReactionBar';
+import { useReactionStore } from '@/components/social/reaction-store';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
 import type { ReelProvider } from '@/lib/reels';
@@ -88,6 +90,11 @@ export default function ReelsScreen() {
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [pendingLike, setPendingLike] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const reactionCounts = useReactionStore((s) => s.counts);
+  const myReactions = useReactionStore((s) => s.mine);
+  const reactionsOwner = useReactionStore((s) => s.mineOwner);
+  const loadReactions = useReactionStore((s) => s.load);
+  const mineLoaded = !!userId && reactionsOwner === userId;
 
   // ── Load the opened reel first, then more from the same artist (or everyone).
   useEffect(() => {
@@ -120,6 +127,8 @@ export default function ReelsScreen() {
       setReels(list);
       setActiveIndex(0);
       setState('ready');
+      // Reactions of the whole list in one request.
+      void loadReactions(list.map((r) => r.id), userId);
 
       if (userId) {
         const likes = await supabase
@@ -131,7 +140,7 @@ export default function ReelsScreen() {
       }
     })().catch(() => { if (active) setState('error'); });
     return () => { active = false; };
-  }, [id, artist, userId, router, reloadKey]);
+  }, [id, artist, userId, router, reloadKey, loadReactions]);
 
   const close = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -220,7 +229,16 @@ export default function ReelsScreen() {
             )}
           </View>
 
-          <View style={[styles.rail, { bottom: insets.bottom + Spacing.md }]}>
+          <View style={[styles.rail, { bottom: insets.bottom + Spacing.md }]} pointerEvents="box-none">
+            {/* Chips grow leftwards from the column, above the caption. */}
+            <View style={[styles.reactions, { maxWidth: stageWidth - Spacing.sm * 2 }]}>
+              <ReactionBar
+                postId={item.id}
+                compact
+                initialCounts={reactionCounts[item.id]}
+                initialMine={mineLoaded ? myReactions[item.id] : undefined}
+              />
+            </View>
             <RoundButton
               icon={isLiked ? 'heart' : 'heart-outline'}
               label={isLiked ? 'Retirer le j’aime' : 'Aimer cette vidéo'}
@@ -241,7 +259,7 @@ export default function ReelsScreen() {
         </View>
       </View>
     );
-  }, [activeIndex, height, insets.bottom, liked, muted, router, stageWidth, toggleLike]);
+  }, [activeIndex, height, insets.bottom, liked, muted, router, stageWidth, toggleLike, reactionCounts, myReactions, mineLoaded]);
 
   const current = reels[activeIndex];
   const seoTitle = useMemo(
@@ -319,8 +337,13 @@ const styles = StyleSheet.create({
   caption: { position: 'absolute', left: 0, right: 72, bottom: 0, paddingHorizontal: Spacing.sm },
   artist: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'flex-start', maxWidth: '100%' },
   captionText: { marginTop: Spacing['2xs'] },
-  rail: { position: 'absolute', right: Spacing.sm, alignItems: 'center', gap: 8 },
-  count: { color: Colors.textPrimary, marginTop: -4, marginBottom: 4 },
+  rail: { position: 'absolute', right: Spacing.sm, alignItems: 'flex-end', gap: 8 },
+  reactions: {
+    flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4,
+    paddingVertical: 4, paddingLeft: 6, paddingRight: 4,
+    borderRadius: 22, backgroundColor: 'rgba(7,6,5,0.45)',
+  },
+  count: { color: Colors.textPrimary, marginTop: -4, marginBottom: 4, width: 44, textAlign: 'center' },
   roundButton: {
     width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(7,6,5,0.55)',

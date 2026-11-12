@@ -20,7 +20,7 @@ test('the return path after sign-in stays inside the app', () => {
 });
 
 test('visitors can discover artists and read legal documents', () => {
-  for (const route of [[], ['(tabs)'], ['(tabs)', 'index'], ['(tabs)', 'explore'], ['artist', '[id]'], ['post', '[id]'], ['reels', '[id]'], ['flash', '[id]'], ['legal', 'terms'], ['legal', 'privacy-policy'], ['auth', 'callback']]) {
+  for (const route of [[], ['(tabs)'], ['(tabs)', 'index'], ['(tabs)', 'explore'], ['artist', '[id]'], ['post', '[id]'], ['reels', '[id]'], ['flash', '[id]'], ['series', '[id]'], ['legal', 'terms'], ['legal', 'privacy-policy'], ['auth', 'callback']]) {
     assert.equal(isPublicRoute(route), true, route.join('/'));
     assert.equal(authRedirect(route, false, null), null);
   }

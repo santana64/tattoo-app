@@ -13,6 +13,7 @@ import { ArtistSignals, describeArtistSignals, hasArtistSignals } from './artist
 import type { Artist } from '@/constants/tattoo';
 import { STYLES } from '@/constants/tattoo';
 import type { ArtistStats } from '@/lib/studio';
+import { formatDistance } from '@/lib/care';
 
 interface ArtistCardProps {
   artist: Artist;
@@ -24,6 +25,8 @@ interface ArtistCardProps {
   previewImages?: string[];
   /** Public numbers (rating, next slot, flashes). Optional: loaded after the card. */
   stats?: ArtistStats | null;
+  /** Distance from the searched place, shown discreetly in "near me" results. */
+  distanceKm?: number;
 }
 
 export const BOOKING_STATUS = {
@@ -55,12 +58,15 @@ export function ArtPlaceholder({ name, size = 56 }: { name: string; size?: numbe
   );
 }
 
-function StatusLine({ status }: { status: Artist['bookingStatus'] }) {
+function StatusLine({ status, distance }: { status: Artist['bookingStatus']; distance?: string | null }) {
   const s = BOOKING_STATUS[status];
   return (
     <View style={styles.statusLine}>
       <View style={[styles.statusDot, { backgroundColor: s.color }]} />
-      <TText variant="caption" color="secondary">{s.label}</TText>
+      <TText variant="caption" color="secondary" numberOfLines={1} style={{ flexShrink: 1 }}>
+        {s.label}
+        {!!distance && <TText variant="caption" color="tertiary" tabular>{`  ·  ${distance}`}</TText>}
+      </TText>
     </View>
   );
 }
@@ -103,7 +109,7 @@ function useLift() {
   };
 }
 
-export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages, stats }: ArtistCardProps) {
+export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default', previewImages, stats, distanceKm }: ArtistCardProps) {
   const router = useRouter();
   const lift = useLift();
   const { width: windowWidth } = useWindowDimensions();
@@ -114,7 +120,8 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
   const stylesLabel = artist.styles.slice(0, 2).map(styleName).join(' · ');
   // The card is one pressable: its label must also carry the signals it shows (none on compact).
   const signalsA11y = variant === 'compact' ? '' : describeArtistSignals(stats, true);
-  const a11y = `${artist.blaze}, ${artist.city}${stylesLabel ? `, ${stylesLabel}` : ''}${signalsA11y ? `. ${signalsA11y}` : ''}`;
+  const distance = distanceKm !== undefined && Number.isFinite(distanceKm) ? formatDistance(distanceKm) : null;
+  const a11y = `${artist.blaze}, ${artist.city}${distance ? `, ${distance}` : ''}${stylesLabel ? `, ${stylesLabel}` : ''}${signalsA11y ? `. ${signalsA11y}` : ''}`;
 
   // ── Featured: a single lit artwork, full bleed ─────────────────
   if (variant === 'featured') {
@@ -144,7 +151,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
             </TText>
             {hasArtistSignals(stats, true) && <View style={styles.signals}><ArtistSignals stats={stats} compact /></View>}
             <View style={styles.featuredMeta}>
-              <StatusLine status={artist.bookingStatus} />
+              <StatusLine status={artist.bookingStatus} distance={distance} />
               {artist.minBudget > 0 && (
                 <TText variant="bodySmall" weight="medium" tabular style={{ color: Colors.accentGlow }}>
                   {formatPrice(artist.minBudget)}
@@ -168,7 +175,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
             ) : <ArtPlaceholder name={artist.blaze} size={40} />}
           </View>
           <TText variant="bodySmall" weight="semibold" numberOfLines={1} style={{ marginTop: 8 }}>{artist.blaze}</TText>
-          <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}</TText>
+          <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}{distance ? ` · ${distance}` : ''}</TText>
         </Pressable>
       </Animated.View>
     );
@@ -187,7 +194,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
           </View>
           <View style={styles.tileText}>
             <TText variant="title2" serif numberOfLines={1} style={{ fontSize: 20 }}>{artist.blaze}</TText>
-            <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}</TText>
+            <TText variant="caption" color="tertiary" numberOfLines={1}>{artist.city}{distance ? ` · ${distance}` : ''}</TText>
             {artist.minBudget > 0 && (
               <TText variant="caption" tabular style={{ color: Colors.accentWarm, marginTop: 2 }}>{formatPrice(artist.minBudget)}</TText>
             )}
@@ -238,7 +245,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, variant = 'default
         </View>
 
         <View style={styles.metaRow}>
-          <StatusLine status={artist.bookingStatus} />
+          <StatusLine status={artist.bookingStatus} distance={distance} />
           {artist.minBudget > 0 && (
             <TText variant="bodySmall" weight="medium" tabular style={{ color: Colors.accentGlow }}>
               {formatPrice(artist.minBudget)}
@@ -255,7 +262,7 @@ const styles = StyleSheet.create({
   imageEmpty: { backgroundColor: Colors.bgSurface },
   placeholder: { backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
 
-  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
 
   saveBtn: {

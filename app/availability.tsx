@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, StyleSheet, ScrollView, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions,
 } from 'react-native';
@@ -18,7 +18,8 @@ import { Toast } from '@/components/ui/TToast';
 import { BottomSheet, PressableScale, enterUp } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
-import { formatDuration } from '@/lib/appointments';
+import { durationLabel, type BookingSettings } from '@/lib/care';
+import { BookingSettingsSection } from '@/components/booking/BookingSettingsSection';
 import {
   DAY_NAMES, WEEK_ORDER, blockDays, fetchBlockedPeriods, fetchFreeSlots, fetchWeeklySchedule,
   formatSlotTime, saveWeeklySchedule, scheduleError, unblockPeriod, type BlockedPeriod, type DayHours,
@@ -30,7 +31,7 @@ const EARLIEST = 6 * 60;
 const LATEST = 23 * 60;
 const DEFAULT_HOURS = { opens: '10:00', closes: '19:00' };
 const PREVIEW_DAYS = 28;
-const PREVIEW_DURATION_MIN = 120; // the default session length clients pick from
+const DEFAULT_PREVIEW_MIN = 120; // used until the artist's own session lengths are known
 const SLOTS_CAP = 400; // artist_free_slots never returns more rows than this.
 const BLOCK_HORIZON_DAYS = 365;
 
@@ -251,6 +252,10 @@ export default function AvailabilityScreen() {
   const [freeCount, setFreeCount] = useState<number | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const [bookingStatus, setBookingStatus] = useState<'open' | 'paused' | 'closed' | null>(null);
+  // The preview uses the artist's shortest session, the one clients see first.
+  const previewDurationRef = useRef(DEFAULT_PREVIEW_MIN);
+  const [previewDuration, setPreviewDuration] = useState(DEFAULT_PREVIEW_MIN);
+  const [durationCount, setDurationCount] = useState(1);
 
   useEffect(() => {
     if (!artistId) return;
@@ -281,11 +286,13 @@ export default function AvailabilityScreen() {
   const loadPreview = useCallback(async () => {
     if (!artistId) return;
     setPreviewError(false);
+    const duration = previewDurationRef.current;
     try {
       const [slots, artist] = await Promise.all([
-        fetchFreeSlots(artistId, PREVIEW_DAYS, PREVIEW_DURATION_MIN),
+        fetchFreeSlots(artistId, PREVIEW_DAYS, duration),
         supabase.from('artists').select('booking_status').eq('id', artistId).maybeSingle(),
       ]);
+      setPreviewDuration(duration);
       setFreeCount(slots.length);
       setBookingStatus(artist.data?.booking_status ?? null);
     } catch {
@@ -294,7 +301,14 @@ export default function AvailabilityScreen() {
   }, [artistId]);
 
   useEffect(() => { void loadBlocked(); }, [loadBlocked]);
-  useEffect(() => { void loadPreview(); }, [loadPreview]);
+
+  // The preview waits for the booking settings (it needs the session length), then follows each save.
+  const handleSettings = useCallback((settings: BookingSettings | null) => {
+    const durations = settings?.sessionDurations.filter((m) => Number.isInteger(m) && m > 0) ?? [];
+    previewDurationRef.current = durations.length ? Math.min(...durations) : DEFAULT_PREVIEW_MIN;
+    setDurationCount(Math.max(durations.length, 1));
+    void loadPreview();
+  }, [loadPreview]);
 
   // ── Not an artist ──
   if (!artistId) {
@@ -401,7 +415,7 @@ export default function AvailabilityScreen() {
 
   // ── Section B ──
   const blockedSection = (
-    <Animated.View entering={enterUp(1)} style={styles.section}>
+    <Animated.View entering={enterUp(2)} style={styles.section}>
       <SectionHead
         kicker="Jours bloqués"
         title="Congés, conventions"
@@ -499,7 +513,7 @@ export default function AvailabilityScreen() {
   );
 
   // ── Section C ──
-  const sessionLength = formatDuration(PREVIEW_DURATION_MIN);
+  const sessionLength = `${durationLabel(previewDuration)}${durationCount > 1 ? ' (votre séance la plus courte)' : ''}`;
   const countLabel = freeCount === null || freeCount === 0 ? null
     : freeCount >= SLOTS_CAP ? `au moins ${SLOTS_CAP} créneaux libres`
     : `${freeCount} créneau${freeCount > 1 ? 'x' : ''} libre${freeCount > 1 ? 's' : ''}`;
@@ -510,7 +524,7 @@ export default function AvailabilityScreen() {
       : null;
 
   const previewSection = (
-    <Animated.View entering={enterUp(2)} style={styles.section}>
+    <Animated.View entering={enterUp(3)} style={styles.section}>
       <SectionHead kicker="Aperçu" title="Ce que voient les clients" />
       <View style={styles.preview} accessibilityLiveRegion="polite">
         <Ionicons name="eye-outline" size={18} color={Colors.accentWarm} />
@@ -546,6 +560,8 @@ export default function AvailabilityScreen() {
     </Animated.View>
   );
 
+  const settingsSection = <BookingSettingsSection artistId={artistId} onSettings={handleSettings} index={1} />;
+
   const showBar = weekState === 'ready' && !!draft;
   const barMessage = saveError ?? (dirty ? validation : null);
 
@@ -569,15 +585,19 @@ export default function AvailabilityScreen() {
 
         {wide ? (
           <View style={styles.columns}>
-            <View style={styles.column}>{weekSection}</View>
             <View style={styles.column}>
-              {blockedSection}
+              {weekSection}
               {previewSection}
+            </View>
+            <View style={styles.column}>
+              {settingsSection}
+              {blockedSection}
             </View>
           </View>
         ) : (
           <>
             {weekSection}
+            {settingsSection}
             {blockedSection}
             {previewSection}
           </>

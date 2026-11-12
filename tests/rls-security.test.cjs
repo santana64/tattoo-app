@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -891,6 +891,279 @@ test('a piece carries a label and joins only a series of its own artist', async 
   assert.equal(Number(label.session_hours), 4.5);
   assert.equal(label.is_healed, true);
   await db.query(`delete from auth.users where id = $1`, [otherUser]);
+});
+
+// ── booking care, proximity, stories, healed photos, reactions (migration 012) ──
+
+test('an artist sets time zone, session lengths and notice through the function only', async () => {
+  const set = `select public.set_booking_settings($1, $2::int[], $3)`;
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(set, ['Europe/Paris', [120], 48]), /not_artist/);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(set, ['Mars/Olympus', [120], 48]), /invalid_timezone/);
+    await assert.rejects(db.query(set, ['Europe/Paris', [45], 48]), /invalid_durations/);
+    await assert.rejects(db.query(set, ['Europe/Paris', [], 48]), /invalid_durations/);
+    await assert.rejects(db.query(set, ['Europe/Paris', [120], 400]), /invalid_notice/);
+    await assert.rejects(db.query(`update public.artists set timezone = 'Asia/Tokyo' where id = $1`, [ids.artist]), DENIED);
+    await assert.rejects(db.query(`update public.artists set cancel_notice_hours = 0 where id = $1`, [ids.artist]), DENIED);
+    await db.query(set, ['America/Toronto', [240, 120, 240], 72]);
+  });
+  const saved = await as(null, () => one(
+    `select timezone, session_durations, cancel_notice_hours from public.artists where id = $1`, [ids.artist],
+  ));
+  assert.equal(saved.timezone, 'America/Toronto');
+  assert.deepEqual(saved.session_durations, [120, 240], 'sorted and de-duplicated');
+  assert.equal(saved.cancel_notice_hours, 72);
+
+  // Slots now follow the artist's own clock and shortest session…
+  const hours = async (duration) => (await as(null, () => rows(
+    `select extract(hour from starts_at at time zone 'America/Toronto')::int as h,
+            (extract(epoch from ends_at - starts_at) / 60)::int as minutes
+     from public.artist_free_slots($1, 7, $2)`, [ids.artist, duration],
+  )));
+  const shortest = await hours(null);
+  assert.ok(shortest.length > 0);
+  assert.ok(shortest.every((s) => s.h >= 9 && s.h <= 16 && s.minutes === 120), '09:00-18:00 Toronto time, two-hour sessions');
+  // …and a long session only starts where it still fits before closing.
+  const long = await hours(240);
+  assert.ok(long.length > 0 && long.every((s) => s.h >= 9 && s.h <= 14 && s.minutes === 240));
+});
+
+test('artists are found by distance from coordinates rounded to about a kilometre', async () => {
+  const locate = `select public.set_artist_location($1, $2)`;
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(locate, [48.8566, 2.3522]), /not_artist/);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(locate, [120, 2.35]), /invalid_location/);
+    await assert.rejects(db.query(locate, [48.85, null]), /invalid_location/);
+    await db.query(locate, [48.856614, 2.352222]);
+  });
+  const stored = await as(null, () => one(`select latitude, longitude from public.artists where id = $1`, [ids.artist]));
+  assert.equal(stored.latitude, 48.86);
+  assert.equal(stored.longitude, 2.35);
+
+  const near = (lat, lng, radius) => as(null, () => rows(`select * from public.artists_nearby($1, $2, $3)`, [lat, lng, radius]));
+  const fromVersailles = await near(48.8049, 2.1204, 50);
+  assert.equal(fromVersailles.length, 1);
+  assert.equal(fromVersailles[0].artist_id, ids.artist);
+  assert.ok(Number(fromVersailles[0].distance_km) > 10 && Number(fromVersailles[0].distance_km) < 25);
+  assert.equal((await near(45.764, 4.8357, 50)).length, 0, 'Lyon is not within 50 km of Paris');
+  assert.equal((await near(45.764, 4.8357, 500)).length, 1);
+  assert.equal((await near(999, 4.8357, 500)).length, 0, 'nonsense coordinates match nothing');
+});
+
+test('a client cancels or moves a session within the notice period, the artist at any time', async () => {
+  const propose = (start, end) => as(ids.artistUser, async () => (await one(
+    `select (public.propose_appointment($1, $2, $3)).id as id`, [ids.request, start, end],
+  )).id);
+  const accept = (id) => as(ids.client, () => db.query(`select public.respond_to_appointment($1, true)`, [id]));
+  const at = (hours) => new Date(Date.now() + hours * 3_600_000).toISOString();
+  const cancel = `select (public.cancel_appointment($1, $2, $3::timestamptz[])).status as status`;
+  const requestRow = () => one(`select status, preferred_slots from public.tattoo_requests where id = $1`, [ids.request]);
+  const notified = async (user, type) =>
+    (await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = $2`, [user, type])).n;
+
+  // Far enough ahead (notice is 72 h): the client may cancel.
+  let appt = await propose(at(200), at(203));
+  await accept(appt);
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(cancel, [appt, null, []]), /not_appointment_party/);
+  });
+  const canceledBefore = await notified(ids.artistUser, 'appointment_canceled');
+  await as(ids.client, async () => {
+    assert.equal((await one(cancel, [appt, '  Empêchement  ', []])).status, 'canceled');
+    await assert.rejects(db.query(cancel, [appt, null, []]), /not_cancelable/);
+  });
+  const row = await one(`select canceled_by, cancel_reason from public.appointments where id = $1`, [appt]);
+  assert.deepEqual(row, { canceled_by: 'client', cancel_reason: 'Empêchement' });
+  assert.equal((await requestRow()).status, 'accepted', 'the request can be booked again');
+  assert.equal(await notified(ids.artistUser, 'appointment_canceled'), canceledBefore + 1, 'told once, not twice');
+
+  // Inside the notice: the client cannot, the artist can.
+  appt = await propose(at(30), at(33));
+  await accept(appt);
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(cancel, [appt, null, []]), /notice_too_short/);
+  });
+  const clientTold = await notified(ids.client, 'appointment_canceled');
+  await as(ids.artistUser, async () => {
+    assert.equal((await one(cancel, [appt, null, []])).status, 'canceled');
+  });
+  assert.equal(await notified(ids.client, 'appointment_canceled'), clientTold + 1);
+
+  // Asking for another date replaces the preferred slots.
+  appt = await propose(at(300), at(303));
+  await accept(appt);
+  const wanted = [at(400), at(424), at(448), at(472)];
+  await as(ids.client, () => db.query(cancel, [appt, null, wanted]));
+  const moved = await requestRow();
+  assert.equal(moved.status, 'accepted');
+  assert.equal(moved.preferred_slots.length, 3, 'never more than three');
+  assert.equal(await notified(ids.artistUser, 'appointment_reschedule'), 1);
+});
+
+test('both sides are reminded 48 h and 24 h before a session, once each', async () => {
+  const at = (hours) => new Date(Date.now() + hours * 3_600_000).toISOString();
+  let appt;
+  await as(ids.artistUser, async () => {
+    appt = (await one(`select (public.propose_appointment($1, $2, $3)).id as id`, [ids.request, at(30), at(33)])).id;
+  });
+  await as(ids.client, () => db.query(`select public.respond_to_appointment($1, true)`, [appt]));
+  ids.reminded = appt;
+
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(`select public.send_appointment_reminders()`), DENIED);
+  });
+  const reminders = (kind) => rows(
+    `select user_id from public.notifications where type = 'appointment_reminder' and data->>'appointment_id' = $1 and data->>'kind' = $2`,
+    [appt, kind],
+  );
+  assert.ok((await one(`select public.send_appointment_reminders() as n`)).n >= 1);
+  assert.deepEqual((await reminders('48h')).map((r) => r.user_id).sort(), [ids.client, ids.artistUser].sort());
+  assert.equal((await one(`select public.send_appointment_reminders() as n`)).n, 0, 'not sent twice');
+
+  await db.query(`update public.appointments set starts_at = now() + interval '20 hours', ends_at = now() + interval '23 hours' where id = $1`, [appt]);
+  assert.equal((await one(`select public.send_appointment_reminders() as n`)).n, 1);
+  assert.equal((await reminders('24h')).length, 2);
+  assert.equal((await one(`select public.send_appointment_reminders() as n`)).n, 0);
+});
+
+test('a story lasts 24 hours at most and each viewer counts once', async () => {
+  const post = `insert into public.stories (artist_id, media_url, caption, expires_at) values ($1, 'https://example.test/s.jpg', 'Du jour', now() + $2::interval) returning id`;
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(post, [ids.artist, '24 hours']), DENIED);
+  });
+  let story;
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(post, [ids.artist, '3 days']), DENIED);
+    story = (await one(post, [ids.artist, '24 hours'])).id;
+    await assert.rejects(db.query(`update public.stories set expires_at = now() + interval '30 days' where id = $1`, [story]), DENIED);
+    await assert.rejects(db.query(`update public.stories set view_count = 9999 where id = $1`, [story]), DENIED);
+  });
+  assert.equal((await as(null, () => rows(`select id from public.stories where artist_id = $1`, [ids.artist]))).length, 1);
+
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(`insert into public.story_views (story_id, viewer_id) values ($1, $2)`, [story, ids.client]), DENIED);
+    await db.query(`select public.record_story_view($1)`, [story]);
+    await db.query(`select public.record_story_view($1)`, [story]);
+  });
+  await as(ids.artistUser, () => db.query(`select public.record_story_view($1)`, [story]));
+  assert.equal((await one(`select view_count from public.stories where id = $1`, [story])).view_count, 1);
+
+  // An expired story disappears for visitors.
+  await db.query(`update public.stories set expires_at = now() - interval '1 minute', created_at = now() - interval '1 day' where id = $1`, [story]);
+  assert.equal((await as(null, () => rows(`select id from public.stories where artist_id = $1`, [ids.artist]))).length, 0);
+});
+
+test('a healed photo comes from the client of a finished session and is private until they say so', async () => {
+  // Same effect as the artist closing the session.
+  await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);
+  const send = `insert into public.healed_photos (appointment_id, artist_id, client_id, photo_url, note) values ($1, $2, $3, 'https://example.test/h.jpg', $4) returning id, artist_id, client_id`;
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(send, [ids.appointment, ids.artist, ids.outsider, null]), /not_completed_session/);
+  });
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(send, [ids.reminded, ids.artist, ids.client, null]), /not_completed_session/, 'the session must be finished');
+  });
+  let photo;
+  await as(ids.client, async () => {
+    // Forged parties are overwritten from the appointment.
+    const saved = await one(send, [ids.appointment, null, ids.outsider, '  Six semaines après  ']);
+    assert.equal(saved.artist_id, ids.artist);
+    assert.equal(saved.client_id, ids.client);
+    photo = saved.id;
+  });
+  const publicPhotos = () => as(null, () => rows(`select id from public.healed_photos where artist_id = $1`, [ids.artist]));
+  assert.equal((await publicPhotos()).length, 0);
+  assert.equal((await as(ids.artistUser, () => rows(`select id from public.healed_photos`))).length, 1, 'the artist sees it');
+  await as(ids.artistUser, async () => {
+    const forced = await db.query(`update public.healed_photos set is_public = true where id = $1`, [photo]);
+    assert.equal(forced.affectedRows, 0, 'only the client decides to publish');
+  });
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(`update public.healed_photos set photo_url = 'https://evil.example/x.jpg' where id = $1`, [photo]), DENIED);
+    await db.query(`update public.healed_photos set is_public = true where id = $1`, [photo]);
+  });
+  assert.equal((await publicPhotos()).length, 1);
+  assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'healed_photo'`, [ids.artistUser])).n, 1);
+});
+
+test('reactions: one emoji per person and piece, from the fixed set', async () => {
+  const react = `insert into public.post_reactions (post_id, user_id, emoji) values ($1, $2, $3)`;
+  await as(null, async () => {
+    await assert.rejects(db.query(react, [ids.post, ids.client, 'fire']), DENIED);
+  });
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(react, [ids.post, ids.client, 'fire']), DENIED);
+    await db.query(react, [ids.post, ids.outsider, 'fire']);
+  });
+  await as(ids.client, async () => {
+    await assert.rejects(db.query(react, [ids.post, ids.client, 'pile_of_poo']), /post_reactions_emoji_check/);
+    await db.query(react, [ids.post, ids.client, 'fire']);
+    await assert.rejects(db.query(react, [ids.post, ids.client, 'clap']), /post_reactions_pkey/);
+    await db.query(`update public.post_reactions set emoji = 'clap' where post_id = $1 and user_id = $2`, [ids.post, ids.client]);
+    const stolen = await db.query(`update public.post_reactions set emoji = 'clap' where post_id = $1 and user_id = $2`, [ids.post, ids.outsider]);
+    assert.equal(stolen.affectedRows, 0);
+  });
+  const counts = await as(null, () => rows(`select emoji, total from public.post_reaction_counts(array[$1]::uuid[]) order by emoji`, [ids.post]));
+  assert.deepEqual(counts, [{ emoji: 'clap', total: 1 }, { emoji: 'fire', total: 1 }]);
+  await as(ids.outsider, () => db.query(`delete from public.post_reactions where post_id = $1`, [ids.post]));
+  assert.equal((await one(`select count(*)::int as n from public.post_reactions where post_id = $1`, [ids.post])).n, 1, 'only their own was removed');
+});
+
+test('anyone signed in can write to an artist: one thread, same inbox', async () => {
+  const contact = `select public.contact_artist($1, $2) as id`;
+  await as(null, async () => {
+    await assert.rejects(db.query(contact, [ids.artist, 'Bonjour']), DENIED);
+  });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(contact, [ids.artist, 'Bonjour moi']), /artist_not_found/);
+  });
+  const announced = async () => (await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'new_request'`, [ids.artistUser])).n;
+  const projectsBefore = await announced();
+  let thread;
+  await as(ids.outsider, async () => {
+    await assert.rejects(db.query(contact, [ids.artist, ' ']), /invalid_message/);
+    thread = (await one(contact, [ids.artist, 'Bonjour, faites-vous du lettrage ?'])).id;
+    assert.equal((await one(contact, [ids.artist, 'Et en couleur ?'])).id, thread, 'the same thread is reused');
+  });
+  const request = await one(`select is_inquiry, client_id, status from public.tattoo_requests where id = $1`, [thread]);
+  assert.deepEqual(request, { is_inquiry: true, client_id: ids.outsider, status: 'submitted' });
+  assert.equal((await one(`select count(*)::int as n from public.messages where request_id = $1`, [thread])).n, 2);
+  assert.equal(await announced(), projectsBefore, 'a question is not announced as a project');
+  assert.ok((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'new_message' and data->>'request_id' = $2`, [ids.artistUser, thread])).n >= 1);
+  // The artist answers in the ordinary conversation.
+  await as(ids.artistUser, () => db.query(
+    `insert into public.messages (request_id, sender_id, content) values ($1, $2, 'Oui, avec plaisir.')`, [thread, ids.artistUser],
+  ));
+  await as(ids.client, async () => {
+    assert.equal((await rows(`select 1 from public.messages where request_id = $1`, [thread])).length, 0, 'private to the two of them');
+  });
+  await db.query(`delete from public.tattoo_requests where id = $1`, [thread]);
+});
+
+test('a crash report is accepted from anyone and read by administrators only', async () => {
+  const report = `select public.report_client_error($1, $2, $3, $4, $5) as ok`;
+  assert.equal((await as(null, () => one(report, ['TypeError: x is undefined', 'at Screen (app.js:1)', '/artist/1', 'web', '1.0.0']))).ok, true);
+  assert.equal((await as(ids.client, () => one(report, ['x'.repeat(2000), null, null, null, null]))).ok, true);
+  assert.equal((await as(null, () => one(report, ['   ', null, null, null, null]))).ok, false);
+  const stored = await rows(`select user_id, length(message) as len from public.client_errors order by created_at`);
+  assert.equal(stored.length, 2);
+  assert.equal(stored[0].user_id, null);
+  assert.equal(stored[1].user_id, ids.client);
+  assert.equal(stored[1].len, 500, 'messages are capped');
+  await as(ids.client, async () => {
+    assert.equal((await rows(`select 1 from public.client_errors`)).length, 0);
+    await assert.rejects(db.query(`insert into public.client_errors (message) values ('direct')`), DENIED);
+  });
+  await as(null, async () => {
+    await assert.rejects(db.query(`select 1 from public.client_errors`), DENIED);
+  });
+  // The table refuses a flood.
+  await db.query(`insert into public.client_errors (message) select 'flood' from generate_series(1, 60)`);
+  assert.equal((await as(null, () => one(report, ['one more', null, null, null, null]))).ok, false);
 });
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {

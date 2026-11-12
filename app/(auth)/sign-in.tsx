@@ -23,6 +23,7 @@ import { Logo } from '@/components/ui/Logo';
 import { enabledOAuthProviders } from '@/lib/auth-errors';
 import { useAuthStore } from '@/store/auth-store';
 import { Toast } from '@/components/ui/TToast';
+import { Captcha, CAPTCHA_REQUIRED } from '@/components/auth/Captcha';
 
 const FORM_MAX_WIDTH = 480;
 const MIN_PASSWORD = 8;
@@ -51,6 +52,19 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Turnstile, web only and only with a site key: a token is single-use.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaPending = CAPTCHA_REQUIRED && !captchaToken;
+
+  const consumeCaptcha = () => {
+    const token = captchaToken;
+    if (CAPTCHA_REQUIRED) {
+      setCaptchaToken(null);
+      setCaptchaResetKey((n) => n + 1);
+    }
+    return token;
+  };
 
   const handleApple = async () => {
     setLoading('apple');
@@ -67,9 +81,9 @@ export default function SignInScreen() {
   };
 
   const handleEmail = async () => {
-    if (!email.trim()) return;
+    if (!email.trim() || captchaPending) return;
     setLoading('email');
-    const { error } = await signInWithEmail(email.trim());
+    const { error } = await signInWithEmail(email.trim(), consumeCaptcha());
     setLoading(null);
     if (error) {
       Toast.error(error);
@@ -92,15 +106,21 @@ export default function SignInScreen() {
     setPasswordTouched(true);
     const tooShort = mode === 'signup' && password.length < MIN_PASSWORD;
     if (!EMAIL_PATTERN.test(email.trim()) || !password || tooShort) return;
+    if (captchaPending) {
+      // Reached from the keyboard's "go" key; the button itself stays disabled.
+      Toast.info('Validez d’abord la vérification anti-robot.');
+      return;
+    }
     setLoading('password');
+    const token = consumeCaptcha();
     if (mode === 'signup') {
-      const { error, needsConfirmation } = await signUpWithPassword(email.trim(), password);
+      const { error, needsConfirmation } = await signUpWithPassword(email.trim(), password, token);
       setLoading(null);
       if (error) Toast.error(error);
       else if (needsConfirmation) setEmailSent('confirm');
       // Otherwise a session exists: the root layout routes to onboarding.
     } else {
-      const { error } = await signInWithPassword(email.trim(), password);
+      const { error } = await signInWithPassword(email.trim(), password, token);
       setLoading(null);
       if (error) Toast.error(error);
     }
@@ -119,6 +139,10 @@ export default function SignInScreen() {
   const submitEmail = () => {
     setEmailTouched(true);
     if (!emailValid) return;
+    if (captchaPending) {
+      Toast.info('Validez d’abord la vérification anti-robot.');
+      return;
+    }
     void handleEmail();
   };
 
@@ -229,6 +253,9 @@ export default function SignInScreen() {
                   Ouvrez-le depuis cet appareil pour terminer la connexion. Pensez à vérifier
                   vos courriers indésirables.
                 </TText>
+                {emailSent === 'magic' && CAPTCHA_REQUIRED ? (
+                  <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} style={styles.sentCaptcha} />
+                ) : null}
                 <View style={styles.sentActions}>
                   {emailSent === 'magic' ? (
                     <TButton
@@ -237,6 +264,7 @@ export default function SignInScreen() {
                       size="md"
                       fullWidth={false}
                       loading={loading === 'email'}
+                      disabled={captchaPending}
                       onPress={handleEmail}
                     />
                   ) : (
@@ -362,19 +390,21 @@ export default function SignInScreen() {
                     />
                   )}
 
+                  <Captcha onToken={setCaptchaToken} resetKey={captchaResetKey} />
+
                   {mode === 'magic' ? (
                     <TButton
                       title="Recevoir le lien de connexion"
                       onPress={submitEmail}
                       loading={loading === 'email'}
-                      disabled={!!loading && loading !== 'email'}
+                      disabled={(!!loading && loading !== 'email') || captchaPending}
                     />
                   ) : (
                     <TButton
                       title={mode === 'signup' ? 'Créer mon compte' : 'Se connecter'}
                       onPress={() => void handlePassword()}
                       loading={loading === 'password'}
-                      disabled={!!loading && loading !== 'password'}
+                      disabled={(!!loading && loading !== 'password') || captchaPending}
                     />
                   )}
 
@@ -487,6 +517,7 @@ const styles = StyleSheet.create({
   },
   sentTitle: { textAlign: 'center', marginBottom: Spacing['2xs'] },
   sentText: { textAlign: 'center', maxWidth: 360, marginBottom: Spacing['2xs'] },
+  sentCaptcha: { maxWidth: 360, marginTop: Spacing.xs, marginBottom: 0 },
   sentActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',

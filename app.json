@@ -21,7 +21,6 @@
         "NSCameraUsageDescription": "INKR utilise la caméra pour ajouter des photos à ton profil et tes posts.",
         "NSPhotoLibraryUsageDescription": "INKR accède à ta galerie pour importer des photos de tatouages.",
         "NSPhotoLibraryAddUsageDescription": "INKR enregistre des photos dans ta galerie.",
-        "NSUserNotificationsUsageDescription": "Reçois des notifications pour tes demandes et messages.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "config": {
@@ -87,11 +86,6 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": "inkr-tattoo-app"
-      }
     }
   }
 }

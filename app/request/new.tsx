@@ -25,6 +25,8 @@ import { useArtist } from '@/hooks/use-artist';
 import { enterUp, EASE_OUT, EASE_IN_OUT, RevealImage } from '@/components/motion';
 import { SlotPicker, formatChosenSlot } from '@/components/booking/SlotPicker';
 import { fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
+import { durationLabel, fetchBookingSettings, type BookingSettings } from '@/lib/care';
+import { cancellationNotice } from '@/components/booking/booking-copy';
 
 const FORM_MAX = 720;
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -327,6 +329,20 @@ export default function NewRequestScreen() {
   const [preferredSlots, setPreferredSlots] = useState<string[]>([]);
   const [flash, setFlash] = useState<FlashDesign | null>(null);
   const [flashState, setFlashState] = useState<FlashState>(flashId ? 'loading' : 'none');
+  // The artist's session lengths and cancellation notice; the form works without them.
+  const [booking, setBooking] = useState<BookingSettings | null>(null);
+  const [bookingLoaded, setBookingLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!artistId) { setBookingLoaded(true); return; }
+    let active = true;
+    setBookingLoaded(false);
+    fetchBookingSettings(artistId)
+      .then((settings) => { if (active) setBooking(settings); })
+      .catch(() => { if (active) setBooking(null); })
+      .finally(() => { if (active) setBookingLoaded(true); });
+    return () => { active = false; };
+  }, [artistId]);
 
   // A flash opens the form prefilled; every field stays editable and nothing typed is overwritten.
   useEffect(() => {
@@ -718,15 +734,34 @@ export default function NewRequestScreen() {
               {/* Preferred slots: optional, never blocks sending. */}
               <View>
                 <TText variant="title2" serif accessibilityRole="header" style={{ fontSize: 22, lineHeight: 26 }}>Vos créneaux préférés</TText>
-                <TText variant="caption" color="tertiary" style={{ marginTop: 4, marginBottom: Spacing.sm }}>
+                <TText variant="caption" color="tertiary" style={{ marginTop: 4 }}>
                   Jusqu’à trois. L’artiste confirmera l’un d’eux ou vous en proposera un autre.
                 </TText>
-                <SlotPicker
-                  artistId={artist.id}
-                  durationMin={attachedFlash?.estimated_duration ?? DEFAULT_SESSION_MIN}
-                  value={preferredSlots}
-                  onChange={setPreferredSlots}
-                />
+                {!!booking && (
+                  <View style={styles.noticeLine}>
+                    <Ionicons name="refresh-outline" size={14} color={Colors.textTertiary} />
+                    <TText variant="caption" color="secondary" style={{ flex: 1 }}>{cancellationNotice(booking.cancelNoticeHours)}</TText>
+                  </View>
+                )}
+                {!!attachedFlash?.estimated_duration && (
+                  <TText variant="caption" color="tertiary" style={{ marginTop: 4 }}>
+                    Séance de {durationLabel(attachedFlash.estimated_duration)}, la durée prévue pour ce flash.
+                  </TText>
+                )}
+                <View style={{ marginTop: Spacing.sm }}>
+                  {!bookingLoaded || flashState === 'loading' ? (
+                    <TSkeleton height={120} radius={Radius.lg} />
+                  ) : (
+                    // A flash's own length wins; otherwise the client picks among the artist's lengths.
+                    <SlotPicker
+                      artistId={artist.id}
+                      durationMin={attachedFlash?.estimated_duration ?? (booking ? undefined : DEFAULT_SESSION_MIN)}
+                      durations={attachedFlash?.estimated_duration ? undefined : booking?.sessionDurations}
+                      value={preferredSlots}
+                      onChange={setPreferredSlots}
+                    />
+                  )}
+                </View>
               </View>
 
               {/* Attachments are not wired yet (uploads are disabled server-side): say so plainly. */}
@@ -924,6 +959,7 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
 
+  noticeLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing['2xs'] },
   notice: {
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs,
     paddingTop: Spacing.sm,

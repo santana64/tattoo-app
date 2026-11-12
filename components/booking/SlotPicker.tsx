@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
@@ -9,16 +9,26 @@ import { TSkeleton } from '@/components/ui/TSkeleton';
 import { Toast } from '@/components/ui/TToast';
 import { PressableScale } from '@/components/motion';
 import { fetchFreeSlots, formatSlotTime, groupSlotsByDay, type FreeSlot } from '@/lib/studio';
+import { durationLabel } from '@/lib/care';
+import { DurationSwitch, cleanDurations } from './DurationSwitch';
 
 interface SlotPickerProps {
   artistId: string;
-  /** Length of the session the slots must fit, in minutes. */
+  /**
+   * Length of the session the slots must fit, in minutes. Takes precedence
+   * (e.g. a flash's own length); otherwise the first of `durations` is used.
+   */
   durationMin?: number;
+  /** Session lengths the artist offers. More than one shows a duration switch. */
+  durations?: number[];
+  onDurationChange?: (min: number) => void;
   /** Chosen start instants, ISO strings. */
   value: string[];
   onChange: (next: string[]) => void;
   max?: number;
   days?: number;
+  /** Replaces the default copy shown when no slot is free. */
+  emptyText?: string;
 }
 
 const weekdayShort = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
@@ -66,20 +76,59 @@ function PickerSkeleton() {
   );
 }
 
-export function SlotPicker({ artistId, durationMin = 120, value, onChange, max = 3, days = 28 }: SlotPickerProps) {
+export function SlotPicker({
+  artistId, durationMin, durations, onDurationChange, value, onChange, max = 3, days = 28, emptyText,
+}: SlotPickerProps) {
   const [slots, setSlots] = useState<FreeSlot[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
   const [dayKey, setDayKey] = useState<string | null>(null);
 
+  // Session length: the one picked in the switch, else the forced one, else the artist's first.
+  const optionsKey = cleanDurations(durations).join(',');
+  const options = useMemo(() => (optionsKey ? optionsKey.split(',').map(Number) : []), [optionsKey]);
+  const [picked, setPicked] = useState<number | null>(null);
+  const current: number | undefined = picked !== null && options.includes(picked)
+    ? picked
+    : durationMin !== undefined && (options.length === 0 || options.includes(durationMin))
+      ? durationMin
+      : options[0];
+  // Defined only when the artist offers a choice of lengths.
+  const switchDuration = options.length > 1 ? current : undefined;
+
+  // Selections that vanish with a new duration are dropped once the new slots are known.
+  const pruneAfterLoad = useRef(false);
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { valueRef.current = value; onChangeRef.current = onChange; }, [value, onChange]);
+
   useEffect(() => {
     let active = true;
     setStatus('loading');
-    fetchFreeSlots(artistId, days, durationMin)
-      .then((data) => { if (active) { setSlots(data); setStatus('ready'); } })
+    // Undefined lets the data layer apply its own default length.
+    fetchFreeSlots(artistId, days, current)
+      .then((data) => {
+        if (!active) return;
+        setSlots(data);
+        setStatus('ready');
+        if (pruneAfterLoad.current) {
+          pruneAfterLoad.current = false;
+          const free = new Set(data.map((s) => s.start.getTime()));
+          const kept = valueRef.current.filter((v) => free.has(instant(v)));
+          if (kept.length !== valueRef.current.length) onChangeRef.current(kept);
+        }
+      })
       .catch(() => { if (active) setStatus('error'); });
     return () => { active = false; };
-  }, [artistId, days, durationMin, attempt]);
+  }, [artistId, days, current, attempt]);
+
+  const changeDuration = (min: number) => {
+    if (min === current) return;
+    pruneAfterLoad.current = valueRef.current.length > 0;
+    setPicked(min);
+    setDayKey(null);
+    onDurationChange?.(min);
+  };
 
   const groups = useMemo(() => groupSlotsByDay(slots), [slots]);
   const chosen = useMemo(() => new Set(value.map(instant)), [value]);
@@ -99,10 +148,18 @@ export function SlotPicker({ artistId, durationMin = 120, value, onChange, max =
     onChange(next);
   };
 
-  if (status === 'loading') return <PickerSkeleton />;
+  const durationSwitch = switchDuration !== undefined ? (
+    <View style={styles.durationBlock}>
+      <TText variant="caption" color="tertiary">Durée de la séance</TText>
+      <DurationSwitch durations={options} value={switchDuration} onChange={changeDuration} />
+    </View>
+  ) : null;
 
-  if (status === 'error') {
-    return (
+  let body: React.ReactNode;
+  if (status === 'loading') {
+    body = <PickerSkeleton />;
+  } else if (status === 'error') {
+    body = (
       <View style={styles.notice} accessibilityRole="alert">
         <Ionicons name="cloud-offline-outline" size={18} color={Colors.textTertiary} />
         <View style={{ flex: 1, gap: Spacing['2xs'] }}>
@@ -118,120 +175,128 @@ export function SlotPicker({ artistId, durationMin = 120, value, onChange, max =
         </View>
       </View>
     );
-  }
-
-  if (groups.length === 0) {
-    return (
+  } else if (groups.length === 0) {
+    body = (
       <View style={styles.notice}>
         <Ionicons name="calendar-clear-outline" size={18} color={Colors.textTertiary} />
         <TText variant="bodySmall" color="secondary" style={{ flex: 1 }}>
-          Cet artiste n’a pas encore publié ses disponibilités. Vous conviendrez d’une date ensemble.
+          {emptyText ?? (switchDuration !== undefined
+            ? `Aucun créneau libre de ${durationLabel(switchDuration)} sur les ${days} prochains jours. Essayez une autre durée, ou convenez d’une date avec l’artiste.`
+            : 'Cet artiste n’a pas encore publié ses disponibilités. Vous conviendrez d’une date ensemble.')}
         </TText>
+      </View>
+    );
+  } else {
+    body = (
+      <View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dayRow}
+          accessibilityLabel="Jours disponibles"
+        >
+          {groups.map((g) => {
+            const selected = g.key === activeDay?.key;
+            const pickedCount = g.slots.filter((s) => chosen.has(s.start.getTime())).length;
+            const label = `${capitalize(longDate.format(g.date))}, ${g.slots.length} créneau${g.slots.length > 1 ? 'x' : ''} libre${g.slots.length > 1 ? 's' : ''}${pickedCount ? `, ${pickedCount} choisi${pickedCount > 1 ? 's' : ''}` : ''}`;
+            return (
+              <PressableScale
+                key={g.key}
+                onPress={() => setDayKey(g.key)}
+                pressedScale={0.94}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ selected }}
+                style={[styles.dayCell, selected && styles.dayCellSelected]}
+              >
+                <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+                  {weekdayShort.format(g.date).replace('.', '')}
+                </TText>
+                <TText variant="title2" tabular style={{ color: selected ? Colors.textInverse : Colors.textPrimary }}>
+                  {g.date.getDate()}
+                </TText>
+                <TText variant="micro" style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
+                  {monthShort.format(g.date).replace('.', '')}
+                </TText>
+                {pickedCount > 0 && (
+                  <View style={[styles.badge, selected && styles.badgeOnSelected]}>
+                    <TText variant="micro" tabular style={{ color: selected ? Colors.accentAction : Colors.textInverse, lineHeight: 12 }}>
+                      {pickedCount}
+                    </TText>
+                  </View>
+                )}
+              </PressableScale>
+            );
+          })}
+        </ScrollView>
+
+        {activeDay && (
+          <View style={styles.times}>
+            <TText variant="caption" color="tertiary" style={{ marginBottom: Spacing['2xs'] }}>
+              {capitalize(longDate.format(activeDay.date))}
+            </TText>
+            <View style={styles.wrap} accessibilityRole={max === 1 ? 'radiogroup' : undefined}>
+              {activeDay.slots.map((s) => {
+                const selected = chosen.has(s.start.getTime());
+                const time = formatSlotTime(s.start);
+                return (
+                  <Pressable
+                    key={s.start.toISOString()}
+                    onPress={() => toggle(s)}
+                    accessibilityRole={max === 1 ? 'radio' : 'checkbox'}
+                    accessibilityLabel={`${capitalize(longDate.format(s.start))} à ${time}`}
+                    accessibilityState={{ selected, checked: selected }}
+                    style={(state) => {
+                      const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                      return [styles.timeChip, (pressed || hovered) && !selected && styles.timeChipHover, selected && styles.timeChipSelected];
+                    }}
+                  >
+                    <TText variant="bodySmall" weight="medium" tabular style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>
+                      {time}
+                    </TText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {value.length > 0 && (
+          <View style={styles.chosen}>
+            <TText variant="caption" color="tertiary" accessibilityLiveRegion="polite">
+              {value.length} sur {max} choisi{value.length > 1 ? 's' : ''}
+            </TText>
+            <View style={styles.wrap}>
+              {value.map((iso) => (
+                <Pressable
+                  key={iso}
+                  onPress={() => onChange(value.filter((v) => instant(v) !== instant(iso)))}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Retirer ${capitalize(longDate.format(new Date(iso)))} à ${formatSlotTime(new Date(iso))}`}
+                  hitSlop={4}
+                  style={({ pressed }) => [styles.chosenPill, pressed && { opacity: 0.6 }]}
+                >
+                  <TText variant="caption" tabular weight="medium">{formatChosenSlot(iso)}</TText>
+                  <Ionicons name="close" size={13} color={Colors.textTertiary} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
       </View>
     );
   }
 
   return (
     <View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.dayRow}
-        accessibilityLabel="Jours disponibles"
-      >
-        {groups.map((g) => {
-          const selected = g.key === activeDay?.key;
-          const picked = g.slots.filter((s) => chosen.has(s.start.getTime())).length;
-          const label = `${capitalize(longDate.format(g.date))}, ${g.slots.length} créneau${g.slots.length > 1 ? 'x' : ''} libre${g.slots.length > 1 ? 's' : ''}${picked ? `, ${picked} choisi${picked > 1 ? 's' : ''}` : ''}`;
-          return (
-            <PressableScale
-              key={g.key}
-              onPress={() => setDayKey(g.key)}
-              pressedScale={0.94}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              accessibilityState={{ selected }}
-              style={[styles.dayCell, selected && styles.dayCellSelected]}
-            >
-              <TText variant="micro" uppercase style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
-                {weekdayShort.format(g.date).replace('.', '')}
-              </TText>
-              <TText variant="title2" tabular style={{ color: selected ? Colors.textInverse : Colors.textPrimary }}>
-                {g.date.getDate()}
-              </TText>
-              <TText variant="micro" style={{ color: selected ? Colors.textInverse : Colors.textTertiary }}>
-                {monthShort.format(g.date).replace('.', '')}
-              </TText>
-              {picked > 0 && (
-                <View style={[styles.badge, selected && styles.badgeOnSelected]}>
-                  <TText variant="micro" tabular style={{ color: selected ? Colors.accentAction : Colors.textInverse, lineHeight: 12 }}>
-                    {picked}
-                  </TText>
-                </View>
-              )}
-            </PressableScale>
-          );
-        })}
-      </ScrollView>
-
-      {activeDay && (
-        <View style={styles.times}>
-          <TText variant="caption" color="tertiary" style={{ marginBottom: Spacing['2xs'] }}>
-            {capitalize(longDate.format(activeDay.date))}
-          </TText>
-          <View style={styles.wrap} accessibilityRole={max === 1 ? 'radiogroup' : undefined}>
-            {activeDay.slots.map((s) => {
-              const selected = chosen.has(s.start.getTime());
-              const time = formatSlotTime(s.start);
-              return (
-                <Pressable
-                  key={s.start.toISOString()}
-                  onPress={() => toggle(s)}
-                  accessibilityRole={max === 1 ? 'radio' : 'checkbox'}
-                  accessibilityLabel={`${capitalize(longDate.format(s.start))} à ${time}`}
-                  accessibilityState={{ selected, checked: selected }}
-                  style={(state) => {
-                    const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
-                    return [styles.timeChip, (pressed || hovered) && !selected && styles.timeChipHover, selected && styles.timeChipSelected];
-                  }}
-                >
-                  <TText variant="bodySmall" weight="medium" tabular style={{ color: selected ? Colors.textInverse : Colors.textSecondary }}>
-                    {time}
-                  </TText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      )}
-
-      {value.length > 0 && (
-        <View style={styles.chosen}>
-          <TText variant="caption" color="tertiary" accessibilityLiveRegion="polite">
-            {value.length} sur {max} choisi{value.length > 1 ? 's' : ''}
-          </TText>
-          <View style={styles.wrap}>
-            {value.map((iso) => (
-              <Pressable
-                key={iso}
-                onPress={() => onChange(value.filter((v) => instant(v) !== instant(iso)))}
-                accessibilityRole="button"
-                accessibilityLabel={`Retirer ${capitalize(longDate.format(new Date(iso)))} à ${formatSlotTime(new Date(iso))}`}
-                hitSlop={4}
-                style={({ pressed }) => [styles.chosenPill, pressed && { opacity: 0.6 }]}
-              >
-                <TText variant="caption" tabular weight="medium">{formatChosenSlot(iso)}</TText>
-                <Ionicons name="close" size={13} color={Colors.textTertiary} />
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
+      {durationSwitch}
+      {body}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  durationBlock: { gap: Spacing['2xs'], marginBottom: Spacing.md },
   dayRow: { flexDirection: 'row', gap: 8, paddingRight: Spacing.sm },
   dayCell: {
     width: 58, minHeight: 74, paddingVertical: 10, alignItems: 'center', gap: 2,

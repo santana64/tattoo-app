@@ -16,6 +16,8 @@ import {
   formatDuration, formatSlot, proposeAppointment, respondToAppointment, upcomingDays,
 } from '@/lib/appointments';
 import { supabase } from '@/lib/supabase';
+import { fetchBookingSettings } from '@/lib/care';
+import { useAuthStore } from '@/store/auth-store';
 
 interface AppointmentPanelProps {
   requestId: string;
@@ -122,10 +124,12 @@ function PreferredSlots({ slots, duration, interactive, pending, disabled, onPic
 }
 
 // ─── Slot picker (artist) ─────────────────────────────────────────────────────
-function SlotPicker({ onSubmit, busy, duration, setDuration, preferred, pendingPreferred }: {
+function SlotPicker({ onSubmit, busy, duration, durations, setDuration, preferred, pendingPreferred }: {
   onSubmit: (start: Date, end: Date, notes: string, preferredIso?: string) => void;
   busy: boolean;
   duration: number;
+  /** The session lengths the artist offers. */
+  durations: readonly number[];
   setDuration: (min: number) => void;
   preferred: string[];
   pendingPreferred: string | null;
@@ -199,7 +203,7 @@ function SlotPicker({ onSubmit, busy, duration, setDuration, preferred, pendingP
 
       <TText variant="label" color="tertiary" uppercase style={styles.pickLabel}>Durée estimée</TText>
       <View style={styles.wrap}>
-        {DURATIONS_MIN.map((m) => {
+        {durations.map((m) => {
           const selected = duration === m;
           return (
             <Pressable
@@ -251,7 +255,27 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
   const [busy, setBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION_MIN);
+  const [durations, setDurations] = useState<readonly number[]>(DURATIONS_MIN);
+  const durationTouched = React.useRef(false);
   const preferred = useMemo(() => upcomingPreferredSlots(preferredSlots), [preferredSlots]);
+
+  // The artist proposes among their own session lengths, the first one by default.
+  const ownArtistId = useAuthStore((s) => s.user?.artistId);
+  useEffect(() => {
+    if (viewAs !== 'artist' || !ownArtistId) return;
+    let active = true;
+    fetchBookingSettings(ownArtistId)
+      .then((settings) => {
+        const list = (settings?.sessionDurations ?? []).filter((m) => Number.isInteger(m) && m > 0);
+        if (!active || list.length === 0) return;
+        setDurations(list);
+        if (!durationTouched.current) setDuration(list[0]);
+      })
+      // Without settings the standard list stays in place.
+      .catch(() => {});
+    return () => { active = false; };
+  }, [viewAs, ownArtistId]);
+  const chooseDuration = useCallback((min: number) => { durationTouched.current = true; setDuration(min); }, []);
 
   const load = useCallback(async () => {
     const { data, error } = await fetchRequestAppointments(requestId);
@@ -423,7 +447,8 @@ export function AppointmentPanel({ requestId, requestStatus, viewAs, counterpart
             <SlotPicker
               busy={!!busy?.startsWith('propose')}
               duration={duration}
-              setDuration={setDuration}
+              durations={durations}
+              setDuration={chooseDuration}
               preferred={preferred}
               pendingPreferred={pendingPreferred}
               onSubmit={(start, end, notes, preferredIso) => { void propose(start, end, notes, preferredIso); }}

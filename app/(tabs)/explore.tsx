@@ -25,8 +25,9 @@ import { STYLES } from '@/constants/tattoo';
 import { useAutoRetry } from '@/hooks/use-auto-retry';
 import type { Artist } from '@/constants/tattoo';
 import { supabase } from '@/lib/supabase';
-import { mapArtist } from '@/lib/catalog';
+import { PUBLIC_ARTIST_COLUMNS, mapArtist } from '@/lib/catalog';
 import { fetchArtistStats, type ArtistStats } from '@/lib/studio';
+import { fetchNearbyArtistIds, geocodeCity, type Coordinates } from '@/lib/care';
 import { FlashRail } from '@/components/gallery/FlashRail';
 import { GuestSpotRail } from '@/components/gallery/GuestSpotRail';
 
@@ -57,6 +58,21 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'open', label: 'Disponibles d’abord' },
   { value: 'budget_asc', label: 'Budget croissant' },
 ];
+// "Near me": search radius in kilometres.
+const RADIUS_OPTIONS = [10, 25, 50, 100] as const;
+const DEFAULT_RADIUS = 25;
+type NearState = 'idle' | 'locating' | 'loading' | 'ready' | 'error';
+interface NearResult { artist: Artist; distanceKm: number }
+
+/** Two decimals (about a kilometre): enough to rank artists, and all the precision we ever send. */
+const roundCoords = (c: Coordinates): Coordinates => ({
+  latitude: Math.round(c.latitude * 100) / 100,
+  longitude: Math.round(c.longitude * 100) / 100,
+});
+
+const geolocationAvailable = () =>
+  Platform.OS === 'web' && typeof navigator !== 'undefined' && !!navigator.geolocation;
+
 const PREVIEWS_PER_ARTIST = 3;
 const PAGE_SIZE = 24;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -71,9 +87,24 @@ function resolveStyleSlug(param: string | string[] | undefined): string | null {
   return STYLES.find((s) => s.slug === n || normalize(s.name) === n)?.slug ?? null;
 }
 
+/** The same rules as search_artists, applied to the nearby results on the device. */
+function matchesFilters(a: Artist, f: { term: string; style: string | null; availability: Availability; budgetMax: number | null }): boolean {
+  if (f.term) {
+    const term = normalize(f.term).replace(/-/g, ' ');
+    const inName = normalize(`${a.blaze} ${a.city}`).replace(/-/g, ' ').includes(term);
+    const inStyles = a.styles.some((st) => normalize(st).replace(/-/g, ' ').includes(term));
+    if (!inName && !inStyles) return false;
+  }
+  if (f.style && !a.styles.some((st) => normalize(st).replace(/ /g, '-') === f.style)) return false;
+  if (f.availability !== 'all' && a.bookingStatus !== f.availability) return false;
+  if (f.budgetMax !== null && !(a.minBudget > 0 && a.minBudget <= f.budgetMax)) return false;
+  return true;
+}
+
 // ─── Small building blocks ────────────────────────────────────────────────────
-function Chip({ label, selected, onPress, dot, onLayout }: {
-  label: string; selected: boolean; onPress: () => void; dot?: string; onLayout?: (x: number) => void;
+function Chip({ label, selected, onPress, dot, icon, onLayout }: {
+  label: string; selected: boolean; onPress: () => void; dot?: string;
+  icon?: keyof typeof Ionicons.glyphMap; onLayout?: (x: number) => void;
 }) {
   return (
     <Pressable
@@ -87,6 +118,7 @@ function Chip({ label, selected, onPress, dot, onLayout }: {
       }}
     >
       {dot && <View style={[styles.chipDot, { backgroundColor: dot }]} />}
+      {icon && <Ionicons name={icon} size={14} color={selected ? Colors.textInverse : Colors.textSecondary} />}
       <TText variant="caption" weight="medium" style={{ fontSize: 13, color: selected ? Colors.textInverse : Colors.textSecondary }}>
         {label}
       </TText>
@@ -185,6 +217,21 @@ export default function ExploreScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const chipRail = useRef<ScrollView>(null);
+
+  // ── Near me: the position stays on the device; only the nearby RPC receives it, rounded.
+  const [nearMode, setNearMode] = useState(false);
+  const [nearCoords, setNearCoords] = useState<Coordinates | null>(null);
+  const [nearPlace, setNearPlace] = useState('');
+  const [radius, setRadius] = useState<number>(DEFAULT_RADIUS);
+  const [nearState, setNearState] = useState<NearState>('idle');
+  const [nearMessage, setNearMessage] = useState<string | null>(null);
+  const [nearResults, setNearResults] = useState<NearResult[]>([]);
+  const [nearPreviews, setNearPreviews] = useState<Record<string, string[]>>({});
+  const [cityMode, setCityMode] = useState(false);
+  const [cityQuery, setCityQuery] = useState(() => user?.city ?? '');
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const privacyShown = useRef(false);
+  const nearSeq = useRef(0);
   const chipX = useRef<Record<string, number>>({});
 
   // Follow deep links that change the style while the tab stays mounted.
@@ -219,6 +266,36 @@ export default function ExploreScreen() {
       .then((page) => setStats((current) => ({ ...current, ...page })))
       .catch(() => { /* Optional decoration: the cards stay complete without it. */ });
   }, []);
+
+  /** Artists around a point, nearest first, with the same public columns as the search. */
+  const loadNearby = useCallback(async (coords: Coordinates, radiusKm: number) => {
+    const seq = ++nearSeq.current;
+    setNearState('loading');
+    setNearMessage(null);
+    try {
+      const rows = await fetchNearbyArtistIds(roundCoords(coords), radiusKm);
+      if (seq !== nearSeq.current) return;
+      let results: NearResult[] = [];
+      if (rows.length) {
+        const { data, error } = await supabase.from('artists').select(PUBLIC_ARTIST_COLUMNS).in('id', rows.map((r) => r.artistId));
+        if (error) throw error;
+        if (seq !== nearSeq.current) return;
+        const byId = new Map((data ?? []).map((row) => [row.id, mapArtist(row)]));
+        results = rows.flatMap((r) => {
+          const artist = byId.get(r.artistId);
+          return artist ? [{ artist, distanceKm: r.distanceKm }] : [];
+        });
+      }
+      setNearResults(results);
+      setNearState('ready');
+      const ids = results.map((r) => r.artist.id);
+      loadStats(ids);
+      const grouped = await fetchPreviews(ids);
+      if (seq === nearSeq.current) setNearPreviews(grouped);
+    } catch {
+      if (seq === nearSeq.current) setNearState('error');
+    }
+  }, [fetchPreviews, loadStats]);
 
   /** One page of artists matching the current filters, searched and sorted by the database. */
   const fetchPage = useCallback(async (offset: number) => {
@@ -321,10 +398,14 @@ export default function ExploreScreen() {
   useEffect(() => { revealChip(selectedStyle); }, [selectedStyle, revealChip]);
 
   const handleRefresh = useCallback(() => {
+    if (nearMode) {
+      if (nearCoords) void loadNearby(nearCoords, radius);
+      return;
+    }
     setIsRefreshing(true);
     void fetchTrending();
     void fetchData();
-  }, [fetchData, fetchTrending]);
+  }, [fetchData, fetchTrending, nearMode, nearCoords, radius, loadNearby]);
 
   const resetAll = () => {
     setQuery('');
@@ -332,6 +413,89 @@ export default function ExploreScreen() {
     setAvailability('all');
     setBudgetMax(null);
     setSortBy('relevance');
+  };
+
+  const askForCity = (message: string | null) => {
+    setCityMode(true);
+    setNearState('idle');
+    setNearMessage(message);
+  };
+
+  const locateMe = () => {
+    if (!geolocationAvailable()) {
+      askForCity('Votre navigateur ne permet pas la localisation : indiquez une ville.');
+      return;
+    }
+    const seq = ++nearSeq.current;
+    setCityMode(false);
+    setNearMessage(null);
+    setNearState('locating');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (seq !== nearSeq.current) return;
+        const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        setNearCoords(coords);
+        setNearPlace('votre position');
+        void loadNearby(coords, radius);
+      },
+      (error) => {
+        if (seq !== nearSeq.current) return;
+        askForCity(error.code === 1
+          ? 'Localisation refusée : cherchez plutôt autour d’une ville.'
+          : 'Votre position est introuvable pour le moment : cherchez plutôt autour d’une ville.');
+      },
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
+    );
+  };
+
+  const searchCity = async () => {
+    const city = cityQuery.trim();
+    if (city.length < 2) { setNearMessage('Indiquez une ville.'); return; }
+    const seq = ++nearSeq.current;
+    setNearMessage(null);
+    setNearState('locating');
+    try {
+      const place = await geocodeCity(city);
+      if (seq !== nearSeq.current) return;
+      if (!place) {
+        setNearState(nearCoords ? 'ready' : 'idle');
+        setNearMessage(`« ${city} » est introuvable. Vérifiez l’orthographe.`);
+        return;
+      }
+      const coords = { latitude: place.latitude, longitude: place.longitude };
+      setNearCoords(coords);
+      setNearPlace(place.label || city);
+      setCityMode(false);
+      void loadNearby(coords, radius);
+    } catch {
+      if (seq !== nearSeq.current) return;
+      setNearState(nearCoords ? 'ready' : 'idle');
+      setNearMessage('La recherche de ville ne répond pas. Réessayez.');
+    }
+  };
+
+  const startNear = () => {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setNearMode(true);
+    if (!privacyShown.current) { privacyShown.current = true; setShowPrivacy(true); }
+    if (nearCoords) { void loadNearby(nearCoords, radius); return; }
+    if (geolocationAvailable()) locateMe();
+    else askForCity(Platform.OS === 'web'
+      ? 'Votre navigateur ne permet pas la localisation : indiquez une ville.'
+      : 'La localisation de l’appareil n’est pas disponible dans l’app : indiquez une ville.');
+  };
+
+  const leaveNear = () => {
+    nearSeq.current += 1;
+    setNearMode(false);
+    setNearState('idle');
+    setNearMessage(null);
+    setShowPrivacy(false);
+  };
+
+  const changeRadius = (next: number) => {
+    setRadius(next);
+    if (nearCoords) void loadNearby(nearCoords, next);
   };
 
   const sheetFilterCount = Number(availability !== 'all') + Number(budgetMax !== null) + Number(sortBy !== 'relevance');
@@ -349,6 +513,20 @@ export default function ExploreScreen() {
     [filtered, hasFilters, spotlightArtist],
   );
 
+  // Near mode keeps the distance order and applies the visible filters on the device.
+  const nearListed = useMemo(
+    () => nearResults.filter((r) => matchesFilters(r.artist, { term: searchTerm, style: selectedStyle, availability, budgetMax })),
+    [nearResults, searchTerm, selectedStyle, availability, budgetMax],
+  );
+  const nearDistances = useMemo(
+    () => Object.fromEntries(nearResults.map((r) => [r.artist.id, r.distanceKm])) as Record<string, number>,
+    [nearResults],
+  );
+  const nearBusy = nearState === 'locating' || nearState === 'loading';
+  const listData = nearMode
+    ? (nearState === 'ready' ? nearListed.map((r) => r.artist) : [])
+    : (isLoading ? [] : listed);
+
   // Wider screens get more columns; phones keep the editorial single column by default.
   const contentWidth = Math.min(width, Layout.maxContent);
   const columns = viewMode === 'grid' ? (contentWidth >= 1000 ? 4 : contentWidth >= 700 ? 3 : 2) : contentWidth >= 900 ? 2 : 1;
@@ -361,12 +539,13 @@ export default function ExploreScreen() {
           isSaved={savedArtistIds.has(item.id)}
           onSave={toggleSaveArtist}
           variant={viewMode === 'grid' ? 'tile' : 'default'}
-          previewImages={previews[item.id]}
+          previewImages={nearMode ? nearPreviews[item.id] ?? previews[item.id] : previews[item.id]}
           stats={stats[item.id]}
+          distanceKm={nearMode ? nearDistances[item.id] : undefined}
         />
       </View>
     ),
-    [savedArtistIds, toggleSaveArtist, viewMode, previews, stats, columns],
+    [savedArtistIds, toggleSaveArtist, viewMode, previews, stats, columns, nearMode, nearPreviews, nearDistances],
   );
 
   // ── Scroll-driven masthead (UI thread only)
@@ -387,9 +566,89 @@ export default function ExploreScreen() {
   const openCount = openTotal;
   const styleName = selectedStyle ? STYLES.find((s) => s.slug === selectedStyle)?.name : null;
 
+  const nextRadius = RADIUS_OPTIONS.find((r) => r > radius);
+  const nearCount = nearListed.length;
+
+  const nearPanel = nearMode ? (
+    <View style={styles.nearPanel}>
+      {showPrivacy && (
+        <View style={styles.nearPrivacy}>
+          <Ionicons name="lock-closed-outline" size={13} color={Colors.textTertiary} />
+          <TText variant="caption" color="tertiary" style={{ flex: 1 }}>
+            Votre position sert seulement à ce calcul : elle n’est ni enregistrée ni transmise ailleurs.
+          </TText>
+        </View>
+      )}
+
+      <View style={styles.nearHead}>
+        <Ionicons name={cityMode ? 'business-outline' : 'navigate-outline'} size={17} color={Colors.accentWarm} />
+        <TText variant="bodySmall" weight="medium" style={{ flex: 1 }} numberOfLines={1} accessibilityLiveRegion="polite">
+          {nearState === 'locating'
+            ? 'Localisation…'
+            : nearCoords && !cityMode ? `Autour de ${nearPlace}` : 'Autour d’une ville'}
+        </TText>
+        {!cityMode && (
+          <Pressable onPress={() => { setCityMode(true); setNearMessage(null); }} hitSlop={8} accessibilityRole="button">
+            <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Changer de ville</TText>
+          </Pressable>
+        )}
+        {cityMode && geolocationAvailable() && (
+          <Pressable onPress={locateMe} hitSlop={8} accessibilityRole="button" accessibilityLabel="Utiliser ma position">
+            <TText variant="caption" color="secondary" style={{ textDecorationLine: 'underline' }}>Ma position</TText>
+          </Pressable>
+        )}
+      </View>
+
+      {cityMode && (
+        <View>
+          <View style={styles.cityRow}>
+            <View style={[styles.searchBox, styles.cityBox]}>
+              <Ionicons name="location-outline" size={16} color={Colors.textTertiary} />
+              <TextInput
+                style={styles.searchInput}
+                value={cityQuery}
+                onChangeText={setCityQuery}
+                placeholder="Ville, par exemple Lyon"
+                placeholderTextColor={Colors.textTertiary}
+                selectionColor={Colors.accentWarm}
+                returnKeyType="search"
+                onSubmitEditing={() => { void searchCity(); }}
+                autoCorrect={false}
+                maxLength={80}
+                accessibilityLabel="Chercher autour d’une ville"
+              />
+            </View>
+            <TButton
+              title="Chercher"
+              size="md"
+              fullWidth={false}
+              loading={nearState === 'locating'}
+              onPress={() => { void searchCity(); }}
+            />
+          </View>
+          <TText variant="micro" color="tertiary" style={{ marginTop: 6 }}>
+            Seul le nom de la ville est envoyé au service de cartes OpenStreetMap.
+          </TText>
+        </View>
+      )}
+
+      {!!nearMessage && (
+        <TText variant="caption" color="warning" accessibilityRole="alert" accessibilityLiveRegion="polite">{nearMessage}</TText>
+      )}
+
+      <View style={styles.radiusRow} accessibilityRole="radiogroup" accessibilityLabel="Rayon de recherche">
+        <TText variant="caption" color="tertiary">Rayon</TText>
+        {RADIUS_OPTIONS.map((r) => (
+          <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => changeRadius(r)} />
+        ))}
+      </View>
+    </View>
+  ) : null;
+
   const ListHeader = (
     <View>
-      {!hasFilters && !isLoading && !fetchError && (
+      {nearPanel}
+      {!nearMode && !hasFilters && !isLoading && !fetchError && (
         <>
           {spotlightArtist && (
             <Animated.View entering={FadeIn.duration(500)} style={styles.spotlight}>
@@ -419,10 +678,12 @@ export default function ExploreScreen() {
         </>
       )}
 
-      {!fetchError && (
+      {(nearMode ? nearState === 'ready' : !fetchError) && (
         <View style={styles.countRow}>
           <TText variant="bodySmall" color="secondary" tabular accessibilityLiveRegion="polite">
-            {isLoading ? 'Recherche…' : `${total} artiste${total > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
+            {nearMode
+              ? `${nearCount} artiste${nearCount > 1 ? 's' : ''} à moins de ${radius} km${styleName ? ` · ${styleName}` : ''}`
+              : isLoading ? 'Recherche…' : `${total} artiste${total > 1 ? 's' : ''}${styleName ? ` · ${styleName}` : ''}`}
           </TText>
           <View style={styles.viewToggle} accessibilityRole="radiogroup">
             {(['list', 'grid'] as const).map((m) => (
@@ -507,6 +768,13 @@ export default function ExploreScreen() {
 
         {/* Styles */}
         <ScrollView ref={chipRail} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.chipScroller}>
+          <Chip
+            label="Autour de moi"
+            icon="navigate-outline"
+            selected={nearMode}
+            onPress={() => (nearMode ? leaveNear() : startNear())}
+          />
+          <View style={styles.chipSeparator} />
           <Chip label="Tous les styles" selected={!selectedStyle} onPress={() => setSelectedStyle(null)} />
           {STYLES.map((s) => (
             <Chip
@@ -531,7 +799,7 @@ export default function ExploreScreen() {
 
       {/* Results */}
       <Animated.FlatList
-        data={isLoading ? [] : listed}
+        data={listData}
         keyExtractor={(item) => item.id}
         renderItem={renderArtist}
         key={`${viewMode}-${columns}`}
@@ -543,17 +811,51 @@ export default function ExploreScreen() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeader}
-        onEndReached={() => { void fetchMore(); }}
+        onEndReached={() => { if (!nearMode) void fetchMore(); }}
         onEndReachedThreshold={0.6}
-        ListFooterComponent={isLoadingMore ? (
+        ListFooterComponent={!nearMode && isLoadingMore ? (
           <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: Spacing.md }} accessibilityLabel="Chargement des artistes suivants" />
         ) : null}
         keyboardDismissMode="on-drag"
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} progressViewOffset={barH} />
+          <RefreshControl refreshing={nearMode ? nearState === 'loading' : isRefreshing} onRefresh={handleRefresh} tintColor={Colors.accentWarm} colors={[Colors.accentWarm]} progressViewOffset={barH} />
         }
         ListEmptyComponent={
-          isLoading ? <ListSkeleton /> : fetchError ? (
+          nearMode ? (
+            nearBusy ? <ListSkeleton /> : nearState === 'error' ? (
+              <EmptyState
+                icon="cloud-offline-outline"
+                title="Recherche impossible"
+                description="Les artistes à proximité n’ont pas pu être chargés. Vérifiez votre connexion."
+                ctaLabel="Réessayer"
+                onCta={() => { if (nearCoords) void loadNearby(nearCoords, radius); }}
+              />
+            ) : nearState === 'idle' ? (
+              <EmptyState
+                icon="location-outline"
+                title="Où cherchez-vous ?"
+                description="Indiquez une ville pour voir les artistes installés autour."
+              />
+            ) : nearResults.length === 0 ? (
+              <EmptyState
+                icon="navigate-outline"
+                title="Aucun artiste localisé dans ce rayon"
+                description={nextRadius
+                  ? `Personne à moins de ${radius} km pour l’instant. Élargissez la zone de recherche.`
+                  : 'Peu d’artistes ont encore indiqué leur ville. Revenez bientôt, ou lancez une recherche classique.'}
+                ctaLabel={nextRadius ? `Élargir à ${nextRadius} km` : 'Recherche classique'}
+                onCta={() => (nextRadius ? changeRadius(nextRadius) : leaveNear())}
+              />
+            ) : (
+              <EmptyState
+                icon="search-outline"
+                title="Aucun artiste ne correspond"
+                description="Des artistes sont proches, mais aucun ne correspond à vos filtres."
+                ctaLabel="Effacer les filtres"
+                onCta={resetAll}
+              />
+            )
+          ) : isLoading ? <ListSkeleton /> : fetchError ? (
             <EmptyState
               icon="cloud-offline-outline"
               title="Chargement impossible"
@@ -659,6 +961,18 @@ const styles = StyleSheet.create({
   chipHover: { backgroundColor: Colors.glassBgMid },
   chipSelected: { backgroundColor: Colors.accentAction, borderColor: Colors.accentAction },
   chipDot: { width: 6, height: 6, borderRadius: 3 },
+  chipSeparator: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: 6, backgroundColor: Colors.borderDefault },
+
+  nearPanel: {
+    gap: Spacing.xs, padding: Spacing.sm, marginTop: Spacing.xs, marginBottom: Spacing.md,
+    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+    backgroundColor: Colors.bgElevated,
+  },
+  nearPrivacy: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nearHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'], minHeight: 28 },
+  cityRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
+  cityBox: { height: 46 },
+  radiusRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
 
   list: { flex: 1 },
   listContent: { width: '100%', maxWidth: Layout.maxContent, alignSelf: 'center', paddingHorizontal: Layout.gutter, paddingTop: Spacing.xs },

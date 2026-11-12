@@ -24,6 +24,8 @@ import { useFollowStore } from '@/store/follow-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationStore } from '@/store/notification-store';
 import { Toast } from '@/components/ui/TToast';
+import { StoriesRail } from '@/components/social/StoriesRail';
+import { useReactionStore } from '@/components/social/reaction-store';
 
 const HEADER_H = 56;
 const GAP = Spacing.md;
@@ -317,6 +319,10 @@ export default function FeedScreen() {
   const followsLoaded = useFollowStore((s) => s.isLoaded);
   const fetchFollowed = useFollowStore((s) => s.fetchFollowed);
   const { unreadCount } = useNotificationStore();
+  const reactionCounts = useReactionStore((s) => s.counts);
+  const myReactions = useReactionStore((s) => s.mine);
+  const reactionsOwner = useReactionStore((s) => s.mineOwner);
+  const loadReactions = useReactionStore((s) => s.load);
 
   // ── Scroll-driven chrome: the masthead recedes, the header frosts over the work.
   const scrollY = useSharedValue(0);
@@ -335,6 +341,10 @@ export default function FeedScreen() {
   useEffect(() => { fetchFeed(user?.id); }, [user?.id, fetchFeed]);
   useEffect(() => { void fetchFollowed(user?.id); }, [user?.id, fetchFollowed]);
   useEffect(() => { void fetchSelection(); }, [fetchSelection]);
+  // Reactions for every loaded page in one request (the store skips posts already asked for).
+  useEffect(() => {
+    if (posts.length > 0) void loadReactions(posts.map((p) => p.id), user?.id);
+  }, [posts, user?.id, loadReactions]);
   // A failed first load retries on its own (and as soon as the connection is back).
   useAutoRetry(!!error && posts.length === 0, isLoading, () => { void fetchFeed(user?.id); });
 
@@ -352,7 +362,11 @@ export default function FeedScreen() {
     void fetchFeed(user?.id, next);
   }, [scope, scrollY, fetchFeed, user?.id]);
 
-  const handleRefresh    = useCallback(() => refresh(user?.id), [user?.id, refresh]);
+  const handleRefresh = useCallback(async () => {
+    await refresh(user?.id);
+    const ids = useFeedStore.getState().posts.map((p) => p.id);
+    if (ids.length > 0) void loadReactions(ids, user?.id, true);
+  }, [user?.id, refresh, loadReactions]);
   const handleEndReached = useCallback(() => fetchMore(user?.id), [user?.id, fetchMore]);
   const handleLike = useCallback(async (id: string) => {
     if (!user?.id) { router.push('/(auth)/sign-in'); return; }
@@ -375,13 +389,18 @@ export default function FeedScreen() {
     [posts],
   );
 
+  const followedList = useMemo(() => [...followedIds], [followedIds]);
+  const mineLoaded = !!user?.id && reactionsOwner === user.id;
+
   const cardProps = useCallback((p: FeedPost) => ({
     post: toCard(p),
+    initialReactionCounts: reactionCounts[p.id],
+    initialMyReaction: mineLoaded ? myReactions[p.id] : undefined,
     onLike: () => handleLike(p.id),
     // Videos open the full-screen viewer; photos keep their own page.
     onPress: () => router.push(p.mediaType === 'video' ? `/reels/${p.id}` : `/post/${p.id}`),
     onArtistPress: () => router.push(`/artist/${p.artistId}`),
-  }), [handleLike, router]);
+  }), [handleLike, router, reactionCounts, myReactions, mineLoaded]);
 
   // Rows are virtualized and scrolled past constantly: no entrance animation here.
   const renderRow = useCallback(({ item: row }: { item: FeedRow }) => {
@@ -446,6 +465,11 @@ export default function FeedScreen() {
     <View>
       <View style={{ height: HEADER_H + insets.top }} />
       <ScopeTabs scope={scope} onChange={selectScope} />
+
+      {/* Stories: everyone's on "Pour vous" (artists can add theirs), followed artists' on "Abonnements". */}
+      {following
+        ? <StoriesRail key="following" artistIds={followedList} />
+        : <StoriesRail key="all" showAdd />}
 
       {hasPosts && (
         <Animated.View style={mastheadStyle}>

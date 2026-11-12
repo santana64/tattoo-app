@@ -30,6 +30,11 @@ type NotifType =
   | 'new_post'
   | 'new_follower'
   | 'book_reopened'
+  | 'appointment_reminder'
+  | 'appointment_reschedule'
+  | 'appointment_canceled'
+  | 'healed_photo'
+  | 'healed_photo_reminder'
   | 'system';
 
 const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
@@ -42,19 +47,35 @@ const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; co
   new_post:      { icon: 'image-outline', color: Colors.accentGlow, label: 'Nouvelle pièce' },
   new_follower:  { icon: 'person-add-outline', color: Colors.accentWarm, label: 'Nouvel abonné' },
   book_reopened: { icon: 'calendar-outline', color: Colors.success, label: 'Réouverture' },
+  appointment_reminder:   { icon: 'alarm-outline', color: Colors.accentWarm, label: 'Rappel' },
+  appointment_reschedule: { icon: 'swap-horizontal-outline', color: Colors.warning, label: 'Report demandé' },
+  appointment_canceled:   { icon: 'calendar-clear-outline', color: Colors.error, label: 'Annulation' },
+  healed_photo:           { icon: 'sparkles-outline', color: Colors.accentGlow, label: 'Photo cicatrisée' },
+  healed_photo_reminder:  { icon: 'camera-outline', color: Colors.accentWarm, label: 'Photo cicatrisée' },
   system:        { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
 };
 
 /**
- * Written by the database (migration 011) as a name in `title` and a sentence that
+ * Written by the database (migrations 011, 012) as a name in `title` and a sentence that
  * starts with a verb in `body`: "Léa Ink" + "a publié une nouvelle pièce."
  */
-const SENTENCE_TYPES: ReadonlySet<NotifType> = new Set(['new_post', 'new_follower', 'book_reopened']);
+const SENTENCE_TYPES: ReadonlySet<NotifType> = new Set(['new_post', 'new_follower', 'book_reopened', 'healed_photo']);
+
+/** Types matched by their exact name: none of them may fall into the substring matches below. */
+const EXACT_TYPES: ReadonlySet<NotifType> = new Set([
+  'new_post', 'new_follower', 'book_reopened',
+  'appointment_reminder', 'appointment_reschedule', 'appointment_canceled',
+  'healed_photo', 'healed_photo_reminder',
+]);
+
+/** Booking-care types that always lead to the session page. */
+const APPOINTMENT_TYPES: ReadonlySet<NotifType> = new Set([
+  'appointment_reminder', 'appointment_canceled', 'healed_photo', 'healed_photo_reminder',
+]);
 
 function resolveNotifType(n: AppNotification): NotifType {
   const t = n.type ?? '';
-  // Exact social types first: none of them may fall into the substring matches below.
-  if (t === 'new_post' || t === 'new_follower' || t === 'book_reopened') return t;
+  if (EXACT_TYPES.has(t as NotifType)) return t as NotifType;
   if (t.includes('request')) return 'new_request';
   if (t.includes('message')) return 'message';
   if (t.includes('accept')) return 'accepted';
@@ -87,6 +108,17 @@ function notifTarget(n: AppNotification): Href | null {
   if (type === 'new_follower' || type === 'book_reopened') {
     const artistId = idOf(data?.artist_id);
     return artistId ? `/artist/${artistId}` : null;
+  }
+  if (APPOINTMENT_TYPES.has(type)) {
+    const appointmentId = idOf(data?.appointment_id);
+    return appointmentId ? `/appointment/${appointmentId}` : null;
+  }
+  if (type === 'appointment_reschedule') {
+    // The new slots the client suggests are answered from the request.
+    const requestId = idOf(data?.request_id);
+    if (requestId) return `/request/${requestId}`;
+    const appointmentId = idOf(data?.appointment_id);
+    return appointmentId ? `/appointment/${appointmentId}` : null;
   }
   const requestId = idOf(data?.request_id);
   if (n.type === 'new_message' && requestId) return `/conversation/${requestId}`;

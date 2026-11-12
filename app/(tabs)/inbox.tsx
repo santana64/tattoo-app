@@ -20,9 +20,10 @@ import { enterUp } from '@/components/motion';
 const LIST_MAX = 760;
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
-type FilterValue = RequestStatus | 'all';
+/** 'inquiry': questions written without a project, whatever their status. */
+type FilterValue = RequestStatus | 'all' | 'inquiry';
 
-const STATUS_FILTERS: { value: FilterValue; artistLabel: string; clientLabel: string }[] = [
+const STATUS_FILTERS: { value: RequestStatus | 'all'; artistLabel: string; clientLabel: string }[] = [
   { value: 'all',                  artistLabel: 'Toutes',     clientLabel: 'Toutes' },
   { value: 'submitted',            artistLabel: 'Nouvelles',  clientLabel: 'En attente' },
   { value: 'accepted',             artistLabel: 'Acceptées',  clientLabel: 'Acceptées' },
@@ -119,15 +120,33 @@ export default function InboxScreen() {
   }, [user?.id, user?.role, user?.artistId, fetchRequests]);
 
   const counts = useMemo(() => {
-    const map: Partial<Record<RequestStatus, number>> = {};
-    for (const r of requests) map[r.status] = (map[r.status] ?? 0) + 1;
+    const map: Partial<Record<FilterValue, number>> = {};
+    for (const r of requests) {
+      map[r.status] = (map[r.status] ?? 0) + 1;
+      if (r.isInquiry) map.inquiry = (map.inquiry ?? 0) + 1;
+    }
     return map;
   }, [requests]);
 
   const filtered = useMemo(
-    () => requests.filter((r) => activeFilter === 'all' || r.status === activeFilter),
+    () => requests.filter((r) => activeFilter === 'all'
+      || (activeFilter === 'inquiry' ? r.isInquiry : r.status === activeFilter)),
     [requests, activeFilter],
   );
+
+  // The "Questions" chip only exists while there are questions (or while it is selected).
+  const filters = useMemo(() => {
+    const list: { value: FilterValue; label: string; dot?: string; count?: number }[] = STATUS_FILTERS.map((f) => ({
+      value: f.value,
+      label: isArtist ? f.artistLabel : f.clientLabel,
+      dot: f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color,
+      count: f.value === 'all' ? undefined : counts[f.value],
+    }));
+    if ((counts.inquiry ?? 0) > 0 || activeFilter === 'inquiry') {
+      list.splice(1, 0, { value: 'inquiry', label: 'Questions', dot: Colors.accentWarm, count: counts.inquiry });
+    }
+    return list;
+  }, [counts, isArtist, activeFilter]);
 
   const newCount = counts.submitted ?? 0;
   const inProgress = (counts.submitted ?? 0) + (counts.clarification_needed ?? 0) + (counts.accepted ?? 0) + (counts.confirmed ?? 0);
@@ -236,12 +255,12 @@ export default function InboxScreen() {
               style={styles.filterScroller}
               accessibilityRole="tablist"
             >
-              {STATUS_FILTERS.map((f) => (
+              {filters.map((f) => (
                 <FilterChip
                   key={f.value}
-                  label={isArtist ? f.artistLabel : f.clientLabel}
-                  dot={f.value === 'all' ? undefined : REQUEST_STATUS[f.value].color}
-                  count={f.value === 'all' ? undefined : counts[f.value]}
+                  label={f.label}
+                  dot={f.dot}
+                  count={f.count}
                   active={activeFilter === f.value}
                   onPress={() => setActiveFilter(f.value)}
                 />

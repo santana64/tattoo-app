@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +15,8 @@ import { Toast } from '@/components/ui/TToast';
 import { BottomSheet, GlassSurface, PressableScale, RevealImage, enterUp, fadeIn } from '@/components/motion';
 import { ArtPlaceholder, styleName } from '@/components/ArtistCard';
 import { Seo } from '@/components/Seo';
+import { Lightbox, type LightboxItem } from '@/components/gallery/Lightbox';
+import { ShareButton } from '@/components/ui/ShareButton';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
 import { isUuid } from '@/lib/catalog';
@@ -130,6 +132,7 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
   const { user, isAuthenticated } = useAuthStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const isOwner = !!user?.artistId && user.artistId === flash.artist_id;
   const left = flashCopiesLeft(flash);
@@ -143,6 +146,10 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
     flash.body_zone?.trim() ? `Emplacement conseillé : ${flash.body_zone.trim()}` : null,
     flash.estimated_duration ? `Environ ${formatDuration(flash.estimated_duration)} de séance` : null,
   ].filter((l): l is string => !!l);
+  const viewerItems = useMemo<LightboxItem[]>(
+    () => [{ id: flash.id, uri: flash.image_url, title: flash.title, subtitle: `Flash de ${blaze} · ${style}` }],
+    [flash.id, flash.image_url, flash.title, blaze, style],
+  );
 
   const handleBook = () => {
     if (soldOut) return;
@@ -207,7 +214,16 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
         type="article"
         indexable={flash.is_published}
       />
-      <THeader showBack />
+      <THeader
+        showBack
+        rightElement={flash.is_published ? (
+          <ShareButton
+            title={`${flash.title} — Flash de ${blaze}`}
+            text={`Flash « ${flash.title} » de ${blaze} : ${formatPrice(flash.price)}, ${availability.toLowerCase()}.`}
+            path={`/flash/${flash.id}`}
+          />
+        ) : undefined}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -217,7 +233,13 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
           {/* ── The design, lit on the dark wall ── */}
           <View style={[styles.art, { height: artH }, wide && [styles.artColWide, styles.artWide]]}>
             <LinearGradient colors={Gradients.glowAmber} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 0.8 }} style={StyleSheet.absoluteFill} />
-            <View style={styles.print}>
+            <Pressable
+              onPress={() => setViewerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Agrandir le flash « ${flash.title} »`}
+              accessibilityHint="Ouvre la visionneuse plein écran"
+              style={[styles.print, styles.zoomable]}
+            >
               <RevealImage
                 uri={flash.image_url}
                 contentFit="contain"
@@ -225,7 +247,7 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
                 accessibilityLabel={`Flash « ${flash.title} » de ${blaze}`}
                 fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={88} />}
               />
-            </View>
+            </Pressable>
           </View>
 
           {/* ── Wall label ── */}
@@ -306,6 +328,8 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
           <TButton title="Garder le flash" variant="secondary" onPress={() => setConfirmOpen(false)} />
         </View>
       </BottomSheet>
+
+      <Lightbox visible={viewerOpen} onClose={() => setViewerOpen(false)} items={viewerItems} index={0} />
     </View>
   );
 }
@@ -325,6 +349,7 @@ const styles = StyleSheet.create({
   // The print hangs on the wall with a margin of darkness around it.
   print: { position: 'absolute', top: Spacing.xl, bottom: Spacing.xl, left: Spacing.lg, right: Spacing.lg },
   mat: { backgroundColor: 'transparent' },
+  zoomable: Platform.OS === 'web' ? ({ cursor: 'zoom-in' } as object) : {},
 
   side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
   sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },

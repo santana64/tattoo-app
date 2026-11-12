@@ -12,16 +12,28 @@ import { fr } from 'date-fns/locale/fr';
 import { Colors, Spacing, Radius, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
+import { TInput } from '@/components/ui/TInput';
 import { THeader } from '@/components/ui/THeader';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Toast } from '@/components/ui/TToast';
 import { StatusTimeline, type TimelineStep } from '@/components/RequestCard';
 import { BottomSheet, GlassSurface, PressableScale, enterUp } from '@/components/motion';
+import { SlotPicker } from '@/components/booking/SlotPicker';
+import { exportCalendar, openInGoogleCalendar } from '@/components/booking/calendar-export';
+import { cancellationNotice, noticeDeadline } from '@/components/booking/booking-copy';
 import { useAuthStore } from '@/store/auth-store';
+import { HealedPhotoCard } from '@/components/social/HealedPhotoCard';
 import { supabase } from '@/lib/supabase';
+import { completeAppointment, respondToAppointment } from '@/lib/appointments';
+import { normalizePreferredSlots } from '@/lib/studio';
+import { absoluteUrl } from '@/lib/site';
+import { cancelAppointment, canClientCancel, fetchBookingSettings, type BookingSettings } from '@/lib/care';
+import type { CalendarEvent } from '@/lib/ics';
 
 const DOSSIER_MAX = 720;
+const REASON_MAX = 300;
 
 // ─── Status vocabulary: 6px dot + label ───────────────────────────────────────
 const STATUS_CONFIG = {
@@ -81,6 +93,26 @@ function AppointmentSkeleton() {
   );
 }
 
+function ActionLink({ icon, label, onPress, disabled, tone = 'default' }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; disabled?: boolean; tone?: 'default' | 'danger';
+}) {
+  const color = tone === 'danger' ? Colors.errorLight : Colors.textPrimary;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      hitSlop={8}
+      style={({ pressed }) => [styles.actionLink, pressed && { opacity: 0.6 }, disabled && { opacity: 0.4 }]}
+    >
+      <Ionicons name={icon} size={16} color={color} />
+      <TText variant="bodySmall" weight="medium" style={{ color }}>{label}</TText>
+    </Pressable>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 interface AppointmentData {
   id: string;
@@ -99,6 +131,10 @@ interface AppointmentData {
   artistTier: 'normal' | 'premium';
 }
 
+type Sheet = 'cancel' | 'move' | null;
+type Busy = 'confirm' | 'accept' | 'decline' | 'complete' | 'cancel' | 'move' | null;
+interface CancelInfo { by: 'client' | 'artist' | null; reason: string | null }
+
 export default function AppointmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -109,11 +145,22 @@ export default function AppointmentScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'confirm' | 'cancel' | null>(null);
-  const [showCancel, setShowCancel] = useState(false);
+  const [busy, setBusy] = useState<Busy>(null);
+
+  // Booking rules of the artist (notice, lengths). Optional: the server decides anyway.
+  const [settings, setSettings] = useState<BookingSettings | null>(null);
+  const [cancelInfo, setCancelInfo] = useState<CancelInfo | null>(null);
+  const [outcome, setOutcome] = useState<'canceled' | 'moved' | null>(null);
+
+  // Sheets
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [moveSlots, setMoveSlots] = useState<string[]>([]);
 
   useEffect(() => {
     if (!id) return;
+    let active = true;
     const load = async () => {
       const { data, error } = await supabase
         .from('appointments')
@@ -126,8 +173,10 @@ export default function AppointmentScreen() {
         .eq('id', id)
         .single();
 
+      if (!active) return;
       if (error || !data) { setNotFound(true); setIsLoading(false); return; }
 
+      const artistId: string | null = (data.artists as any)?.id ?? null;
       setAppointment({
         id: data.id,
         requestId: data.request_id ?? null,
@@ -141,45 +190,26 @@ export default function AppointmentScreen() {
         artistBlaze: (data.artists as any)?.blaze ?? 'Artiste',
         artistCity: (data.artists as any)?.city ?? '',
         artistAvatarUrl: (data.artists as any)?.avatar_url ?? null,
-        artistId: (data.artists as any)?.id ?? null,
+        artistId,
         artistTier: (data.artists as any)?.tier ?? 'normal',
       });
       setIsLoading(false);
+
+      if (artistId) {
+        fetchBookingSettings(artistId)
+          .then((s) => { if (active) setSettings(s); })
+          .catch(() => { /* Without settings the server still enforces every rule. */ });
+      }
+      if (data.status === 'canceled') {
+        const { data: info } = await supabase.from('appointments').select('canceled_by,cancel_reason').eq('id', id).maybeSingle();
+        if (active && info) setCancelInfo({ by: info.canceled_by, reason: info.cancel_reason });
+      }
     };
-    load();
+    void load();
+    return () => { active = false; };
   }, [id]);
 
-  const handleConfirm = async () => {
-    if (!appointment || busy) return;
-    setBusy('confirm'); setActionError(null);
-    const { error } = await supabase
-      .from('appointments')
-      .update({ status: 'confirmed' })
-      .eq('id', appointment.id);
-    setBusy(null);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
-    }
-    if (!error) setAppointment((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
-    else setActionError('La confirmation n’a pas été enregistrée. Réessayez.');
-  };
-
-  // Confirmation lives in a sheet (Alert.alert is a no-op on web).
-  const handleCancel = () => { setActionError(null); setShowCancel(true); };
-  const confirmCancel = async () => {
-    if (!appointment || busy) return;
-    setBusy('cancel'); setActionError(null);
-    const { error } = await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointment.id);
-    setBusy(null);
-    if (error) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setActionError('L’annulation n’a pas été enregistrée. Le rendez-vous est inchangé.');
-      return;
-    }
-    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    setAppointment((prev) => prev ? { ...prev, status: 'canceled' } : prev);
-    setShowCancel(false);
-  };
+  const closeSheet = () => { if (!busy) { setSheet(null); setSheetError(null); } };
 
   if (isLoading) {
     return (
@@ -204,23 +234,120 @@ export default function AppointmentScreen() {
   }
 
   const status = STATUS_CONFIG[appointment.status] ?? STATUS_CONFIG.proposed;
-  const isArtist = user?.role === 'artist';
-  const isOpen = appointment.status !== 'completed' && appointment.status !== 'canceled';
+  // The artist of this session, not any artist account (an artist can also be someone's client).
+  const isArtist = appointment.artistId ? user?.artistId === appointment.artistId : user?.role === 'artist';
+  const isOpen = appointment.status === 'proposed' || appointment.status === 'confirmed';
   const counterpart = isArtist ? appointment.clientName : appointment.artistBlaze;
 
   const start = parseISO(appointment.startsAt);
   const end = parseISO(appointment.endsAt);
   const validDates = isValid(start) && isValid(end);
+  const upcoming = validDates && start.getTime() > Date.now();
+  const started = validDates && start.getTime() <= Date.now();
   const dayTitle = validDates ? format(start, 'EEEE d MMMM', { locale: fr }) : appointment.startsAt;
   const year = validDates ? format(start, 'yyyy') : '';
   const timeRange = validDates ? `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}` : '';
-  const hours = validDates ? (end.getTime() - start.getTime()) / 3_600_000 : NaN;
+  const sessionMin = validDates ? Math.round((end.getTime() - start.getTime()) / 60_000) : NaN;
+  const hours = sessionMin / 60;
   const duration = Number.isFinite(hours) && hours > 0
     ? `${hours.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} h`
     : null;
 
+  // Cancel / move: both parties on an upcoming open session; a client must respect the notice once confirmed.
+  const canManage = isOpen && upcoming;
+  const notice = settings?.cancelNoticeHours ?? null;
+  const clientLocked = !isArtist && appointment.status === 'confirmed' && notice !== null
+    && !canClientCancel(appointment.startsAt, notice);
+
   const openChat = () => router.push(`/conversation/${appointment.requestId ?? id}` as any);
+  const openRequest = () => { if (appointment.requestId) router.push(`/request/${appointment.requestId}` as any); };
   const hasBar = isOpen || (appointment.status === 'completed' && !isArtist);
+
+  const haptic = (type: Haptics.NotificationFeedbackType) => { if (Platform.OS !== 'web') Haptics.notificationAsync(type); };
+
+  // ── Existing transitions ──
+  const handleConfirm = async () => {
+    if (busy) return;
+    setBusy('confirm'); setActionError(null);
+    const { error } = await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointment.id);
+    setBusy(null);
+    haptic(error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+    if (!error) setAppointment((prev) => (prev ? { ...prev, status: 'confirmed' } : prev));
+    else setActionError('La confirmation n’a pas été enregistrée. Réessayez.');
+  };
+
+  const handleRespond = async (accept: boolean) => {
+    if (busy) return;
+    setBusy(accept ? 'accept' : 'decline'); setActionError(null);
+    const { data, error } = await respondToAppointment(appointment.id, accept);
+    setBusy(null);
+    haptic(error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+    if (error) { setActionError(error); return; }
+    const next = (data?.status as AppointmentStatus | undefined) ?? (accept ? 'confirmed' : 'canceled');
+    setAppointment((prev) => (prev ? { ...prev, status: next } : prev));
+    Toast.success(accept ? 'Rendez-vous confirmé' : 'Créneau refusé');
+  };
+
+  const handleComplete = async () => {
+    if (busy) return;
+    setBusy('complete'); setActionError(null);
+    const { error } = await completeAppointment(appointment.id);
+    setBusy(null);
+    haptic(error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+    if (error) { setActionError(error); return; }
+    setAppointment((prev) => (prev ? { ...prev, status: 'completed' } : prev));
+    Toast.success('Séance enregistrée comme réalisée');
+  };
+
+  // ── Cancel / move ──
+  const openCancel = () => { setReason(''); setSheetError(null); setSheet('cancel'); };
+  const openMove = () => { setReason(''); setMoveSlots([]); setSheetError(null); setSheet('move'); };
+
+  const submitCancel = async (slots: string[] = []) => {
+    if (busy) return;
+    const moving = slots.length > 0;
+    setBusy(moving ? 'move' : 'cancel'); setSheetError(null);
+    const error = await cancelAppointment(appointment.id, reason, normalizePreferredSlots(slots));
+    setBusy(null);
+    if (error) {
+      haptic(Haptics.NotificationFeedbackType.Error);
+      setSheetError(error);
+      return;
+    }
+    haptic(Haptics.NotificationFeedbackType.Warning);
+    setAppointment((prev) => (prev ? { ...prev, status: 'canceled' } : prev));
+    setCancelInfo({ by: isArtist ? 'artist' : 'client', reason: reason.trim().slice(0, REASON_MAX) || null });
+    setOutcome(moving ? 'moved' : 'canceled');
+    setSheet(null);
+    Toast.success(moving ? 'Demande de report envoyée' : 'Rendez-vous annulé');
+  };
+
+  // ── Calendar ──
+  const calendarEvent: CalendarEvent = {
+    id: appointment.id,
+    start: appointment.startsAt,
+    end: appointment.endsAt,
+    title: `Séance tatouage — ${counterpart}`,
+    description: [
+      appointment.bodyZone ? `Zone : ${appointment.bodyZone}` : null,
+      appointment.notes,
+      appointment.status === 'proposed' ? 'Créneau en attente de confirmation.' : null,
+      `Détails : ${absoluteUrl(`/appointment/${appointment.id}`)}`,
+    ].filter(Boolean).join('\n'),
+    location: appointment.artistCity || null,
+    tentative: appointment.status === 'proposed',
+  };
+  const addToGoogle = async () => {
+    if (!(await openInGoogleCalendar(calendarEvent))) Toast.error('Google Agenda n’a pas pu s’ouvrir.');
+  };
+  const downloadIcs = async () => {
+    const ok = await exportCalendar([calendarEvent], 'inkr-seance.ics');
+    if (ok && Platform.OS === 'web') Toast.success('Fichier .ics téléchargé');
+  };
+
+  const canceledByLabel = cancelInfo?.by
+    ? (cancelInfo.by === 'artist' ? (isArtist ? 'Vous' : 'L’artiste') : (isArtist ? 'Le client' : 'Vous'))
+    : null;
 
   return (
     <View style={styles.container}>
@@ -229,6 +356,7 @@ export default function AppointmentScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + (hasBar ? 140 : Spacing['2xl']) }]}
+        keyboardShouldPersistTaps="handled"
       >
         {/* ── Date, the hero of this dossier ── */}
         <Animated.View entering={enterUp(0)} style={styles.hero}>
@@ -247,45 +375,81 @@ export default function AppointmentScreen() {
           )}
         </Animated.View>
 
+        {/* ── What just happened, and where to go next ── */}
+        {outcome && (
+          <Animated.View entering={enterUp(0)} style={styles.outcome} accessibilityLiveRegion="polite">
+            <Ionicons name={outcome === 'moved' ? 'swap-horizontal-outline' : 'close-circle-outline'} size={20} color={Colors.accentWarm} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <TText variant="body" weight="semibold">{outcome === 'moved' ? 'Demande de report envoyée' : 'Rendez-vous annulé'}</TText>
+              <TText variant="bodySmall" color="secondary">
+                {outcome === 'moved'
+                  ? `${appointment.artistBlaze} est prévenu et vous proposera un nouveau créneau parmi vos choix. La suite se passe dans votre projet.`
+                  : isArtist
+                    ? `${appointment.clientName} est prévenu. Vous pourrez proposer un autre créneau depuis le projet.`
+                    : `${appointment.artistBlaze} est prévenu. Le projet reste ouvert si vous souhaitez convenir d’une autre date.`}
+              </TText>
+              {!!appointment.requestId && (
+                <TButton title="Voir le projet" variant="secondary" size="sm" fullWidth={false} onPress={openRequest} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
+              )}
+            </View>
+          </Animated.View>
+        )}
+
         <Section title="Suivi" index={1}>
           <StatusTimeline steps={buildTimeline(appointment.status)} />
         </Section>
 
         <Section title={isArtist ? 'Client' : 'Artiste'} index={2}>
-          {!isArtist && appointment.artistId ? (
-            <PressableScale
-              onPress={() => router.push(`/artist/${appointment.artistId}` as any)}
-              accessibilityRole="link"
-              accessibilityLabel={`Voir le profil de ${appointment.artistBlaze}`}
-              pressedScale={0.98}
-              style={styles.personRow}
+          <View style={styles.personLine}>
+            {!isArtist && appointment.artistId ? (
+              <PressableScale
+                onPress={() => router.push(`/artist/${appointment.artistId}` as any)}
+                accessibilityRole="link"
+                accessibilityLabel={`Voir le profil de ${appointment.artistBlaze}`}
+                pressedScale={0.98}
+                style={styles.personRow}
+              >
+                <TAvatar uri={appointment.artistAvatarUrl} name={appointment.artistBlaze} size="lg" isPremium={appointment.artistTier === 'premium'} />
+                <View style={{ flex: 1 }}>
+                  <TText variant="title2" serif style={{ fontSize: 22, lineHeight: 26 }}>{appointment.artistBlaze}</TText>
+                  {!!appointment.artistCity && <TText variant="caption" color="tertiary">{appointment.artistCity}</TText>}
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+              </PressableScale>
+            ) : (
+              <View style={styles.personRow}>
+                <TAvatar
+                  uri={isArtist ? appointment.clientAvatarUrl : appointment.artistAvatarUrl}
+                  name={counterpart}
+                  size="lg"
+                />
+                <View style={{ flex: 1 }}>
+                  <TText variant="title2" serif style={{ fontSize: 22, lineHeight: 26 }}>{counterpart}</TText>
+                  {!isArtist && !!appointment.artistCity && <TText variant="caption" color="tertiary">{appointment.artistCity}</TText>}
+                </View>
+              </View>
+            )}
+            <Pressable
+              onPress={openChat}
+              accessibilityRole="button"
+              accessibilityLabel={`Écrire à ${counterpart}`}
+              hitSlop={6}
+              style={({ pressed }) => [styles.roundBtn, pressed && { opacity: 0.6 }]}
             >
-              <TAvatar uri={appointment.artistAvatarUrl} name={appointment.artistBlaze} size="lg" isPremium={appointment.artistTier === 'premium'} />
-              <View style={{ flex: 1 }}>
-                <TText variant="title2" serif style={{ fontSize: 22, lineHeight: 26 }}>{appointment.artistBlaze}</TText>
-                {!!appointment.artistCity && <TText variant="caption" color="tertiary">{appointment.artistCity}</TText>}
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
-            </PressableScale>
-          ) : (
-            <View style={styles.personRow}>
-              <TAvatar
-                uri={isArtist ? appointment.clientAvatarUrl : appointment.artistAvatarUrl}
-                name={counterpart}
-                size="lg"
-              />
-              <View style={{ flex: 1 }}>
-                <TText variant="title2" serif style={{ fontSize: 22, lineHeight: 26 }}>{counterpart}</TText>
-                {!isArtist && !!appointment.artistCity && <TText variant="caption" color="tertiary">{appointment.artistCity}</TText>}
-              </View>
-            </View>
-          )}
+              <Ionicons name="chatbubble-outline" size={17} color={Colors.textPrimary} />
+            </Pressable>
+          </View>
         </Section>
 
         <Section title="Détails" index={3}>
           <Fact label="Zone" value={appointment.bodyZone ?? '—'} />
           {validDates && <Fact label="Horaire" value={timeRange} />}
           {!!duration && <Fact label="Durée estimée" value={duration} />}
+          {appointment.status === 'canceled' && !!canceledByLabel && <Fact label="Annulé par" value={canceledByLabel} />}
+          {appointment.status === 'canceled' && !!cancelInfo?.reason && <Fact label="Motif" value={cancelInfo.reason} />}
+          {appointment.status === 'canceled' && !outcome && !!appointment.requestId && (
+            <ActionLink icon="folder-open-outline" label="Voir le projet" onPress={openRequest} />
+          )}
         </Section>
 
         {!!appointment.notes && (
@@ -294,24 +458,67 @@ export default function AppointmentScreen() {
           </Section>
         )}
 
-        {isOpen && (
-          <Animated.View entering={enterUp(5, 80)} style={styles.dangerZone}>
-            <Pressable
-              onPress={handleCancel}
-              accessibilityRole="button"
-              accessibilityLabel="Annuler le rendez-vous"
-              hitSlop={8}
-              style={({ pressed }) => [styles.cancelLink, pressed && { opacity: 0.6 }]}
-            >
-              <Ionicons name="close-circle-outline" size={16} color={Colors.errorLight} />
-              <TText variant="bodySmall" weight="medium" style={{ color: Colors.errorLight }}>Annuler le rendez-vous</TText>
-            </Pressable>
-          </Animated.View>
+        {/* ── Healed photo ── */}
+        <HealedPhotoCard
+          appointmentId={appointment.id}
+          role={isArtist ? 'artist' : 'client'}
+          completed={appointment.status === 'completed'}
+        />
+
+        {/* ── Calendar ── */}
+        {canManage && validDates && (
+          <Section title="Ajouter à mon agenda" index={6}>
+            <View style={styles.calendarRow}>
+              <TButton
+                title="Google Agenda"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                onPress={addToGoogle}
+                icon={<Ionicons name="logo-google" size={14} color={Colors.textPrimary} />}
+              />
+              <TButton
+                title="Fichier .ics"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                onPress={downloadIcs}
+                accessibilityLabel={Platform.OS === 'web' ? 'Télécharger le fichier .ics' : 'Partager le fichier .ics'}
+                icon={<Ionicons name="download-outline" size={15} color={Colors.textPrimary} />}
+              />
+            </View>
+            <TText variant="caption" color="tertiary" style={{ marginTop: Spacing['2xs'] }}>
+              {appointment.status === 'proposed'
+                ? 'Ajouté comme provisoire tant que le créneau n’est pas confirmé.'
+                : 'Apple Calendrier, Outlook et la plupart des agendas ouvrent le fichier .ics.'}
+            </TText>
+          </Section>
+        )}
+
+        {/* ── Cancel or move ── */}
+        {canManage && (
+          <Section title="Modifier le rendez-vous" index={7}>
+            {!isArtist && notice !== null && (
+              <TText variant="bodySmall" color={clientLocked ? 'warning' : 'secondary'} style={{ marginBottom: Spacing.xs }}>
+                {clientLocked
+                  ? `Le délai d’annulation (${noticeDeadline(notice)}) est dépassé : écrivez à ${appointment.artistBlaze} pour trouver une solution.`
+                  : appointment.status === 'confirmed'
+                    ? cancellationNotice(notice)
+                    : 'Vous pouvez annuler ou demander un autre créneau tant que celui-ci n’est pas confirmé.'}
+              </TText>
+            )}
+            <View style={styles.manageRow}>
+              {!isArtist && (
+                <ActionLink icon="swap-horizontal-outline" label="Demander un autre créneau" onPress={openMove} disabled={clientLocked} />
+              )}
+              <ActionLink icon="close-circle-outline" label="Annuler le rendez-vous" onPress={openCancel} disabled={clientLocked} tone="danger" />
+            </View>
+          </Section>
         )}
       </ScrollView>
 
       {/* ── Pinned actions ── */}
-      {hasBar && !showCancel && (
+      {hasBar && !sheet && (
         <GlassSurface style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
           <View style={styles.barInner}>
             {!!actionError && (
@@ -326,6 +533,20 @@ export default function AppointmentScreen() {
                   <TButton title="Message" variant="secondary" onPress={openChat} fullWidth={false} accessibilityLabel={`Écrire à ${counterpart}`} />
                   <View style={{ flex: 1 }}>
                     <TButton title="Confirmer le rendez-vous" onPress={handleConfirm} loading={busy === 'confirm'} disabled={!!busy} />
+                  </View>
+                </View>
+              ) : !isArtist && appointment.status === 'proposed' && upcoming ? (
+                <View style={styles.barRow}>
+                  <TButton title="Refuser" variant="secondary" onPress={() => { void handleRespond(false); }} loading={busy === 'decline'} disabled={!!busy} fullWidth={false} />
+                  <View style={{ flex: 1 }}>
+                    <TButton title="Accepter ce créneau" onPress={() => { void handleRespond(true); }} loading={busy === 'accept'} disabled={!!busy} />
+                  </View>
+                </View>
+              ) : isArtist && appointment.status === 'confirmed' && started ? (
+                <View style={styles.barRow}>
+                  <TButton title="Message" variant="secondary" onPress={openChat} fullWidth={false} accessibilityLabel={`Écrire à ${counterpart}`} />
+                  <View style={{ flex: 1 }}>
+                    <TButton title="Séance réalisée" onPress={handleComplete} loading={busy === 'complete'} disabled={!!busy} accessibilityLabel="Marquer la séance comme réalisée" />
                   </View>
                 </View>
               ) : (
@@ -346,20 +567,76 @@ export default function AppointmentScreen() {
         </GlassSurface>
       )}
 
-      {/* ── Cancel confirmation ── */}
-      <BottomSheet visible={showCancel} onClose={() => setShowCancel(false)} accessibilityLabel="Annuler le rendez-vous">
-        <TText variant="displayS">Annuler ce rendez-vous{' '}?</TText>
-        <TText variant="bodySmall" color="secondary" style={{ marginTop: 4 }}>
-          {validDates ? `${dayTitle}, ${timeRange}. ` : ''}Cette action est irréversible.
+      {/* ── Cancel (web-safe confirmation: Alert.alert is a no-op on web) ── */}
+      <BottomSheet visible={sheet === 'cancel'} onClose={closeSheet} accessibilityLabel="Annuler le rendez-vous">
+        <TText variant="displayS">Annuler ce rendez-vous{' '}?</TText>
+        <TText variant="bodySmall" color="secondary" style={{ marginTop: 4, marginBottom: Spacing.md }}>
+          {validDates ? `${dayTitle}, ${timeRange}. ` : ''}{counterpart} sera prévenu. Cette action est irréversible.
         </TText>
-        {!!actionError && (
-          <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{actionError}</TText>
+        <TInput
+          label="Motif"
+          optional
+          value={reason}
+          onChangeText={setReason}
+          placeholder={isArtist ? 'Un empêchement, un imprévu…' : 'Un imprévu, un changement de projet…'}
+          maxLength={REASON_MAX}
+          multiline
+          containerStyle={{ marginBottom: 0 }}
+        />
+        {!!sheetError && (
+          <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{sheetError}</TText>
         )}
         <View style={styles.sheetActions}>
-          <TButton title="Annuler le rendez-vous" variant="destructive" onPress={confirmCancel} loading={busy === 'cancel'} disabled={!!busy} />
-          <TButton title="Garder le rendez-vous" variant="ghost" size="md" onPress={() => setShowCancel(false)} />
+          <TButton title="Annuler le rendez-vous" variant="destructive" onPress={() => { void submitCancel(); }} loading={busy === 'cancel'} disabled={!!busy} />
+          <TButton title="Garder le rendez-vous" variant="ghost" size="md" onPress={closeSheet} />
         </View>
       </BottomSheet>
+
+      {/* ── Move (client) ── */}
+      <BottomSheet visible={sheet === 'move'} onClose={closeSheet} accessibilityLabel="Demander un autre créneau">
+        <ScrollView style={{ maxHeight: 600 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <TText variant="displayS">
+            Un autre <TText variant="displayS" italic color="accentGlow">créneau</TText>
+          </TText>
+          <TText variant="bodySmall" color="secondary" style={{ marginTop: 4, marginBottom: Spacing.md }}>
+            Choisissez jusqu’à trois créneaux libres. Ce rendez-vous sera annulé et {appointment.artistBlaze} vous en proposera un nouveau.
+          </TText>
+          {appointment.artistId ? (
+            <SlotPicker
+              artistId={appointment.artistId}
+              durationMin={Number.isFinite(sessionMin) && sessionMin > 0 ? sessionMin : undefined}
+              durations={settings?.sessionDurations}
+              value={moveSlots}
+              onChange={setMoveSlots}
+              max={3}
+              emptyText={`${appointment.artistBlaze} n’a pas de créneau libre publié pour le moment. Écrivez-lui pour convenir d’une autre date.`}
+            />
+          ) : null}
+          <TInput
+            label="Message à l’artiste"
+            optional
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Pourquoi déplacer la séance…"
+            maxLength={REASON_MAX}
+            multiline
+            containerStyle={{ marginTop: Spacing.md, marginBottom: 0 }}
+          />
+          {!!sheetError && (
+            <TText variant="caption" style={{ color: Colors.errorLight, marginTop: Spacing.xs }} accessibilityRole="alert">{sheetError}</TText>
+          )}
+          <View style={styles.sheetActions}>
+            <TButton
+              title={moveSlots.length > 0 ? 'Envoyer la demande de report' : 'Choisissez au moins un créneau'}
+              onPress={() => { void submitCancel(moveSlots); }}
+              loading={busy === 'move'}
+              disabled={!!busy || moveSlots.length === 0}
+            />
+            <TButton title="Garder ce rendez-vous" variant="ghost" size="md" onPress={closeSheet} />
+          </View>
+        </ScrollView>
+      </BottomSheet>
+
     </View>
   );
 }
@@ -376,22 +653,32 @@ const styles = StyleSheet.create({
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
 
+  outcome: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs,
+    padding: Spacing.sm, marginBottom: Spacing.lg, borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderGlow, backgroundColor: Colors.glassAmber,
+  },
+
   section: {
     paddingVertical: Spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
   },
-  personRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 56 },
+  personLine: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  personRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 56 },
+  roundBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderDefault,
+  },
   fact: {
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderSubtle,
   },
 
-  dangerZone: {
-    paddingTop: Spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderDefault,
-  },
-  cancelLink: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, alignSelf: 'flex-start' },
+  calendarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing['2xs'] },
+  manageRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.lg, rowGap: Spacing['3xs'] },
+  actionLink: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, alignSelf: 'flex-start' },
 
   bar: {
     position: 'absolute', left: 0, right: 0, bottom: 0,

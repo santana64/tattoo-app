@@ -35,6 +35,10 @@ import { WaitlistButton } from '@/components/social/WaitlistButton';
 import { AvailabilitySection } from '@/components/booking/AvailabilitySection';
 import { FlashRail } from '@/components/gallery/FlashRail';
 import { GuestSpotRail } from '@/components/gallery/GuestSpotRail';
+import { StoriesRail } from '@/components/social/StoriesRail';
+import { ContactArtistButton } from '@/components/social/ContactArtistButton';
+import { HealedRail } from '@/components/artist/HealedRail';
+import { ShareButton } from '@/components/ui/ShareButton';
 
 const GAP = 3;
 
@@ -76,6 +80,15 @@ function Section({ kicker, title, children }: { kicker: string; title: string; c
       <TText variant="label" color="accentWarm" uppercase style={{ marginBottom: 6 }}>{kicker}</TText>
       <TText variant="displayS" style={{ marginBottom: Spacing.sm }}>{title}</TText>
       {children}
+    </View>
+  );
+}
+
+function Block({ children }: { children: React.ReactNode }) {
+  const [filled, setFilled] = useState(false);
+  return (
+    <View style={[styles.body, filled && styles.block]}>
+      <View onLayout={(e) => setFilled(e.nativeEvent.layout.height > 0)}>{children}</View>
     </View>
   );
 }
@@ -261,6 +274,13 @@ export default function ArtistProfileScreen() {
           <Animated.View style={[{ flex: 1, alignItems: 'center' }, headerTitleStyle]}>
             <TText variant="bodySmall" weight="semibold" numberOfLines={1}>{artist.blaze}</TText>
           </Animated.View>
+          <ShareButton
+            title={`${artist.blaze} — Tatoueur à ${artist.city}`}
+            text={`Découvrez le travail de ${artist.blaze} sur Inkr.`}
+            path={`/artist/${artist.id}`}
+            style={styles.roundBtn}
+            framed={false}
+          />
           <RoundButton
             icon={isSaved ? 'bookmark' : 'bookmark-outline'}
             label={isSaved ? 'Retirer des favoris' : 'Ajouter aux favoris'}
@@ -335,6 +355,7 @@ export default function ArtistProfileScreen() {
                 <TText variant="caption" color="tertiary">Suivez cet artiste pour voir ses nouvelles pièces dans votre fil.</TText>
               )}
             </View>
+            <ContactArtistButton artistId={artist.id} artistName={artist.blaze} variant="icon" />
             <FollowButton
               artistId={artist.id}
               artistName={artist.blaze}
@@ -359,17 +380,10 @@ export default function ArtistProfileScreen() {
         </View>
 
         {/* ─── Availability, flashes, guest spots ─── */}
-        {canRequest && (
-          <View style={[styles.body, styles.block]}>
-            <AvailabilitySection artistId={artist.id} onPick={handleRequest} />
-          </View>
-        )}
-        <View style={[styles.body, styles.block]}>
-          <FlashRail artistId={artist.id} />
-        </View>
-        <View style={[styles.body, styles.block]}>
-          <GuestSpotRail artistId={artist.id} />
-        </View>
+        <Block><StoriesRail artistIds={[artist.id]} /></Block>
+        {canRequest && <Block><AvailabilitySection artistId={artist.id} onPick={handleRequest} /></Block>}
+        <Block><FlashRail artistId={artist.id} /></Block>
+        <Block><GuestSpotRail artistId={artist.id} /></Block>
 
         {/* ─── Videos ─── */}
         {portfolioState === 'ready' && videos.length > 0 && (
@@ -431,9 +445,22 @@ export default function ArtistProfileScreen() {
               })}
             </ScrollView>
           )}
-          {currentSeries?.description ? (
-            <TText variant="bodySmall" color="secondary" style={styles.seriesNote}>{currentSeries.description}</TText>
-          ) : null}
+          {currentSeries && (
+            <View style={styles.seriesNote}>
+              {!!currentSeries.description && (
+                <TText variant="bodySmall" color="secondary" numberOfLines={3}>{currentSeries.description}</TText>
+              )}
+              <Pressable
+                onPress={() => router.push({ pathname: '/series/[id]', params: { id: currentSeries.id } })}
+                accessibilityRole="link"
+                hitSlop={8}
+                style={styles.seriesLink}
+              >
+                <TText variant="bodySmall" color="accentWarm">Voir l’exposition</TText>
+                <Ionicons name="arrow-forward" size={14} color={Colors.accentWarm} />
+              </Pressable>
+            </View>
+          )}
 
           {portfolioState === 'loading' && (
             <View style={styles.grid}>
@@ -470,6 +497,8 @@ export default function ArtistProfileScreen() {
             </View>
           )}
         </View>
+
+        <Block><HealedRail artistId={artist.id} /></Block>
 
         <View style={styles.body}>
           {stats && stats.ratingCount > 0 && (
@@ -588,7 +617,8 @@ const styles = StyleSheet.create({
   seriesRail: { gap: Spacing.md, paddingRight: Layout.gutter, marginBottom: Spacing.sm },
   seriesTab: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'transparent' },
   seriesTabActive: { borderBottomColor: Colors.accentWarm },
-  seriesNote: { marginBottom: Spacing.sm, maxWidth: Layout.maxReading },
+  seriesNote: { marginBottom: Spacing.sm, maxWidth: Layout.maxReading, gap: 8 },
+  seriesLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   videos: { marginTop: Spacing.xl },
   videoRail: { gap: GAP, paddingRight: Layout.gutter },
   videoTile: {

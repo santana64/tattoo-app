@@ -208,19 +208,26 @@ export default function RequestDetailScreen() {
   const viewAs: RequestViewer = isArtist ? 'artist' : 'client';
   const counterpart = (isArtist ? request.clientName : request.artistName) ?? '';
   const counterpartAvatar = isArtist ? request.clientAvatarUrl : request.artistAvatarUrl;
-  const canAnswer = isArtist && (request.status === 'submitted' || request.status === 'clarification_needed');
-  const canChat = ['accepted', 'confirmed', 'completed'].includes(request.status);
+  // A question (no project) is answered in the conversation: no accept/decline, no booking.
+  const inquiry = request.isInquiry;
+  const inquiryOpen = inquiry && request.status !== 'archived' && request.status !== 'declined';
+  const canAnswer = !inquiry && isArtist && (request.status === 'submitted' || request.status === 'clarification_needed');
+  const canChat = inquiry ? inquiryOpen : ['accepted', 'confirmed', 'completed'].includes(request.status);
   const hasBar = canAnswer || canChat;
-  const guidance = nextStepCopy(request, viewAs, counterpart);
+  const guidance = inquiry
+    ? isArtist
+      ? `${counterpart || 'Ce client'} vous pose une question, sans projet pour l’instant. Répondez-lui dans la conversation.`
+      : `${counterpart || 'L’artiste'} vous répondra dans la conversation. Prêt à aller plus loin ? Transformez votre question en projet.`
+    : nextStepCopy(request, viewAs, counterpart);
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
   const references = request.references ?? [];
   const submitted = formatLong(request.submittedAt);
-  const awaitingAnswer = request.status === 'submitted' || request.status === 'clarification_needed';
+  const awaitingAnswer = !inquiry && (request.status === 'submitted' || request.status === 'clarification_needed');
   const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
 
   return (
     <View style={styles.container}>
-      <THeader showBack title="Demande" />
+      <THeader showBack title={inquiry ? 'Question' : 'Demande'} />
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + (hasBar ? 190 : Spacing['2xl']) }]}
@@ -229,7 +236,8 @@ export default function RequestDetailScreen() {
         {/* ── Identity ── */}
         <Animated.View entering={enterUp(0)} style={styles.hero}>
           <TText variant="label" color="tertiary" uppercase tabular>
-            {isArtist ? 'Demande reçue' : 'Votre demande'}{submitted ? ` · ${submitted}` : ''}
+            {inquiry ? (isArtist ? 'Question reçue' : 'Votre question') : isArtist ? 'Demande reçue' : 'Votre demande'}
+            {submitted ? ` · ${submitted}` : ''}
           </TText>
           <View style={styles.identity}>
             <TAvatar uri={counterpartAvatar} name={counterpart} size="xl" />
@@ -240,11 +248,18 @@ export default function RequestDetailScreen() {
               </TText>
             </View>
           </View>
-          <RequestStatusLine status={request.status} viewAs={viewAs} strong />
+          <RequestStatusLine status={request.status} viewAs={viewAs} strong inquiry={inquiry} />
         </Animated.View>
 
+        {/* ── A question: the conversation is the whole story ── */}
+        {inquiry && (
+          <Section title="Échange" index={1}>
+            <TText variant="bodySmall" color="secondary" style={styles.prose}>{guidance}</TText>
+          </Section>
+        )}
+
         {/* ── Status timeline ── */}
-        <Section title="Suivi" index={1}>
+        {!inquiry && <Section title="Suivi" index={1}>
           <StatusTimeline steps={buildTimeline(request, viewAs)} />
           {!!guidance && <TText variant="bodySmall" color="secondary" style={styles.guidance}>{guidance}</TText>}
           {['accepted', 'confirmed', 'completed'].includes(request.status) && (
@@ -259,7 +274,7 @@ export default function RequestDetailScreen() {
               />
             </View>
           )}
-        </Section>
+        </Section>}
 
         {/* Before acceptance the booking panel is hidden: keep the wished slots in view. */}
         {awaitingAnswer && wishedSlots.length > 0 && (
@@ -284,8 +299,8 @@ export default function RequestDetailScreen() {
           </Section>
         )}
 
-        {/* ── Project ── */}
-        <Section title="Le projet" index={2}>
+        {/* ── Project (a question has none: its fields are placeholders) ── */}
+        {!inquiry && <Section title="Le projet" index={2}>
           <Fact label="Type" value={projectTypeLabel(request.projectType)} />
           <Fact label="Zone" value={request.bodyZone || '—'} />
           <Fact label="Taille" value={`${request.sizeCategory.toUpperCase()} · ${SIZE_RANGE[request.sizeCategory] ?? ''}`} />
@@ -294,10 +309,10 @@ export default function RequestDetailScreen() {
           {!!styles_ && <Fact label="Styles" value={styles_} />}
           <Fact label="Approche" value={FLEX_LABEL[request.flexibilityLevel] ?? request.flexibilityLevel} />
           {!isArtist && request.isFirstTattoo && <Fact label="Premier tatouage" value="Oui" />}
-        </Section>
+        </Section>}
 
         {!!request.description && (
-          <Section title="Description" index={3}>
+          <Section title={inquiry ? 'Premier message' : 'Description'} index={3}>
             <TText variant="body" color="secondary" style={styles.prose} selectable>{request.description}</TText>
           </Section>
         )}
@@ -329,7 +344,24 @@ export default function RequestDetailScreen() {
                 <TText variant="caption" style={{ color: Colors.errorLight, flex: 1 }}>{error}</TText>
               </View>
             )}
-            {canAnswer ? (
+            {inquiry ? (
+              <>
+                <TButton
+                  title={isArtist ? 'Répondre' : 'Ouvrir la conversation'}
+                  onPress={() => router.push(`/conversation/${request.id}`)}
+                  icon={<Ionicons name="chatbubble-outline" size={16} color={Colors.textInverse} />}
+                />
+                {!isArtist && (
+                  <TButton
+                    title="Transformer en projet"
+                    variant="secondary"
+                    size="md"
+                    onPress={() => router.push(`/request/new?artistId=${request.artistId}`)}
+                    accessibilityLabel={`Transformer en projet : décrire un projet à ${counterpart}`}
+                  />
+                )}
+              </>
+            ) : canAnswer ? (
               <>
                 <View style={styles.barRow}>
                   {request.status !== 'clarification_needed' && (

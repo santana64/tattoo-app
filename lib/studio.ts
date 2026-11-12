@@ -95,9 +95,10 @@ export async function unblockPeriod(id: string): Promise<string | null> {
 export interface FreeSlot { start: Date; end: Date }
 export interface SlotDay { key: string; date: Date; slots: FreeSlot[] }
 
-export async function fetchFreeSlots(artistId: string, days = 28, durationMin = 120): Promise<FreeSlot[]> {
+/** `durationMin` omitted: the artist's own shortest session (decided by the database). */
+export async function fetchFreeSlots(artistId: string, days = 28, durationMin?: number | null): Promise<FreeSlot[]> {
   const { data, error } = await supabase.rpc('artist_free_slots', {
-    p_artist_id: artistId, p_days: days, p_duration_min: durationMin,
+    p_artist_id: artistId, p_days: days, p_duration_min: durationMin ?? null,
   });
   if (error) throw error;
   return (data ?? []).map((s) => ({ start: new Date(s.starts_at), end: new Date(s.ends_at) }));

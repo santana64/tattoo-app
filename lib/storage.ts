@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
 
-export type UploadBucket = 'avatars' | 'covers' | 'posts-media' | 'request-references';
+export type UploadBucket = 'avatars' | 'covers' | 'posts-media' | 'request-references' | 'healed-photos';
 
 export interface UploadResult {
   url: string;
@@ -81,6 +81,16 @@ export async function uploadPostMedia(
   const filename = `${artistId}/${Date.now()}.jpg`;
   // Unique name: a plain insert is enough (upsert would also need SELECT + UPDATE policies).
   return uploadFile(uri, 'posts-media', filename, onProgress, false);
+}
+
+// ─── Upload healed photo ──────────────────────────────────────────────────────
+export async function uploadHealedPhoto(
+  uri: string,
+  userId: string,
+  onProgress?: (p: number) => void
+): Promise<UploadResult> {
+  // The storage policy only lets a user write under a first folder named after their id.
+  return uploadFile(uri, 'healed-photos', `${userId}/${Date.now()}.jpg`, onProgress, false);
 }
 
 // ─── Upload request reference ─────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, StyleSheet, Share, Platform, useWindowDimensions,
+  View, StyleSheet, Pressable, Platform, useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -27,9 +27,21 @@ import { toDescription } from '@/lib/site';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
 import { ArtworkLabel } from '@/components/gallery/ArtworkLabel';
+import { Lightbox, type LightboxItem } from '@/components/gallery/Lightbox';
+import { ShareButton, sharePage } from '@/components/ui/ShareButton';
+import { ReactionBar } from '@/components/social/ReactionBar';
+import { artworkLabel } from '@/lib/studio';
 
 const WIDE = 900;
 const SIDE_W = 400;
+/** Enough siblings to browse a whole portfolio in the viewer. */
+const SIBLINGS_MAX = 120;
+
+/** A published photo as a work on the viewer's wall: its label title and first line. */
+function toLightboxItem(post: Tables<'posts'>): LightboxItem {
+  const label = artworkLabel(post, styleName);
+  return { id: post.id, uri: post.media_url, title: label.title, subtitle: label.lines[0] ?? null };
+}
 
 type ReportReason = 'spam' | 'inappropriate' | 'fake';
 const REPORT_REASONS: { value: ReportReason; label: string }[] = [
@@ -163,6 +175,8 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const [membershipReady, setMembershipReady] = useState(false);
   const [sheet, setSheet] = useState<'options' | 'report' | null>(null);
   const [series, setSeries] = useState<{ id: string; title: string } | null>(null);
+  const [siblings, setSiblings] = useState<Tables<'posts'>[] | null>(null);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const post = { id, mediaUrl: row.media_url, caption: row.caption, styles: row.styles ?? [], likes };
 
   // The series is a secondary link: a failed lookup simply hides it.
@@ -174,6 +188,26 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
       .then(({ data }) => { if (active && data) setSeries(data); }, () => {});
     return () => { active = false; };
   }, [row.series_id]);
+
+  // The artist's other published photos, newest first, to browse in the viewer.
+  // Loaded once; without them the viewer simply shows this work alone.
+  useEffect(() => {
+    let active = true;
+    setSiblings(null);
+    supabase.from('posts').select('*')
+      .eq('artist_id', row.artist_id).eq('is_published', true).eq('media_type', 'photo')
+      .order('published_at', { ascending: false }).limit(SIBLINGS_MAX)
+      .then(({ data }) => {
+        if (active && data) setSiblings(data.filter((p) => !isVideoMedia(p.media_url, p.media_type)));
+      }, () => {});
+    return () => { active = false; };
+  }, [row.artist_id]);
+
+  const viewerItems = useMemo<LightboxItem[]>(() => {
+    const list = siblings?.some((p) => p.id === row.id) ? siblings : [row];
+    return list.map(toLightboxItem);
+  }, [siblings, row]);
+  const openViewer = () => setViewerIndex(Math.max(0, viewerItems.findIndex((item) => item.id === row.id)));
   const status = artist ? BOOKING_STATUS[artist.bookingStatus] : null;
   useEffect(() => {
     let active = true;
@@ -246,13 +280,6 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     void mutate('save');
   };
 
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `Découvrez ce tatouage sur INKR : ${post.caption ?? ''}${Platform.OS === 'web' ? ` ${window.location.origin}/post/${id}` : ''}`,
-      });
-    } catch {}
-  };
 
   const handleReport = () => {
     if (!user?.id) { setSheet(null); router.push('/(auth)/sign-in'); return; }
@@ -283,8 +310,13 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
   const canRequest = artist?.bookingStatus === 'open';
   const openRequest = () => artist && router.push({ pathname: '/request/new', params: { artistId: artist.id } });
   const openArtist = () => artist && router.push(`/artist/${artist.id}`);
-  const openSeries = () => series && router.push({ pathname: '/artist/[id]', params: { id: row.artist_id, series: series.id } });
+  const openSeries = () => series && router.push({ pathname: '/series/[id]', params: { id: series.id } });
   const pieceTitle = row.title?.trim() || null;
+  const label = artworkLabel(row, styleName);
+  const shareTitle = `${pieceTitle ?? 'Tatouage'} par ${artist?.blaze ?? 'un artiste Inkr'}`;
+  const shareText = post.caption?.trim() || 'Découvrez cette réalisation sur Inkr.';
+  const handleShare = () => { void sharePage({ title: shareTitle, text: shareText, path: `/post/${id}` }); };
+  const seoLead = post.caption?.trim() || label.lines.join(', ');
 
   const cta = artist ? (
     canRequest ? (
@@ -299,7 +331,7 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     <View style={styles.container}>
       <Seo
         title={`${pieceTitle ? `${pieceTitle} — ` : ''}Tatouage ${stylesLabel || 'réalisé'} par ${artist?.blaze ?? 'un artiste'} | Inkr`}
-        description={toDescription(`${post.caption ? `${post.caption} — ` : ''}Réalisation de ${seoArtist}. Découvrez son portfolio sur Inkr.`)}
+        description={toDescription(`${seoLead ? `${seoLead} — ` : ''}Réalisation de ${seoArtist}. Découvrez son portfolio sur Inkr.`)}
         image={post.mediaUrl}
         type="article"
       />
@@ -340,13 +372,21 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
                 <VideoPlaceholder note="Appuyez pour lire la vidéo." />
               </PressableScale>
             ) : (
-              <RevealImage
-                uri={post.mediaUrl}
-                contentFit="contain"
-                style={[StyleSheet.absoluteFill, styles.mat]}
-                accessibilityLabel={pieceTitle ?? post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
-                fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={96} />}
-              />
+              <Pressable
+                onPress={openViewer}
+                accessibilityRole="button"
+                accessibilityLabel={`Agrandir ${pieceTitle ? `« ${pieceTitle} »` : artist ? `la réalisation de ${artist.blaze}` : 'la réalisation'}`}
+                accessibilityHint="Ouvre la visionneuse plein écran"
+                style={[StyleSheet.absoluteFill, styles.zoomable]}
+              >
+                <RevealImage
+                  uri={post.mediaUrl}
+                  contentFit="contain"
+                  style={[StyleSheet.absoluteFill, styles.mat]}
+                  accessibilityLabel={pieceTitle ?? post.caption ?? (artist ? `Réalisation de ${artist.blaze}` : 'Réalisation')}
+                  fallback={<ArtPlaceholder name={artist?.blaze ?? 'Inkr'} size={96} />}
+                />
+              </Pressable>
             )}
           </Animated.View>
 
@@ -376,35 +416,38 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
             </Animated.View>
 
             {/* Actions */}
-            <Animated.View entering={enterUp(1, 120)} style={styles.actions}>
-              <ActionButton
-                label={isLiked ? 'Retirer le j’aime' : 'Aimer cette réalisation'}
-                onPress={handleLike}
-                active={isLiked}
-                count={post.likes}
-                haptic
-              >
-                <Animated.View style={heartStyle}>
-                  <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={21} color={isLiked ? Colors.accentGlow : Colors.textSecondary} />
-                </Animated.View>
-              </ActionButton>
-              <ActionButton
-                label={isSaved ? 'Retirer des enregistrements' : 'Enregistrer cette réalisation'}
-                onPress={handleSave}
-                active={isSaved}
-                haptic
-              >
-                <Animated.View style={saveStyle}>
-                  <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={isSaved ? Colors.accentGlow : Colors.textSecondary} />
-                </Animated.View>
-              </ActionButton>
-              <ActionButton label="Partager" onPress={handleShare}>
-                <Ionicons name="arrow-redo-outline" size={21} color={Colors.textSecondary} />
-              </ActionButton>
-              <View style={{ flex: 1 }} />
-              <ActionButton label="Signaler cette publication" onPress={handleReport}>
-                <Ionicons name="flag-outline" size={18} color={Colors.textTertiary} />
-              </ActionButton>
+            <Animated.View entering={enterUp(1, 120)}>
+              <View style={styles.actions}>
+                <ActionButton
+                  label={isLiked ? 'Retirer le j’aime' : 'Aimer cette réalisation'}
+                  onPress={handleLike}
+                  active={isLiked}
+                  count={post.likes}
+                  haptic
+                >
+                  <Animated.View style={heartStyle}>
+                    <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={21} color={isLiked ? Colors.accentGlow : Colors.textSecondary} />
+                  </Animated.View>
+                </ActionButton>
+                <ActionButton
+                  label={isSaved ? 'Retirer des enregistrements' : 'Enregistrer cette réalisation'}
+                  onPress={handleSave}
+                  active={isSaved}
+                  haptic
+                >
+                  <Animated.View style={saveStyle}>
+                    <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={isSaved ? Colors.accentGlow : Colors.textSecondary} />
+                  </Animated.View>
+                </ActionButton>
+                <ShareButton title={shareTitle} text={shareText} path={`/post/${id}`} framed={false} />
+                <View style={{ flex: 1 }} />
+                <ActionButton label="Signaler cette publication" onPress={handleReport}>
+                  <Ionicons name="flag-outline" size={18} color={Colors.textTertiary} />
+                </ActionButton>
+              </View>
+              <View style={styles.reactions}>
+                <ReactionBar postId={post.id} />
+              </View>
             </Animated.View>
 
             {/* The artist's note */}
@@ -489,12 +532,20 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
         ) : (
           <View>
             <TText variant="displayS" style={styles.sheetTitle}>Options</TText>
-            <SheetRow icon="arrow-redo-outline" label="Partager" onPress={() => { setSheet(null); void handleShare(); }} />
+            <SheetRow icon="arrow-redo-outline" label="Partager" onPress={() => { setSheet(null); handleShare(); }} />
             <SheetRow icon="flag-outline" label="Signaler" destructive onPress={handleReport} />
           </View>
         )}
         <TButton title="Annuler" variant="ghost" size="md" onPress={() => setSheet(null)} style={{ marginTop: Spacing.xs }} />
       </BottomSheet>
+
+      <Lightbox
+        visible={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+        items={viewerItems}
+        index={viewerIndex ?? 0}
+        onIndexChange={setViewerIndex}
+      />
     </View>
   );
 }
@@ -519,6 +570,7 @@ const styles = StyleSheet.create({
   artColWide: { flex: 1, width: undefined },
   artWide: { borderRadius: Radius.xl, overflow: 'hidden', backgroundColor: Colors.bgElevated },
   mat: { backgroundColor: 'transparent' },
+  zoomable: Platform.OS === 'web' ? ({ cursor: 'zoom-in' } as object) : {},
 
   side: { paddingHorizontal: Layout.gutter, paddingTop: Spacing.lg, backgroundColor: Colors.bgPrimary },
   sideWide: { width: SIDE_W, paddingHorizontal: 0, paddingTop: Spacing.xs },
@@ -533,6 +585,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderDefault,
   },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 44, height: 44, paddingHorizontal: 6 },
+  reactions: { marginTop: Spacing.xs },
 
   note: { marginTop: Spacing.lg },
   caption: { marginTop: Spacing['2xs'], maxWidth: Layout.maxReading },

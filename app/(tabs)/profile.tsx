@@ -324,6 +324,7 @@ export default function ProfileScreen() {
         <ListRow icon="mail-outline" label="Demandes" subtitle="Nouvelles demandes et échanges" onPress={() => router.push('/(tabs)/inbox')} />
         <ListRow icon="calendar-outline" label="Agenda" subtitle="Rendez-vous à venir" onPress={() => router.push('/(tabs)/agenda')} />
         <ListRow icon="time-outline" label="Horaires et disponibilités" subtitle="Créneaux visibles par vos clients" onPress={() => router.push('/availability')} />
+        <ListRow icon="ellipse-outline" label="Publier une story" subtitle="Visible pendant 24 heures" onPress={() => router.push('/story/new')} />
         <ListRow icon="flash-outline" label="Publier un flash" subtitle="Un dessin prêt à réserver" onPress={() => router.push('/flash/new')} />
         <ListRow icon="airplane-outline" label="Annoncer un guest" subtitle="Vos dates dans un autre studio" onPress={() => router.push('/guest/new')} />
         <ListRow icon="analytics-outline" label="Statistiques" subtitle="Vues, demandes, acceptation" onPress={() => router.push('/analytics')} />

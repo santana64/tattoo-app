@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack, useGlobalSearchParams, useRouter, useSegments, type Href } from 'expo-router';
+import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -23,13 +23,24 @@ import { registerForPushNotifications } from '@/lib/notifications';
 import { authRedirect, safeNextPath } from '@/lib/auth-routing';
 import { Seo } from '@/components/Seo';
 import { pageMeta } from '@/lib/site';
+import { installErrorReporting } from '@/lib/error-reporting';
+import { AppErrorBoundary } from '@/components/ErrorBoundary';
+
+// expo-router wraps this layout in its boundary: catches errors of the layout itself.
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/ErrorBoundary';
 
 SplashScreen.preventAutoHideAsync();
+
+// Installed before the first render so start-up errors are caught too.
+let currentPath = '/';
+const getCurrentPath = () => currentPath;
+installErrorReporting(getCurrentPath);
 
 export default function RootLayout() {
   const { initialize, isLoading, isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
   const { next } = useGlobalSearchParams<{ next?: string }>();
   const [fontsLoaded, fontError] = useFonts({
     InstrumentSerif_400Regular,
@@ -45,6 +56,10 @@ export default function RootLayout() {
   useEffect(() => {
     return initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    currentPath = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     if (isLoading || !fontsReady) return;
@@ -71,35 +86,37 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <Seo {...pageMeta(segments)} />
         <StatusBar style="light" backgroundColor={Colors.bgPrimary} />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-          <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-          <Stack.Screen name="artist/[id]" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="reels/[id]" options={{ animation: 'fade' }} />
-          <Stack.Screen name="request/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="request/[id]" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="conversation/[id]" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="create" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="review/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="appointment/[id]" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/index" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/account" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/notifications" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/privacy" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/subscription" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/support" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="settings/delete-account" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="analytics" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="admin" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="customization" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="premium-guide" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="saved" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="legal/terms" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-          <Stack.Screen name="legal/privacy-policy" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-        </Stack>
+        <AppErrorBoundary getRoute={getCurrentPath}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
+            <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
+            <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+            <Stack.Screen name="artist/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="reels/[id]" options={{ animation: 'fade' }} />
+            <Stack.Screen name="request/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="request/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="conversation/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="create" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="review/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="appointment/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/index" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/account" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/notifications" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/privacy" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/subscription" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/support" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings/delete-account" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="analytics" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="admin" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="customization" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="premium-guide" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="saved" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="legal/terms" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+            <Stack.Screen name="legal/privacy-policy" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          </Stack>
+        </AppErrorBoundary>
         <ToastProvider />
       </SafeAreaProvider>
     </GestureHandlerRootView>

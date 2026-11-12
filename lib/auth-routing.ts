@@ -1,6 +1,6 @@
 export function isPublicRoute(segments: readonly string[]): boolean {
   const [group, screen] = segments;
-  return !group || group === '(auth)' || group === 'artist' || group === 'post' || group === 'reels'
+  return !group || group === '(auth)' || group === 'artist' || group === 'post' || group === 'reels' || group === 'series'
     || (group === 'flash' && screen !== 'new')
     || group === 'legal' || (group === 'auth' && screen === 'callback')
     || (group === '(tabs)' && (!screen || screen === 'index' || screen === 'explore'));

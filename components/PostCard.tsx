@@ -12,6 +12,8 @@ import { TText } from './ui/TText';
 import { TAvatar } from './ui/TAvatar';
 import { ArtPlaceholder, BOOKING_STATUS, styleName } from './ArtistCard';
 import { parseReelUrl, REEL_PROVIDER_LABEL, type ReelProvider } from '@/lib/reels';
+import type { ReactionCounts, ReactionKey } from '@/lib/care';
+import { ReactionBar } from './social/ReactionBar';
 
 export interface PostCardData {
   id: string;
@@ -44,6 +46,10 @@ interface PostCardProps {
   variant?: 'full' | 'half' | 'wide';
   /** Fixed image height, used by multi-column layouts to align rows. Defaults to the variant ratio. */
   imageHeight?: number;
+  /** Reaction counts loaded by the list in one batch; omitted, the card loads its own. */
+  initialReactionCounts?: ReactionCounts;
+  /** The viewer's reaction, loaded with the counts (null: none). */
+  initialMyReaction?: ReactionKey | null;
 }
 
 const ASPECT: Record<NonNullable<PostCardProps['variant']>, number> = {
@@ -140,6 +146,7 @@ function LikeButton({
 
 export function PostCard({
   post, onLike, onPress, onArtistPress, onQuickBook, variant = 'full', imageHeight,
+  initialReactionCounts, initialMyReaction,
 }: PostCardProps) {
   const like = useCallback(() => onLike?.(), [onLike]);
 
@@ -150,6 +157,9 @@ export function PostCard({
   const mediaLabel = `${isVideoMedia(post.mediaUrl, post.mediaType) ? 'Vidéo' : 'Réalisation'} de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`;
   const status = post.artistBookingStatus ? BOOKING_STATUS[post.artistBookingStatus] : null;
   const mediaSize = imageHeight ? { height: imageHeight } : { aspectRatio: ASPECT[variant] };
+  const reactions = (
+    <ReactionBar postId={post.id} compact initialCounts={initialReactionCounts} initialMine={initialMyReaction} />
+  );
 
   return (
     <View style={styles.card}>
@@ -190,15 +200,18 @@ export function PostCard({
 
       {/* ── Wall label ── */}
       {isHalf ? (
-        <PressableScale
-          onPress={onArtistPress}
-          accessibilityRole="link"
-          accessibilityLabel={`Voir le profil de ${post.artistName}`}
-          style={styles.halfLabel}
-        >
-          <TText variant="bodySmall" weight="medium" numberOfLines={1}>{post.artistName}</TText>
-          {!!meta && <TText variant="caption" color="tertiary" numberOfLines={1}>{meta}</TText>}
-        </PressableScale>
+        <>
+          <PressableScale
+            onPress={onArtistPress}
+            accessibilityRole="link"
+            accessibilityLabel={`Voir le profil de ${post.artistName}`}
+            style={styles.halfLabel}
+          >
+            <TText variant="bodySmall" weight="medium" numberOfLines={1}>{post.artistName}</TText>
+            {!!meta && <TText variant="caption" color="tertiary" numberOfLines={1}>{meta}</TText>}
+          </PressableScale>
+          <View style={styles.halfReactions}>{reactions}</View>
+        </>
       ) : (
         <View style={styles.label}>
           <View style={styles.labelRow}>
@@ -216,7 +229,11 @@ export function PostCard({
                 </View>
               </PressableScale>
             </View>
-            {onLike && <LikeButton liked={post.isLiked} count={post.likesCount} onPress={like} />}
+            {/* Reactions sit beside the like; on narrow cards the pair wraps under the artist. */}
+            <View style={styles.engagement}>
+              {reactions}
+              {onLike && <LikeButton liked={post.isLiked} count={post.likesCount} onPress={like} />}
+            </View>
           </View>
 
           {!!post.caption && (
@@ -293,10 +310,13 @@ const styles = StyleSheet.create({
   },
 
   halfLabel: { paddingTop: 10, gap: 1 },
+  halfReactions: { flexDirection: 'row', marginTop: 6 },
 
   label: { paddingTop: 14 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  artistSlot: { flex: 1 },
+  labelRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: Spacing.xs, rowGap: 4 },
+  // Grows to fill the row; below ~180 px the engagement cluster moves to its own line.
+  artistSlot: { flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 0 },
+  engagement: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 1, maxWidth: '100%' },
   artist: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
   artistText: { flex: 1, gap: 1 },
   artistName: { fontSize: 21, lineHeight: 24 },

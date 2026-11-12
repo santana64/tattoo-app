@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { format } from 'date-fns/format';
+import { formatDistanceToNowStrict } from 'date-fns/formatDistanceToNowStrict';
 import { fr } from 'date-fns/locale/fr';
 import { Colors, Spacing, Layout, Radius } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
@@ -12,14 +14,21 @@ import { TAvatar } from '@/components/ui/TAvatar';
 import { THeader } from '@/components/ui/THeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Toast } from '@/components/ui/TToast';
-import { PressableScale } from '@/components/motion';
+import { BottomSheet, PressableScale } from '@/components/motion';
 import { useAuthStore } from '@/store/auth-store';
 import {
   listReports, listVerifications, resolveReport, reviewVerification, setBan,
   REPORT_REASONS, type ReportDecision, type ReportRow, type ReportStatus, type VerificationRow,
 } from '@/lib/moderation';
+import { clearClientErrors, fetchClientErrors } from '@/lib/care';
+import { groupClientErrors, type ClientErrorGroup } from '@/lib/error-reporting';
 
-type Tab = 'reports' | 'verifications';
+type Tab = 'reports' | 'verifications' | 'errors';
+
+const PLATFORM_LABELS: Record<string, string> = { web: 'Web', ios: 'iOS', android: 'Android' };
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' });
+
+const relativeDate = (iso: string) => formatDistanceToNowStrict(new Date(iso), { addSuffix: true, locale: fr });
 
 const REPORT_FILTERS: { value: ReportStatus; label: string }[] = [
   { value: 'pending', label: 'À traiter' },
@@ -159,6 +168,51 @@ function VerificationCard({ item, busy, onReview }: {
   );
 }
 
+function ErrorCard({ group }: { group: ClientErrorGroup }) {
+  const [expanded, setExpanded] = useState(false);
+  const { latest } = group;
+  const platforms = group.platforms.map((p) => PLATFORM_LABELS[p] ?? p).join(', ');
+  const details = [
+    latest.route ?? 'Route inconnue',
+    platforms || 'Plateforme inconnue',
+    latest.app_version ? `v${latest.app_version}` : null,
+  ].filter(Boolean).join(' · ');
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHead}>
+        <TBadge label={group.count > 1 ? `${group.count} occurrences` : '1 occurrence'} variant="default" />
+        <TText variant="caption" color="tertiary" tabular>{relativeDate(latest.created_at)}</TText>
+      </View>
+      <TText variant="bodySmall" weight="semibold" style={styles.cardTitle} selectable>{group.message}</TText>
+      <TText variant="caption" color="tertiary" style={styles.meta}>{details}</TText>
+      {group.count > 1 && (
+        <TText variant="caption" color="tertiary" tabular style={styles.meta}>
+          Première fois {relativeDate(group.firstSeen)}
+        </TText>
+      )}
+      {latest.stack ? (
+        <>
+          <PressableScale
+            onPress={() => setExpanded((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            hitSlop={6}
+            style={styles.stackToggle}
+          >
+            <TText variant="caption" color="secondary">{expanded ? 'Masquer la pile d’appels' : 'Voir la pile d’appels'}</TText>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={Colors.textSecondary} />
+          </PressableScale>
+          {expanded && (
+            <View style={styles.stackBox}>
+              <TText variant="caption" color="secondary" selectable style={styles.stackText}>{latest.stack}</TText>
+            </View>
+          )}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const isAdmin = useAuthStore((s) => s.user?.isAdmin === true);
@@ -171,6 +225,11 @@ export default function AdminScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [errorGroups, setErrorGroups] = useState<ClientErrorGroup[]>([]);
+  const [errorsLoading, setErrorsLoading] = useState(true);
+  const [errorsLoadError, setErrorsLoadError] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async () => {
     const [reportResult, verificationResult] = await Promise.all([listReports(filter), listVerifications()]);
@@ -181,11 +240,49 @@ export default function AdminScreen() {
     setRefreshing(false);
   }, [filter]);
 
+  // Loaded on its own: a missing table (migration 012 not applied) must not hide moderation.
+  const loadErrors = useCallback(async () => {
+    try {
+      setErrorGroups(groupClientErrors(await fetchClientErrors(200)));
+      setErrorsLoadError(null);
+    } catch {
+      setErrorsLoadError('Les erreurs signalées n’ont pas pu être chargées.');
+    }
+    setErrorsLoading(false);
+    setRefreshing(false);
+  }, []);
+
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
     void load();
   }, [isAdmin, load]);
+
+  useEffect(() => {
+    if (!isAdmin || tab !== 'errors') return;
+    void loadErrors();
+  }, [isAdmin, tab, loadErrors]);
+
+  const refresh = () => {
+    setRefreshing(true);
+    if (tab === 'errors') void loadErrors();
+    else void load();
+  };
+
+  const clearErrors = async () => {
+    if (clearing) return;
+    setClearing(true);
+    const ok = await clearClientErrors();
+    setClearing(false);
+    if (!ok) {
+      Toast.error('Suppression impossible. Réessayez.');
+      return;
+    }
+    setConfirmClear(false);
+    setErrorGroups([]);
+    Toast.success('Erreurs effacées');
+    void loadErrors();
+  };
 
   const run = async (id: string, action: () => Promise<string | null>, done: string) => {
     if (busyId) return;
@@ -222,7 +319,7 @@ export default function AdminScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); void load(); }}
+            onRefresh={refresh}
             tintColor={Colors.accentWarm}
             colors={[Colors.accentWarm]}
           />
@@ -232,6 +329,7 @@ export default function AdminScreen() {
           options={[
             { value: 'reports' as Tab, label: 'Signalements' },
             { value: 'verifications' as Tab, label: `Vérifications${verifications.length ? ` (${verifications.length})` : ''}` },
+            { value: 'errors' as Tab, label: 'Erreurs' },
           ]}
           value={tab}
           onChange={setTab}
@@ -243,7 +341,43 @@ export default function AdminScreen() {
           </View>
         )}
 
-        {loading ? (
+        {tab === 'errors' ? (
+          errorsLoading ? (
+            <ActivityIndicator color={Colors.textTertiary} style={styles.loader} accessibilityLabel="Chargement" />
+          ) : errorsLoadError ? (
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Chargement impossible"
+              description={errorsLoadError}
+              ctaLabel="Réessayer"
+              onCta={() => { setErrorsLoading(true); void loadErrors(); }}
+              style={styles.empty}
+            />
+          ) : errorGroups.length ? (
+            <>
+              <View style={styles.errorsHead}>
+                <TText variant="caption" color="tertiary" style={{ flex: 1 }}>
+                  Les plus récentes d’abord, regroupées par message identique.
+                </TText>
+                <TButton
+                  title="Tout effacer"
+                  variant="destructive"
+                  size="sm"
+                  fullWidth={false}
+                  onPress={() => setConfirmClear(true)}
+                />
+              </View>
+              {errorGroups.map((group) => <ErrorCard key={group.message} group={group} />)}
+            </>
+          ) : (
+            <EmptyState
+              icon="pulse-outline"
+              title="Aucune erreur signalée"
+              description="Les plantages rencontrés sur les appareils apparaîtront ici."
+              style={styles.empty}
+            />
+          )
+        ) : loading ? (
           <ActivityIndicator color={Colors.textTertiary} style={styles.loader} accessibilityLabel="Chargement" />
         ) : loadError ? (
           <EmptyState
@@ -299,6 +433,18 @@ export default function AdminScreen() {
           />
         )}
       </ScrollView>
+
+      {/* Confirmation in a sheet: Alert.alert is a no-op on web. */}
+      <BottomSheet visible={confirmClear} onClose={() => setConfirmClear(false)} accessibilityLabel="Effacer les erreurs">
+        <TText variant="displayS">Tout effacer{' '}?</TText>
+        <TText variant="bodySmall" color="secondary" style={styles.meta}>
+          Toutes les erreurs signalées seront supprimées définitivement. Celles qui surviendront ensuite apparaîtront de nouveau ici.
+        </TText>
+        <View style={styles.sheetActions}>
+          <TButton title="Tout effacer" variant="destructive" onPress={() => void clearErrors()} loading={clearing} />
+          <TButton title="Annuler" variant="ghost" size="md" onPress={() => setConfirmClear(false)} disabled={clearing} />
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -329,4 +475,12 @@ const styles = StyleSheet.create({
   artistRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   meta: { marginTop: Spacing.xs },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: Spacing.sm },
+  errorsHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: Spacing.md },
+  stackToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: Spacing.xs, paddingVertical: 4 },
+  stackBox: {
+    marginTop: Spacing['3xs'], padding: Spacing.xs, borderRadius: Radius.sm,
+    backgroundColor: Colors.bgInk, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.borderSubtle,
+  },
+  stackText: { fontFamily: MONO, fontSize: 11.5, lineHeight: 17 },
+  sheetActions: { gap: 10, marginTop: Spacing.lg },
 });

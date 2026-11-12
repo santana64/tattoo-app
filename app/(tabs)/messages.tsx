@@ -10,13 +10,17 @@ import { TAvatar } from '@/components/ui/TAvatar';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PressableScale, enterUp } from '@/components/motion';
-import { RequestStatusLine } from '@/components/RequestCard';
+import { INQUIRY_LABEL, RequestStatusLine } from '@/components/RequestCard';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
 
-// A request becomes a conversation once the artist has accepted it.
+// A request becomes a conversation once the artist has accepted it; a question
+// (written without a project) is a conversation from its first message.
 const CHAT_STATUSES = new Set(['accepted', 'confirmed', 'completed']);
+const CLOSED_STATUSES = new Set(['declined', 'archived']);
+const isConversation = (r: TattooRequest) =>
+  r.isInquiry ? !CLOSED_STATUSES.has(r.status) : CHAT_STATUSES.has(r.status);
 
 interface LastMessage { content: string; createdAt: string; mine: boolean; type: string }
 
@@ -45,7 +49,7 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const isArtist = user?.role === 'artist';
 
-  const conversations = useMemo(() => requests.filter((r) => CHAT_STATUSES.has(r.status)), [requests]);
+  const conversations = useMemo(() => requests.filter(isConversation), [requests]);
   const ids = useMemo(() => conversations.map((r) => r.id).sort().join(','), [conversations]);
 
   const loadLastMessages = useCallback(async () => {
@@ -120,8 +124,17 @@ export default function MessagesScreen() {
             {preview(m, isArtist)}
           </TText>
           <View style={styles.rowMeta}>
-            <RequestStatusLine status={item.status} viewAs={isArtist ? 'artist' : 'client'} />
-            <TText variant="caption" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>· {item.bodyZone}</TText>
+            {item.isInquiry ? (
+              <>
+                <Ionicons name="help-circle-outline" size={13} color={Colors.accentWarm} />
+                <TText variant="caption" color="accentWarm">{INQUIRY_LABEL}</TText>
+              </>
+            ) : (
+              <>
+                <RequestStatusLine status={item.status} viewAs={isArtist ? 'artist' : 'client'} />
+                <TText variant="caption" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>· {item.bodyZone}</TText>
+              </>
+            )}
           </View>
         </View>
         <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
@@ -166,8 +179,8 @@ export default function MessagesScreen() {
               icon="chatbubbles-outline"
               title="Aucune conversation"
               description={isArtist
-                ? 'Acceptez une demande : la conversation avec le client s’ouvrira ici.'
-                : 'Quand un artiste accepte votre demande, vous échangez avec lui ici.'}
+                ? 'Acceptez une demande, ou répondez à une question : la conversation avec le client s’ouvrira ici.'
+                : 'Quand un artiste accepte votre demande, ou quand vous lui posez une question, vous échangez avec lui ici.'}
               ctaLabel={isArtist ? 'Voir les demandes' : 'Explorer les artistes'}
               onCta={() => router.push(isArtist ? '/(tabs)/inbox' : '/(tabs)/explore')}
             />

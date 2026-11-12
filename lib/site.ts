@@ -33,6 +33,7 @@ const PAGES: Record<string, PageMeta> = {
   'post/[id]': page('Réalisation', DEFAULT_DESCRIPTION, true),
   'reels/[id]': page('Vidéos'),
   'flash/[id]': page('Flash'),
+  'series/[id]': page('Exposition', 'Une série de tatouages présentée comme une exposition, avec le texte de l’artiste.', true),
   'flash/new': page('Nouveau flash'),
   'guest/new': page('Annoncer un guest'),
   availability: page('Horaires et disponibilités'),

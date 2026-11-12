@@ -39,6 +39,11 @@ export interface TattooRequest {
   preferredSlots: string[];
   flashDesignId: string | null;
   isFlash: boolean;
+  /**
+   * A question written to the artist without a project (contact_artist). Its
+   * project fields are placeholders and it is answered in the conversation.
+   */
+  isInquiry: boolean;
 }
 
 interface RequestState {
@@ -109,6 +114,7 @@ function mapRequest(raw: RequestRow): TattooRequest {
     preferredSlots: raw.preferred_slots ?? [],
     flashDesignId: raw.flash_design_id ?? null,
     isFlash: raw.is_flash ?? false,
+    isInquiry: raw.is_inquiry ?? false,
   };
 }
 
@@ -213,6 +219,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (authError || !user) return { error: 'Reconnectez-vous pour continuer.' };
       const request = await get().fetchRequest(requestId, user.id);
       if (!request) return { error: 'Demande introuvable.' };
+      // A question has no project to accept or decline: it is answered in the conversation.
+      if (request.isInquiry) return { error: 'Une question se traite dans la conversation.' };
       const { data: owner, error: ownerError } = await supabase.from('artists').select('id').eq('id', request.artistId).eq('profile_id', user.id).maybeSingle();
       if (ownerError || !owner) return { error: 'Seul l’artiste destinataire peut modifier cette demande.' };
       const allowed = (request.status === 'submitted' || request.status === 'clarification_needed') && ['accepted', 'declined', 'clarification_needed'].includes(status) && request.status !== status;

@@ -13,6 +13,17 @@ function authCallbackUrl() {
     : 'inkr://auth/callback';
 }
 
+// Supabase answers `captcha_failed` when captcha protection is on and the token is missing, used or invalid.
+function credentialErrorMessage(error: { message: string; code?: string; status?: number } | null): string | null {
+  if (error && (error.code === 'captcha_failed' || /captcha/i.test(error.message))) {
+    return 'Vérification anti-robot échouée. Réessayez.';
+  }
+  return authErrorMessage(error);
+}
+
+/** Only sent when present, so projects without captcha protection see the exact same requests as before. */
+const withCaptcha = (captchaToken?: string | null) => (captchaToken ? { captchaToken } : {});
+
 export type UserRole = 'user' | 'artist';
 
 export interface ArtistUpdates {
@@ -65,10 +76,11 @@ interface AuthState {
 
   initialize: () => () => void;
   _loadUser: (session: Session) => Promise<void>;
-  signInWithEmail: (email: string) => Promise<{ error: string | null }>;
-  signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
+  /** `captchaToken`: single-use Turnstile token, required only when captcha protection is on (web). */
+  signInWithEmail: (email: string, captchaToken?: string | null) => Promise<{ error: string | null }>;
+  signInWithPassword: (email: string, password: string, captchaToken?: string | null) => Promise<{ error: string | null }>;
   /** `needsConfirmation` is true when the project requires e-mail confirmation (no session yet). */
-  signUpWithPassword: (email: string, password: string) => Promise<{ error: string | null; needsConfirmation: boolean }>;
+  signUpWithPassword: (email: string, password: string, captchaToken?: string | null) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   signInWithApple: () => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -175,26 +187,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signInWithEmail: async (email) => {
+  signInWithEmail: async (email, captchaToken) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: authCallbackUrl() },
+      options: { emailRedirectTo: authCallbackUrl(), ...withCaptcha(captchaToken) },
     });
-    return { error: authErrorMessage(error) };
+    return { error: credentialErrorMessage(error) };
   },
 
-  signInWithPassword: async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: authErrorMessage(error) };
+  signInWithPassword: async (email, password, captchaToken) => {
+    const { error } = await supabase.auth.signInWithPassword(
+      captchaToken ? { email, password, options: withCaptcha(captchaToken) } : { email, password },
+    );
+    return { error: credentialErrorMessage(error) };
   },
 
-  signUpWithPassword: async (email, password) => {
+  signUpWithPassword: async (email, password, captchaToken) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: authCallbackUrl() },
+      options: { emailRedirectTo: authCallbackUrl(), ...withCaptcha(captchaToken) },
     });
-    if (error) return { error: authErrorMessage(error), needsConfirmation: false };
+    if (error) return { error: credentialErrorMessage(error), needsConfirmation: false };
     // With e-mail confirmation off, Supabase returns a session immediately and
     // onAuthStateChange takes over. Otherwise the user must confirm first.
     return { error: null, needsConfirmation: !data.session };

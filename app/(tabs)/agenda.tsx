@@ -14,8 +14,12 @@ import { TDivider } from '@/components/ui/TDivider';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PressableScale } from '@/components/motion';
+import { Toast } from '@/components/ui/TToast';
+import { exportCalendar } from '@/components/booking/calendar-export';
 import { useAuthStore } from '@/store/auth-store';
 import { supabase } from '@/lib/supabase';
+import { absoluteUrl } from '@/lib/site';
+import type { CalendarEvent } from '@/lib/ics';
 
 interface RealAppointment {
   id: string;
@@ -285,6 +289,30 @@ export default function AgendaScreen() {
   };
   const isOnToday = sameDay(selectedDate, today);
 
+  // One .ics with every session still ahead (proposed ones as tentative).
+  const exportUpcoming = async () => {
+    if (loadState !== 'ready') return;
+    const now = Date.now();
+    const events: CalendarEvent[] = appointments
+      .filter((a) => (a.status === 'proposed' || a.status === 'confirmed') && new Date(a.startsAt).getTime() > now)
+      .map((a) => ({
+        id: a.id,
+        start: a.startsAt,
+        end: a.endsAt,
+        title: `Séance tatouage — ${isArtist ? a.clientName : a.artistBlaze}`,
+        description: [
+          a.bodyZone ? `Zone : ${a.bodyZone}` : null,
+          a.notes,
+          a.status === 'proposed' ? 'Créneau en attente de confirmation.' : null,
+          `Détails : ${absoluteUrl(`/appointment/${a.id}`)}`,
+        ].filter(Boolean).join('\n'),
+        tentative: a.status === 'proposed',
+      }));
+    if (events.length === 0) { Toast.info('Aucune séance à venir à exporter.'); return; }
+    const ok = await exportCalendar(events, 'inkr-seances.ics');
+    if (ok && Platform.OS === 'web') Toast.success(`${events.length} séance${events.length > 1 ? 's' : ''} exportée${events.length > 1 ? 's' : ''}`);
+  };
+
   const monthLabel = capitalize(`${MONTHS_FR[weekDates[3].getMonth()]} ${weekDates[3].getFullYear()}`);
 
   // Sessions are booked from a request: artists publish their hours, clients find an artist.
@@ -371,11 +399,20 @@ export default function AgendaScreen() {
                 {weekRangeLabel(weekDates)}
               </TText>
             </View>
-            <RoundButton
-              icon={isArtist ? 'time-outline' : 'add'}
-              label={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
-              onPress={openNewAppointment}
-            />
+            <View style={styles.headerActions}>
+              {loadState === 'ready' && appointments.length > 0 && (
+                <RoundButton
+                  icon="download-outline"
+                  label={Platform.OS === 'web' ? 'Exporter les séances à venir (.ics)' : 'Partager les séances à venir (.ics)'}
+                  onPress={() => { void exportUpcoming(); }}
+                />
+              )}
+              <RoundButton
+                icon={isArtist ? 'time-outline' : 'add'}
+                label={isArtist ? 'Horaires et disponibilités' : 'Trouver un artiste'}
+                onPress={openNewAppointment}
+              />
+            </View>
           </View>
 
           <View style={styles.monthNav}>
@@ -445,6 +482,7 @@ const styles = StyleSheet.create({
   dayPane: { flex: 1 },
 
   header: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: Spacing.sm, paddingBottom: Spacing.md },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing['2xs'] },
   roundBtn: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
