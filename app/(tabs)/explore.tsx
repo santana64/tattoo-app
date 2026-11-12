@@ -275,14 +275,13 @@ export default function ExploreScreen() {
   /** Portfolio previews for the cards: latest published photos of the given artists. */
   const fetchPreviews = useCallback(async (artistIds: string[]) => {
     if (!artistIds.length) return {};
-    const { data: work } = await supabase
-      .from('posts')
-      .select('artist_id, media_url')
-      .in('artist_id', artistIds)
-      .eq('is_published', true)
-      .eq('media_type', 'photo')
-      .order('published_at', { ascending: false })
-      .limit(artistIds.length * 6);
+    const { data: work, error } = await supabase.rpc('artist_portfolio_previews', {
+      p_artist_ids: artistIds,
+      p_per_artist: PREVIEWS_PER_ARTIST,
+    });
+    // Artist cards still render from their own cover when the optional preview
+    // query is unavailable during a staged database/client rollout.
+    if (error) return {};
     const grouped: Record<string, string[]> = {};
     for (const row of work ?? []) {
       const list = (grouped[row.artist_id] ??= []);

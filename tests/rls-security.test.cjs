@@ -344,6 +344,49 @@ test('private files are only visible to their owner or the request parties', asy
   });
 });
 
+test('portfolio previews are balanced per artist and exclude unpublished work', async () => {
+  const secondUser = await createUser('preview-artist');
+  let secondArtist;
+  await as(secondUser, async () => {
+    await db.query(`update public.profiles set role = 'artist' where id = $1`, [secondUser]);
+    secondArtist = (await one(
+      `insert into public.artists (profile_id, blaze, city) values ($1, 'Second atelier', 'Lyon') returning id`,
+      [secondUser],
+    )).id;
+    await db.query(
+      `insert into public.posts (artist_id, media_url, is_published)
+       values ($1, 'https://example.test/second.jpg', true),
+              ($1, 'https://example.test/draft.jpg', false)`,
+      [secondArtist],
+    );
+  });
+  await as(ids.artistUser, async () => {
+    for (let i = 0; i < 8; i++) {
+      await db.query(
+        `insert into public.posts (artist_id, media_url, is_published, published_at)
+         values ($1, $2, true, now() + ($3 || ' seconds')::interval)`,
+        [ids.artist, `https://example.test/work-${i}.jpg`, i],
+      );
+    }
+  });
+
+  await as(null, async () => {
+    const previews = await rows(
+      `select * from public.artist_portfolio_previews($1::uuid[], 3)`,
+      [[ids.artist, secondArtist]],
+    );
+    assert.equal(previews.filter((r) => r.artist_id === ids.artist).length, 3);
+    assert.deepEqual(previews.filter((r) => r.artist_id === secondArtist).map((r) => r.media_url),
+      ['https://example.test/second.jpg']);
+    assert.equal(previews.some((r) => r.media_url.endsWith('/draft.jpg')), false);
+  });
+  await as(ids.artistUser, () => db.query(
+    `delete from public.posts where artist_id = $1 and media_url like 'https://example.test/work-%'`,
+    [ids.artist],
+  ));
+  await db.query(`delete from auth.users where id = $1`, [secondUser]);
+});
+
 // ── existing flows still work ────────────────────────────────
 
 test('the artist can still answer a request and book it (migrations 003 and 004)', async () => {
