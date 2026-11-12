@@ -110,6 +110,7 @@ interface MastheadProps {
   title: string;
   emphasis?: string;
   breakEmphasis?: boolean;
+  titleSize?: 'page' | 'section';
   description?: string;
   /** Rendered at the right on wide screens, under the description on phones. */
   action?: React.ReactNode;
@@ -117,13 +118,13 @@ interface MastheadProps {
 }
 
 /** Page header: kicker, serif title, a short description at the right, closed by an ink rule. */
-export function Masthead({ kicker, title, emphasis, breakEmphasis, description, action, style }: MastheadProps) {
+export function Masthead({ kicker, title, emphasis, breakEmphasis, titleSize = 'page', description, action, style }: MastheadProps) {
   const { isWide } = useContentDimensions();
   return (
     <View style={[styles.masthead, isWide ? styles.mastheadWide : styles.mastheadNarrow, style]}>
       <View style={styles.mastheadMain}>
         {kicker ? <Kicker style={{ marginBottom: isWide ? 16 : 12 }}>{kicker}</Kicker> : null}
-        <EditorialTitle emphasis={emphasis} breakEmphasis={breakEmphasis}>{title}</EditorialTitle>
+        <EditorialTitle size={titleSize} emphasis={emphasis} breakEmphasis={breakEmphasis}>{title}</EditorialTitle>
       </View>
       {(description || action) ? (
         <View style={isWide ? styles.mastheadAside : styles.mastheadBelow}>

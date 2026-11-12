@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -241,10 +241,6 @@ export default function ProfileScreen() {
               <SettingRow title="Confidentialité" onPress={() => router.push('/settings/privacy')} />
               <SettingRow title="Paramètres" description="Tous les réglages du compte" onPress={() => router.push('/settings')} />
               <SettingRow title="Aide et support" onPress={() => router.push('/settings/support')} />
-              <SettingRow
-                title="Noter l’application"
-                onPress={() => { Linking.openURL('https://apps.apple.com/app/inkr/id000000000').catch(() => {}); }}
-              />
               {adminRow}
             </View>
 
@@ -366,8 +362,9 @@ export default function ProfileScreen() {
             kicker="Le studio / Outils d’atelier"
             title="Le studio."
             emphasis="Votre rythme."
-            breakEmphasis
-            description="Vos demandes, vos publications et vos réglages de réservation, au même endroit."
+            titleSize="section"
+            description="Vos demandes et vos prochains gestes, au même endroit."
+            style={styles.studioMasthead}
             action={(
               <TButton
                 title="Nouvelle publication"
@@ -431,10 +428,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* ─── Figures ─── */}
-          <Kicker style={styles.metricsKicker}>Vue artiste / Vos chiffres</Kicker>
-          <MetricGrid items={metrics} />
-
           {/* ─── Board: priority beside the ink actions ─── */}
           <View style={[styles.board, isWide && styles.boardWide]}>
             <Panel style={isWide ? { flex: 1.7 } : undefined}>
@@ -467,6 +460,10 @@ export default function ProfileScreen() {
               </View>
             </InkPanel>
           </View>
+
+          {/* Figures follow the work that needs a decision. */}
+          <Kicker style={styles.metricsKicker}>Vue artiste / Vos chiffres</Kicker>
+          <MetricGrid items={metrics} />
 
           {/* ─── Portfolio ─── */}
           <View style={styles.block}>
@@ -558,6 +555,7 @@ const styles = StyleSheet.create({
   ctaBody: { marginTop: Spacing.xs, marginBottom: Spacing.md, maxWidth: Layout.maxReading },
 
   // Artist identity strip
+  studioMasthead: { paddingTop: Spacing.lg, paddingBottom: Spacing.lg, marginBottom: Spacing.lg },
   identity: { gap: Spacing.lg, marginBottom: Spacing.xl },
   identityWide: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   identityMain: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flexShrink: 1, minWidth: 0 },
@@ -569,7 +567,7 @@ const styles = StyleSheet.create({
   availability: { gap: 6 },
   availabilityLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: Spacing.md, rowGap: 4 },
 
-  metricsKicker: { marginBottom: Spacing.sm },
+  metricsKicker: { marginTop: Spacing['3xl'], marginBottom: Spacing.sm },
 
   // Board
   board: { marginTop: Spacing.xl, gap: Spacing.md },
