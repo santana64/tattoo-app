@@ -6,7 +6,9 @@
 
 Le dépôt contient 48 écrans routés hors layouts et `+html`. Les 125 tests préexistants passaient avant intervention. La baseline TypeScript échouait dans `lib/auth-errors.ts` (deux paramètres implicitement `any`). ESLint passait avec trois avertissements dans `TToast`. L'export web échouait sans `EXPO_PUBLIC_SUPABASE_URL`, ce qui est attendu dans cet environnement sans variables de projet. Avec une URL et une clé **fictives**, l'export a réussi. Ce build ne valide aucune requête vers la vraie base.
 
-Une session Chromium locale a rendu `/explore` à 360, 390, 768, 1024 et 1440 px : pas de débordement horizontal ni d'erreur JavaScript. L'état erreur réseau s'affiche, car la configuration est fictive. Les captures sont dans `/workspace/shared/inkr-explore-*.png` (hors dépôt). Aucun compte de test, backend Supabase ni appareil iOS/Android n'est disponible ici. Les états et permissions non observés en condition réelle portent donc la mention **NV**.
+Une session Chromium locale a rendu `/explore` à 360, 390, 768, 1024 et 1440 px : pas de débordement horizontal ni d'erreur JavaScript. L'état erreur réseau s'affiche, car la configuration est fictive. Les captures sont dans `/workspace/shared/inkr-explore-*.png` (hors dépôt). Aucun backend **de test**, compte de test ni appareil iOS/Android n'est disponible ici. Les états et permissions non observés en condition réelle portent donc la mention **NV**.
+
+Inspection **en lecture seule** du projet Supabase connecté `inkr` : il est actif et expose les tables principales du produit, mais son historique contient neuf migrations (`001` à `009`) aux noms différents de ceux du dépôt (`001_initial` à `012_booking_care`). `search_artists` y existe, `artist_portfolio_previews` n'y existe pas. Le bucket `request-references` est privé et limité à 10 Mio, mais `allowed_mime_types` vaut `NULL`, contrairement à la migration locale. L'écart exige une réconciliation de schéma avant tout déploiement ; aucune requête d'écriture n'a été envoyée à ce projet. Les conseillers de sécurité Supabase signalent aussi des fonctions à `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; leur caractère intentionnel reste à examiner ([guide Supabase](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable)).
 
 ## Légende de couverture
 
@@ -73,6 +75,7 @@ Une session Chromium locale a rendu `/explore` à 360, 390, 768, 1024 et 1440 px
 3. **P1 — Aperçus recherche** : une limite globale pouvait masquer le portfolio des derniers artistes d'une page. Un RPC à quota par artiste, avec index et test SQL, est préparé. La migration doit précéder le client.
 4. **P2 — Studio** : les chiffres précédaient les demandes à traiter. Ordre et hauteur de titre ajustés ; validation avec un compte artiste chargé encore requise.
 5. **P2 — Actions factices** : lien App Store `id000000000` et commande photo ouvrant seulement une alerte retirés. Il reste à concevoir une vraie modification de photo.
+6. **P1 — Écart de schéma connecté** : l'historique du projet actif et le dépôt ne concordent pas. Ne pas appliquer aveuglément les migrations du dépôt au projet actif.
 
 ## Validation restante avant de qualifier la V5 de complète
 
