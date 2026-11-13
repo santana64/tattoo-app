@@ -84,12 +84,12 @@ function sameSubmittedBrief(existing: Tables<'tattoo_requests'>, payload: Submit
     && existing.project_type === payload.projectType && existing.body_zone === payload.bodyZone
     && existing.size_category === payload.sizeCategory
     && existing.budget_min === (payload.budgetMin ?? null) && existing.budget_max === (payload.budgetMax ?? null)
-    && existing.budget_unknown === (payload.budgetUnknown ?? false)
+    && (existing.budget_unknown ?? false) === (payload.budgetUnknown ?? false)
     && existing.color_preference === payload.colorPreference
     && existing.style_preference === (payload.stylePreference ?? null)
     && existing.description === payload.description.trim()
     && existing.flexibility_level === payload.flexibilityLevel
-    && existing.is_first_tattoo === (payload.isFirstTattoo ?? false)
+    && (existing.is_first_tattoo ?? false) === (payload.isFirstTattoo ?? false)
     && existing.flash_design_id === (payload.flashDesignId ?? null);
 }
 
