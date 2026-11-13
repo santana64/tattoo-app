@@ -810,23 +810,6 @@ export default function ExploreScreen() {
             </Animated.View>
           )}
 
-          {/* Both rails render nothing until there is something to book. */}
-          <View style={styles.discoveryRail}><FlashRail title="Flashs à réserver" /></View>
-          <View style={styles.discoveryRail}><GuestSpotRail /></View>
-
-          {trendingPosts.length > 0 && (
-            <View style={styles.trendingSection}>
-              <SectionHead kicker="Réalisations les plus aimées" />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginHorizontal: -gutter }}
-                contentContainerStyle={[styles.trendingRow, { paddingHorizontal: gutter }]}
-              >
-                {trendingPosts.map((p, i) => <TrendingTile key={p.id} post={p} index={i} />)}
-              </ScrollView>
-            </View>
-          )}
         </>
       )}
 
@@ -876,9 +859,33 @@ export default function ExploreScreen() {
         ListHeaderComponent={ListHeader}
         onEndReached={() => { if (!nearMode) void fetchMore(); }}
         onEndReachedThreshold={0.6}
-        ListFooterComponent={!nearMode && isLoadingMore ? (
-          <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: Spacing.md }} accessibilityLabel="Chargement des artistes suivants" />
-        ) : null}
+        ListFooterComponent={
+          <>
+            {!nearMode && isLoadingMore && (
+              <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: Spacing.md }} accessibilityLabel="Chargement des artistes suivants" />
+            )}
+            {!nearMode && !hasFilters && !isLoading && !fetchError && (
+              <View>
+                {/* Discovery follows the people returned by the search. */}
+                <View style={styles.discoveryRail}><FlashRail title="Flashs à réserver" /></View>
+                <View style={styles.discoveryRail}><GuestSpotRail /></View>
+                {trendingPosts.length > 0 && (
+                  <View style={styles.trendingSection}>
+                    <SectionHead kicker="Réalisations les plus aimées" />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginHorizontal: -gutter }}
+                      contentContainerStyle={[styles.trendingRow, { paddingHorizontal: gutter }]}
+                    >
+                      {trendingPosts.map((p, i) => <TrendingTile key={p.id} post={p} index={i} />)}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
+          </>
+        }
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         refreshControl={

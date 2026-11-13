@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
+import { AppState, ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -167,7 +167,18 @@ export default function RequestDetailScreen() {
     void refresh();
     // Signed links expire after five minutes; keep a long-open dossier usable.
     const interval = setInterval(() => { void refresh(); }, 4 * 60 * 1000);
-    return () => { active = false; clearInterval(interval); };
+    // Backgrounded apps can pause timers longer than the URL lifetime.
+    const appState = Platform.OS === 'web' ? null : AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refresh();
+    });
+    const onWindowFocus = () => { void refresh(); };
+    if (Platform.OS === 'web') window.addEventListener('focus', onWindowFocus);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      appState?.remove();
+      if (Platform.OS === 'web') window.removeEventListener('focus', onWindowFocus);
+    };
   }, [request?.id, attempt]);
 
   const changeStatus = async (status: RequestStatus) => {
