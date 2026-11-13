@@ -115,17 +115,49 @@ export async function uploadReference(
   return { path };
 }
 
-export async function signedRequestReferences(requestId: string): Promise<string[]> {
+export interface SignedRequestReference { path: string; url: string }
+
+export async function saveReferenceMetadata(requestId: string, path: string): Promise<void> {
+  if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
+    throw new Error('Chemin de référence invalide.');
+  }
+  const { data, error } = await supabase.from('request_references')
+    .select('id').eq('request_id', requestId).eq('url', path).maybeSingle();
+  if (error) throw error;
+  if (data) return;
+  const { error: insertError } = await supabase.from('request_references').insert({ request_id: requestId, url: path });
+  if (insertError && insertError.code !== '23505') throw insertError;
+}
+
+export async function attachReference(uri: string, requestId: string, index: number): Promise<{ path: string }> {
+  const result = await uploadReference(uri, requestId, index);
+  await saveReferenceMetadata(requestId, result.path);
+  return result;
+}
+
+export async function removeReference(requestId: string, path: string): Promise<void> {
+  if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
+    throw new Error('Chemin de référence invalide.');
+  }
+  const { error: deleteError } = await supabase.from('request_references')
+    .delete().eq('request_id', requestId).eq('url', path);
+  if (deleteError) throw deleteError;
+  // If Storage fails, the object remains visible in the dossier and the client can retry.
+  const { error } = await supabase.storage.from('request-references').remove([path]);
+  if (error) throw error;
+}
+
+export async function signedRequestReferences(requestId: string, expiresIn = 300): Promise<SignedRequestReference[]> {
   const bucket = supabase.storage.from('request-references');
   const { data: files, error } = await bucket.list(requestId, { limit: 10, sortBy: { column: 'name', order: 'asc' } });
   if (error) throw error;
   const paths = (files ?? [])
-    .filter((file) => /^ref_\d+\.jpg$/.test(file.name))
+    .filter((file) => /^ref_[0-2]\.jpg$/.test(file.name))
     .map((file) => `${requestId}/${file.name}`);
   const signed = await Promise.all(paths.map(async (path) => {
-    const { data, error: signError } = await bucket.createSignedUrl(path, 3600);
+    const { data, error: signError } = await bucket.createSignedUrl(path, expiresIn);
     if (signError) throw signError;
-    return data.signedUrl;
+    return { path, url: data.signedUrl };
   }));
   return signed;
 }

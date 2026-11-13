@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql', '20261112213805_private_request_reference_lifecycle.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -342,6 +342,36 @@ test('private files are only visible to their owner or the request parties', asy
       DENIED,
     );
   });
+});
+
+test('the client can remove a reference, while the artist and a third party cannot', async () => {
+  const path = `${ids.request}/ref_2.jpg`;
+  await as(ids.client, () => db.query(`insert into storage.objects (bucket_id, name) values ('request-references', $1)`, [path]));
+  assert.equal((await as(ids.artistUser, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 0);
+  assert.equal((await as(ids.outsider, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 0);
+  assert.equal((await as(ids.client, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 1);
+});
+
+test('request storage accepts only the three flat reference slots', async () => {
+  await as(ids.client, async () => {
+    for (const name of ['evil.jpg', 'ref_7.jpg', 'nested/ref_0.jpg']) {
+      await assert.rejects(
+        db.query(`insert into storage.objects (bucket_id, name) values ('request-references', $1)`, [`${ids.request}/${name}`]),
+        DENIED,
+        name,
+      );
+    }
+  });
+});
+
+test('a reference path is unique per request and only its client can remove metadata', async () => {
+  const path = `${ids.request}/ref_1.jpg`;
+  await as(ids.client, () => db.query(`insert into public.request_references (request_id, url) values ($1, $2)`, [ids.request, path]));
+  assert.equal((await as(ids.artistUser, () => rows(`select url from public.request_references where request_id = $1`, [ids.request]))).length, 1);
+  assert.equal((await as(ids.outsider, () => rows(`select url from public.request_references where request_id = $1`, [ids.request]))).length, 0);
+  await as(ids.client, () => assert.rejects(db.query(`insert into public.request_references (request_id, url) values ($1, $2)`, [ids.request, path]), /duplicate key/));
+  assert.equal((await as(ids.artistUser, () => rows(`delete from public.request_references where request_id = $1 and url = $2 returning id`, [ids.request, path]))).length, 0);
+  assert.equal((await as(ids.client, () => rows(`delete from public.request_references where request_id = $1 and url = $2 returning id`, [ids.request, path]))).length, 1);
 });
 
 test('portfolio previews are balanced per artist and exclude unpublished work', async () => {

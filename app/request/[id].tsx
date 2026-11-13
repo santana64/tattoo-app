@@ -28,7 +28,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/tattoo';
-import { signedRequestReferences } from '@/lib/storage';
+import { attachReference, pickImage, removeReference, signedRequestReferences, type SignedRequestReference } from '@/lib/storage';
 
 const ASIDE_W = 380;
 const BAR_MAX = 760;
@@ -139,8 +139,11 @@ export default function RequestDetailScreen() {
   const savingRef = useRef(false);
   const [showDecline, setShowDecline] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
-  const [signedReferences, setSignedReferences] = useState<string[]>([]);
+  const [signedReferences, setSignedReferences] = useState<SignedRequestReference[]>([]);
   const [referencesError, setReferencesError] = useState(false);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [referenceActionError, setReferenceActionError] = useState<string | null>(null);
+  const [referenceBusy, setReferenceBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -156,11 +159,15 @@ export default function RequestDetailScreen() {
     let active = true;
     setSignedReferences([]);
     setReferencesError(false);
+    setReferencesLoading(true);
     if (!request?.id) return;
-    signedRequestReferences(request.id)
-      .then((urls) => { if (active) setSignedReferences(urls); })
-      .catch(() => { if (active) setReferencesError(true); });
-    return () => { active = false; };
+    const refresh = () => signedRequestReferences(request.id)
+      .then((items) => { if (active) { setSignedReferences(items); setReferencesError(false); setReferencesLoading(false); } })
+      .catch(() => { if (active) { setReferencesError(true); setReferencesLoading(false); } });
+    void refresh();
+    // Signed links expire after five minutes; keep a long-open dossier usable.
+    const interval = setInterval(() => { void refresh(); }, 4 * 60 * 1000);
+    return () => { active = false; clearInterval(interval); };
   }, [request?.id, attempt]);
 
   const changeStatus = async (status: RequestStatus) => {
@@ -229,7 +236,41 @@ export default function RequestDetailScreen() {
       : `${counterpart || 'L’artiste'} vous répondra dans la conversation. Prêt à aller plus loin ? Transformez votre question en projet.`
     : nextStepCopy(request, viewAs, counterpart);
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
-  const references = [...(request.references ?? []), ...signedReferences];
+  const references: { path: string | null; url: string }[] = [
+    ...(request.references ?? []).filter((url) => /^https:\/\//.test(url)).map((url) => ({ path: null, url })),
+    ...signedReferences,
+  ];
+  const usedReferenceSlots = signedReferences.map((item) => Number(item.path.match(/ref_([0-2])\.jpg$/)?.[1])).filter(Number.isInteger);
+  const freeReferenceSlots = [0, 1, 2].filter((index) => !usedReferenceSlots.includes(index));
+
+  const handleAddReferences = async () => {
+    if (referenceBusy || referencesLoading || referencesError || isArtist || !freeReferenceSlots.length) return;
+    setReferenceBusy(true); setReferenceActionError(null);
+    try {
+      const picked = await pickImage({ multiple: true });
+      for (const [i, uri] of (picked ?? []).slice(0, freeReferenceSlots.length).entries()) {
+        await attachReference(uri, request.id, freeReferenceSlots[i]);
+      }
+    } catch {
+      setReferenceActionError('Certaines images n’ont pas été ajoutées. Réessayez.');
+    } finally {
+      setReferenceBusy(false);
+      setAttempt((value) => value + 1);
+    }
+  };
+
+  const handleRemoveReference = async (path: string) => {
+    if (referenceBusy || isArtist) return;
+    setReferenceBusy(true); setReferenceActionError(null);
+    try {
+      await removeReference(request.id, path);
+    } catch {
+      setReferenceActionError('Impossible de retirer cette image pour le moment.');
+    } finally {
+      setReferenceBusy(false);
+      setAttempt((value) => value + 1);
+    }
+  };
   const submitted = formatLong(request.submittedAt);
   const awaitingAnswer = !inquiry && (request.status === 'submitted' || request.status === 'clarification_needed');
   const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
@@ -344,13 +385,24 @@ export default function RequestDetailScreen() {
         </Section>
       )}
 
-      {references.length > 0 && (
+      {(references.length > 0 || (!isArtist && !inquiry)) && (
         <Section title="Références">
           <View style={styles.refGrid}>
-            {references.map((uri, i) => (
-              <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+            {references.map((item, i) => (
+              <View key={item.path ?? item.url} style={{ gap: Spacing.xs }}>
+                <RevealImage uri={item.url} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+                {!isArtist && item.path && (
+                  <Pressable disabled={referenceBusy} accessibilityRole="button" accessibilityLabel={`Retirer la référence ${i + 1}`} onPress={() => { if (item.path) void handleRemoveReference(item.path); }}>
+                    <TText variant="caption" color="error">Retirer</TText>
+                  </Pressable>
+                )}
+              </View>
             ))}
           </View>
+          {!isArtist && !inquiry && !referencesLoading && !referencesError && freeReferenceSlots.length > 0 && (
+            <TButton title="Ajouter une référence" variant="secondary" loading={referenceBusy} onPress={handleAddReferences} />
+          )}
+          {!!referenceActionError && <TText variant="caption" color="error" accessibilityRole="alert">{referenceActionError}</TText>}
         </Section>
       )}
       {referencesError && (

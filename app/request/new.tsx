@@ -29,7 +29,7 @@ import { SlotPicker, formatChosenSlot } from '@/components/booking/SlotPicker';
 import { fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 import { durationLabel, fetchBookingSettings, type BookingSettings } from '@/lib/care';
 import { cancellationNotice } from '@/components/booking/booking-copy';
-import { pickImage, uploadReference } from '@/lib/storage';
+import { attachReference, pickImage } from '@/lib/storage';
 
 const FORM_MAX = 640;
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -422,7 +422,7 @@ export default function NewRequestScreen() {
         setPendingRequestId(requestId);
       }
       for (let i = 0; i < referenceUris.length; i++) {
-        await uploadReference(referenceUris[i], requestId, i);
+        await attachReference(referenceUris[i], requestId, i);
       }
       setSentId(requestId);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

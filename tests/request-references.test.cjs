@@ -11,6 +11,7 @@ const compiled = ts.transpileModule(source, {
 
 function storageHarness({ size = 1024, uploadError = null, listError = null } = {}) {
   const calls = [];
+  const rows = new Set();
   const bucket = {
     upload: async (name, blob, options) => {
       calls.push({ action: 'upload', name, blob, options });
@@ -18,11 +19,15 @@ function storageHarness({ size = 1024, uploadError = null, listError = null } = 
     },
     list: async (folder) => {
       calls.push({ action: 'list', folder });
-      return { data: [{ name: 'ref_0.jpg' }, { name: 'ref_1.jpg' }, { name: '.emptyFolderPlaceholder' }], error: listError };
+      return { data: [{ name: 'ref_0.jpg' }, { name: 'ref_1.jpg' }, { name: 'ref_7.jpg' }, { name: '.emptyFolderPlaceholder' }], error: listError };
     },
     createSignedUrl: async (name, expiresIn) => {
       calls.push({ action: 'sign', name, expiresIn });
       return { data: { signedUrl: `https://private.test/${name}?token=temporary` }, error: null };
+    },
+    remove: async (paths) => {
+      calls.push({ action: 'remove', paths });
+      return { data: paths, error: null };
     },
     getPublicUrl: () => { throw new Error('Private reference must not request a public URL'); },
   };
@@ -32,7 +37,14 @@ function storageHarness({ size = 1024, uploadError = null, listError = null } = 
       manipulateAsync: async () => ({ uri: 'compressed-image' }),
       SaveFormat: { JPEG: 'jpeg' },
     },
-    './supabase': { supabase: { storage: { from: (name) => {
+    './supabase': { supabase: { from: (table) => {
+      assert.equal(table, 'request_references');
+      return {
+        select: () => ({ eq: () => ({ eq: (_, value) => ({ maybeSingle: async () => ({ data: rows.has(value) ? { id: 'existing' } : null, error: null }) }) }) }),
+        insert: async ({ url }) => { calls.push({ action: 'insert-row', url }); rows.add(url); return { error: null }; },
+        delete: () => ({ eq: () => ({ eq: async (_, value) => { calls.push({ action: 'delete-row', value }); rows.delete(value); return { error: null }; } }) }),
+      };
+    }, storage: { from: (name) => {
       assert.equal(name, 'request-references');
       return bucket;
     } } } },
@@ -66,11 +78,33 @@ test('request detail lists private files and signs only reference images', async
   const { storage, calls } = storageHarness();
   const urls = await storage.signedRequestReferences('request-123');
   assert.equal(urls.length, 2);
-  assert.ok(urls.every((url) => url.includes('token=temporary')));
+  assert.ok(urls.every((item) => item.url.includes('token=temporary') && item.path.startsWith('request-123/')));
   assert.deepEqual(calls.filter((call) => call.action === 'sign').map((call) => call.name), [
     'request-123/ref_0.jpg', 'request-123/ref_1.jpg',
   ]);
-  assert.ok(calls.filter((call) => call.action === 'sign').every((call) => call.expiresIn === 3600));
+  assert.ok(calls.filter((call) => call.action === 'sign').every((call) => call.expiresIn === 300));
+});
+
+test('metadata registration is repeatable for a private path', async () => {
+  const { storage, calls } = storageHarness();
+  await storage.saveReferenceMetadata('request-123', 'request-123/ref_0.jpg');
+  await storage.saveReferenceMetadata('request-123', 'request-123/ref_0.jpg');
+  assert.equal(calls.filter((call) => call.action === 'insert-row').length, 1);
+});
+
+test('attaching a reference uploads first, then records its private path', async () => {
+  const { storage, calls } = storageHarness();
+  await storage.attachReference('picked-image', 'request-123', 2);
+  assert.deepEqual(calls.filter((call) => ['upload', 'insert-row'].includes(call.action)).map((call) => call.action), ['upload', 'insert-row']);
+  assert.equal(calls.find((call) => call.action === 'insert-row').url, 'request-123/ref_2.jpg');
+});
+
+test('client removal clears the object and its historical metadata row', async () => {
+  const { storage, calls } = storageHarness();
+  await storage.removeReference('request-123', 'request-123/ref_0.jpg');
+  assert.deepEqual(calls.filter((call) => call.action === 'remove')[0].paths, ['request-123/ref_0.jpg']);
+  assert.equal(calls.filter((call) => call.action === 'delete-row').length, 1);
+  assert.deepEqual(calls.filter((call) => ['remove', 'delete-row'].includes(call.action)).map((call) => call.action), ['delete-row', 'remove']);
 });
 
 test('storage errors surface rather than claiming a successful attachment', async () => {
