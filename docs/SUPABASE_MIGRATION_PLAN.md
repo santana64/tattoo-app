@@ -10,7 +10,7 @@
 | Recherche | `search_artists(text,text,text,integer,text,integer,integer)` existe | Même contrat appelé par le client | Comparer la définition et les index avant une mise à jour. |
 | Aperçus | `artist_portfolio_previews(uuid[],integer)` absent | Migration `20261112193526_balanced_artist_previews.sql` | Le client utilise son repli tant que le RPC manque. |
 | Références | Table `request_references(id,request_id,url,created_at)` ; 0 ligne observée | Même table ; la PR enregistre un chemin privé dans `url` | Préparer l'unicité et le nettoyage des lignes orphelines sur une copie avant application. |
-| Storage | Bucket `request-references` privé, 10 Mio, 0 objet observé, MIME non restreint | Trois emplacements JPEG et droits de suppression dans `20261112213805_private_request_reference_lifecycle.sql` | Vérifier les politiques et le service Storage avec trois vrais comptes avant d'autoriser ce changement. |
+| Storage | Bucket `request-references` privé, 10 Mio, 0 objet observé, MIME non restreint | Trois emplacements JPEG, MIME `image/jpeg`, plafond 10 Mio et droits de suppression dans `20261112213805_private_request_reference_lifecycle.sql` | Vérifier les politiques et le service Storage avec trois vrais comptes avant d'autoriser ce changement. |
 | Fonctions privilégiées | Conseillers Supabase : fonctions à `search_path` mutable et `SECURITY DEFINER` exécutables par `anon` | Certaines fonctions sont intentionnellement privilégiées | Revue séparée de chaque fonction et de ses grants avant toute reprise de migrations anciennes. |
 
 Les comptes et objets peuvent changer entre cette lecture et un futur déploiement. Refaire tous les prévols à ce moment-là.

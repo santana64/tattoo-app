@@ -1,5 +1,11 @@
 -- Reference metadata stores a private object path, never a public or signed URL.
 -- Keep historical rows readable; restrict new rows to the three app slots.
+update storage.buckets
+set public = false,
+    file_size_limit = 10485760,
+    allowed_mime_types = array['image/jpeg']
+where id = 'request-references';
+
 drop policy if exists "refs_insert_client" on public.request_references;
 create policy "refs_insert_client" on public.request_references
   for insert to authenticated

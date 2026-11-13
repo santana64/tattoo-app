@@ -353,6 +353,10 @@ test('the client can remove a reference, while the artist and a third party cann
 });
 
 test('request storage accepts only the three flat reference slots', async () => {
+  const bucket = await one(`select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'request-references'`);
+  assert.equal(bucket.public, false);
+  assert.equal(Number(bucket.file_size_limit), 10485760);
+  assert.deepEqual(bucket.allowed_mime_types, ['image/jpeg']);
   await as(ids.client, async () => {
     for (const name of ['evil.jpg', 'ref_7.jpg', 'nested/ref_0.jpg']) {
       await assert.rejects(
