@@ -142,12 +142,22 @@ export async function removeReference(requestId: string, path: string): Promise<
   if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
     throw new Error('Chemin de référence invalide.');
   }
+  const bucket = supabase.storage.from('request-references');
+  // Keep the historical row until the object is actually gone. A lost response
+  // or a denied removal must not make metadata claim that deletion succeeded.
+  const { error } = await bucket.remove([path]);
+  if (error) throw error;
+  const { data: remaining, error: listError } = await bucket.list(requestId, {
+    limit: 10,
+    search: path.slice(requestId.length + 1),
+  });
+  if (listError) throw listError;
+  if (remaining?.some((file) => `${requestId}/${file.name}` === path)) {
+    throw new Error('La référence est encore présente. Réessayez.');
+  }
   const { error: deleteError } = await supabase.from('request_references')
     .delete().eq('request_id', requestId).eq('url', path);
   if (deleteError) throw deleteError;
-  // If Storage fails, the object remains visible in the dossier and the client can retry.
-  const { error } = await supabase.storage.from('request-references').remove([path]);
-  if (error) throw error;
 }
 
 export async function signedRequestReferences(requestId: string, expiresIn = 300): Promise<SignedRequestReference[]> {

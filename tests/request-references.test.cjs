@@ -9,9 +9,10 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
 
-function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null } = {}) {
+function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null, removeWithoutDelete = false } = {}) {
   const calls = [];
   const rows = new Set();
+  const files = new Set(['ref_0.jpg', 'ref_1.jpg', 'ref_7.jpg', '.emptyFolderPlaceholder']);
   const bucket = {
     upload: async (name, blob, options) => {
       calls.push({ action: 'upload', name, blob, options });
@@ -19,7 +20,7 @@ function storageHarness({ size = 1024, uploadError = null, listError = null, ins
     },
     list: async (folder) => {
       calls.push({ action: 'list', folder });
-      return { data: [{ name: 'ref_0.jpg' }, { name: 'ref_1.jpg' }, { name: 'ref_7.jpg' }, { name: '.emptyFolderPlaceholder' }], error: listError };
+      return { data: [...files].map((name) => ({ name })), error: listError };
     },
     createSignedUrl: async (name, expiresIn) => {
       calls.push({ action: 'sign', name, expiresIn });
@@ -27,6 +28,7 @@ function storageHarness({ size = 1024, uploadError = null, listError = null, ins
     },
     remove: async (paths) => {
       calls.push({ action: 'remove', paths });
+      if (!removeError && !removeWithoutDelete) paths.forEach((path) => files.delete(path.split('/').at(-1)));
       return { data: paths, error: removeError };
     },
     getPublicUrl: () => { throw new Error('Private reference must not request a public URL'); },
@@ -117,7 +119,7 @@ test('client removal clears the object and its historical metadata row', async (
   await storage.removeReference('request-123', 'request-123/ref_0.jpg');
   assert.deepEqual(calls.filter((call) => call.action === 'remove')[0].paths, ['request-123/ref_0.jpg']);
   assert.equal(calls.filter((call) => call.action === 'delete-row').length, 1);
-  assert.deepEqual(calls.filter((call) => ['remove', 'delete-row'].includes(call.action)).map((call) => call.action), ['delete-row', 'remove']);
+  assert.deepEqual(calls.filter((call) => ['remove', 'list', 'delete-row'].includes(call.action)).map((call) => call.action), ['remove', 'list', 'delete-row']);
 });
 
 test('an interrupted deletion can be retried against the remaining private object', async () => {
@@ -126,6 +128,13 @@ test('an interrupted deletion can be retried against the remaining private objec
   await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /storage unavailable/);
   await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /storage unavailable/);
   assert.equal(calls.filter((call) => call.action === 'remove').length, 2);
+  assert.equal(calls.filter((call) => call.action === 'delete-row').length, 0);
+});
+
+test('a removal that reports success but leaves the object keeps historical metadata', async () => {
+  const { storage, calls } = storageHarness({ removeWithoutDelete: true });
+  await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /encore présente/);
+  assert.equal(calls.filter((call) => call.action === 'delete-row').length, 0);
 });
 
 test('storage errors surface rather than claiming a successful attachment', async () => {
