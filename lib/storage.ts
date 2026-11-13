@@ -108,6 +108,7 @@ export async function uploadReference(
   const path = `${requestId}/ref_${index}.jpg`;
   const { error } = await supabase.storage.from('request-references').upload(path, blob, {
     contentType: 'image/jpeg',
+    cacheControl: '0',
     upsert: true,
   });
   if (error) throw error;
@@ -167,7 +168,9 @@ export async function removeReference(requestId: string, path: string): Promise<
   if (deleteError) throw deleteError;
 }
 
-export async function signedRequestReferences(requestId: string, expiresIn = 300): Promise<SignedRequestReference[]> {
+// An already fetched signed URL can remain cached after deletion. Keep that
+// bearer-token window short, and refresh while the dossier stays open.
+export async function signedRequestReferences(requestId: string, expiresIn = 60): Promise<SignedRequestReference[]> {
   const bucket = supabase.storage.from('request-references');
   const { data: files, error } = await bucket.list(requestId, { limit: 10, sortBy: { column: 'name', order: 'asc' } });
   if (error) throw error;

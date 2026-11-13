@@ -71,6 +71,7 @@ test('references upload to a repeatable private path without a public URL', asyn
   assert.equal(calls.length, 2);
   assert.equal(calls[0].options.upsert, true);
   assert.equal(calls[0].options.contentType, 'image/jpeg');
+  assert.equal(calls[0].options.cacheControl, '0');
 });
 
 test('oversized images stop before storage upload', async () => {
@@ -94,7 +95,7 @@ test('request detail lists private files and signs only reference images', async
   assert.deepEqual(calls.filter((call) => call.action === 'sign').map((call) => call.name), [
     'request-123/ref_0.jpg', 'request-123/ref_1.jpg',
   ]);
-  assert.ok(calls.filter((call) => call.action === 'sign').every((call) => call.expiresIn === 300));
+  assert.ok(calls.filter((call) => call.action === 'sign').every((call) => call.expiresIn === 60));
 });
 
 test('metadata registration is repeatable for a private path', async () => {
