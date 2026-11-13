@@ -11,6 +11,13 @@ const payload = {
   budgetMin: 200, budgetMax: 400, colorPreference: 'black_grey',
   description: 'Une branche botanique fine', flexibilityLevel: 'open',
 };
+const existingBrief = {
+  id: requestId, client_id: clientId, artist_id: artistId,
+  project_type: payload.projectType, body_zone: payload.bodyZone, size_category: payload.sizeCategory,
+  budget_min: payload.budgetMin, budget_max: payload.budgetMax,
+  color_preference: payload.colorPreference, style_preference: null,
+  description: payload.description, flexibility_level: payload.flexibilityLevel, flash_design_id: null,
+};
 
 function loadStore(client) {
   const source = fs.readFileSync(require.resolve('../store/request-store.ts'), 'utf8');
@@ -29,14 +36,14 @@ function loadStore(client) {
   return store;
 }
 
-function fakeClient(insertResult, existing = null) {
+function fakeClient(insertResult, existing = null, bookingStatus = 'open') {
   const writes = [];
   const client = { from(table) {
-    if (table === 'artists') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { booking_status: 'open' }, error: null }) }) }) };
+    if (table === 'artists') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { booking_status: bookingStatus }, error: null }) }) }) };
     assert.equal(table, 'tattoo_requests');
     return {
       insert: (row) => { writes.push(row); return { select: () => ({ single: async () => insertResult }) }; },
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }) }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: Array.isArray(existing) ? existing.shift() : existing, error: null }) }) }),
     };
   } };
   return { client, writes };
@@ -53,11 +60,11 @@ test('a submitted brief uses the stable client-generated request id', async () =
 
 test('a retry after an ambiguous response finds only the same client and artist request', async () => {
   const duplicate = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "tattoo_requests_pkey"' } };
-  const existing = { id: requestId, client_id: clientId, artist_id: artistId };
-  const { client } = fakeClient(duplicate, existing);
+  const existing = existingBrief;
+  const { client } = fakeClient(duplicate, [null, existing]);
   const store = loadStore(client);
   assert.deepEqual(await store.getState().submitRequest(payload, clientId, requestId), { id: requestId, error: null });
-  const other = fakeClient(duplicate, { ...existing, client_id: '44444444-4444-4444-8444-444444444444' });
+  const other = fakeClient(duplicate, [null, { ...existing, client_id: '44444444-4444-4444-8444-444444444444' }]);
   const otherStore = loadStore(other.client);
   const denied = await otherStore.getState().submitRequest(payload, clientId, requestId);
   assert.equal(denied.id, null);
@@ -65,9 +72,23 @@ test('a retry after an ambiguous response finds only the same client and artist 
 
 test('another unique conflict is never mistaken for a previously sent request', async () => {
   const conflict = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "flash_bookings_single_copy"' } };
-  const existing = { id: requestId, client_id: clientId, artist_id: artistId };
-  const { client } = fakeClient(conflict, existing);
+  const { client } = fakeClient(conflict);
   const store = loadStore(client);
   const result = await store.getState().submitRequest(payload, clientId, requestId);
   assert.equal(result.id, null);
+});
+
+test('an existing request is recovered even if the artist stopped accepting new projects', async () => {
+  const { client, writes } = fakeClient({ data: null, error: null }, existingBrief, 'closed');
+  const result = await loadStore(client).getState().submitRequest(payload, clientId, requestId);
+  assert.deepEqual(result, { id: requestId, error: null });
+  assert.equal(writes.length, 0);
+});
+
+test('a different brief cannot silently reuse an earlier request id', async () => {
+  const { client, writes } = fakeClient({ data: null, error: null }, existingBrief);
+  const result = await loadStore(client).getState().submitRequest({ ...payload, description: 'Un autre projet' }, clientId, requestId);
+  assert.equal(result.id, null);
+  assert.match(result.error, /autre demande/);
+  assert.equal(writes.length, 0);
 });

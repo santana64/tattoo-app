@@ -79,6 +79,18 @@ export interface SubmitPayload {
   flashDesignId?: string | null;
 }
 
+function sameSubmittedBrief(existing: Tables<'tattoo_requests'>, payload: SubmitPayload, userId: string): boolean {
+  return existing.client_id === userId && existing.artist_id === payload.artistId
+    && existing.project_type === payload.projectType && existing.body_zone === payload.bodyZone
+    && existing.size_category === payload.sizeCategory
+    && existing.budget_min === (payload.budgetMin ?? null) && existing.budget_max === (payload.budgetMax ?? null)
+    && existing.color_preference === payload.colorPreference
+    && existing.style_preference === (payload.stylePreference ?? null)
+    && existing.description === payload.description.trim()
+    && existing.flexibility_level === payload.flexibilityLevel
+    && existing.flash_design_id === (payload.flashDesignId ?? null);
+}
+
 type RequestRow = Tables<'tattoo_requests'> & {
   profiles?: { display_name: string; avatar_url: string | null } | null;
   artists?: { blaze: string; avatar_url: string | null; city: string } | null;
@@ -174,6 +186,15 @@ export const useRequestStore = create<RequestState>((set, get) => ({
     try {
       if (!isUuid(userId) || !isUuid(payload.artistId) || (requestId && !isUuid(requestId))) return { id: null, error: 'Identifiant invalide.' };
       if (!payload.description.trim() || (payload.budgetMin != null && (!Number.isFinite(payload.budgetMin) || payload.budgetMin < 0)) || (payload.budgetMax != null && (!Number.isFinite(payload.budgetMax) || payload.budgetMax < (payload.budgetMin ?? 0)))) return { id: null, error: 'Description ou budget invalide.' };
+      const existingFields = 'id,client_id,artist_id,project_type,body_zone,size_category,budget_min,budget_max,color_preference,style_preference,description,flexibility_level,flash_design_id';
+      if (requestId) {
+        const { data: prior, error: priorError } = await supabase.from('tattoo_requests')
+          .select(existingFields).eq('id', requestId).maybeSingle();
+        if (priorError) return { id: null, error: 'Impossible de vérifier votre dernier envoi. Réessayez la vérification.' };
+        if (prior) return sameSubmittedBrief(prior as Tables<'tattoo_requests'>, payload, userId)
+          ? { id: prior.id, error: null }
+          : { id: null, error: 'Une autre demande existe déjà pour cet envoi. Consultez vos demandes.' };
+      }
       const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
       if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
       const { referenceUris, ...rest } = payload;
@@ -205,8 +226,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (error) {
         if (requestId && error.code === '23505' && error.message.includes('tattoo_requests_pkey')) {
           const { data: existing, error: lookupError } = await supabase.from('tattoo_requests')
-            .select('id,client_id,artist_id').eq('id', requestId).maybeSingle();
-          if (!lookupError && existing?.client_id === userId && existing.artist_id === payload.artistId) {
+            .select(existingFields).eq('id', requestId).maybeSingle();
+          if (!lookupError && existing && sameSubmittedBrief(existing as Tables<'tattoo_requests'>, payload, userId)) {
             await get().fetchRequests(userId, 'user');
             return { id: existing.id, error: null };
           }

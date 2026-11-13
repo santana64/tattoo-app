@@ -254,6 +254,8 @@ export default function NewRequestScreen() {
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [stableRequestId, setStableRequestId] = useState<string | null>(null);
   const [restoringPending, setRestoringPending] = useState(true);
+  const [restoreError, setRestoreError] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [recoveredRequest, setRecoveredRequest] = useState(false);
   const [referenceUris, setReferenceUris] = useState<string[]>([]);
   const [pickingReferences, setPickingReferences] = useState(false);
@@ -281,6 +283,10 @@ export default function NewRequestScreen() {
     let active = true;
     if (!artist?.id || !user?.id) { setRestoringPending(false); return; }
     const scope = { userId: user.id, artistId: artist.id, flashId };
+    setStableRequestId(null);
+    setPendingRequestId(null);
+    setRecoveredRequest(false);
+    setRestoreError(false);
     setRestoringPending(true);
     loadPendingRequest(scope)
       .then(async (id) => {
@@ -290,11 +296,11 @@ export default function NewRequestScreen() {
         if (active && existing) { setPendingRequestId(id); setRecoveredRequest(true); }
       })
       .catch(() => {
-        if (active) setSubmitError('Impossible de vérifier votre dernier envoi. Un nouvel essai réutilisera le même identifiant.');
+        if (active) setRestoreError(true);
       })
       .finally(() => { if (active) setRestoringPending(false); });
     return () => { active = false; };
-  }, [artist?.id, user?.id, flashId, fetchRequest]);
+  }, [artist?.id, user?.id, flashId, fetchRequest, restoreAttempt]);
 
   useEffect(() => {
     if (!artistId) { setBookingLoaded(true); return; }
@@ -482,6 +488,19 @@ export default function NewRequestScreen() {
 
   // ── Unavailable states ──
   if ((!artist && loading) || (artist && user && restoringPending)) return <FormSkeleton top={insets.top} />;
+  if (restoreError) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Envoi à vérifier"
+          description="Impossible de savoir si votre dernière demande est déjà arrivée. Reconnectez-vous, puis vérifiez avant de recommencer."
+          ctaLabel="Réessayer la vérification"
+          onCta={() => setRestoreAttempt((value) => value + 1)}
+        />
+      </View>
+    );
+  }
   if (sentId && artist) {
     const sizeSent = SIZE_OPTIONS.find((o) => o.key === sizeCategory)?.label;
     const typeSent = PROJECT_TYPES.find((p) => p.key === projectType)?.label;
