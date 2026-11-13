@@ -81,7 +81,7 @@ test('the CSP in vercel.json allows the inline script Expo emits', () => {
   // The two providers a reel may be embedded from, and the optional sign-in captcha.
   assert.equal(directive('frame-src'), 'frame-src https://www.tiktok.com https://www.instagram.com https://challenges.cloudflare.com');
   // Supabase, and the city lookup.
-  assert.equal(directive('connect-src'), "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://photon.komoot.io");
+  assert.equal(directive('connect-src'), "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://photon.komoot.io");
   // Scripts: our own files, Expo's inline bootstrap by hash, the captcha loader. Nothing broader.
   assert.equal(directive('script-src'), `script-src 'self' ${hash} https://challenges.cloudflare.com`);
 });
