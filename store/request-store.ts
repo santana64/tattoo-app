@@ -84,10 +84,12 @@ function sameSubmittedBrief(existing: Tables<'tattoo_requests'>, payload: Submit
     && existing.project_type === payload.projectType && existing.body_zone === payload.bodyZone
     && existing.size_category === payload.sizeCategory
     && existing.budget_min === (payload.budgetMin ?? null) && existing.budget_max === (payload.budgetMax ?? null)
+    && existing.budget_unknown === (payload.budgetUnknown ?? false)
     && existing.color_preference === payload.colorPreference
     && existing.style_preference === (payload.stylePreference ?? null)
     && existing.description === payload.description.trim()
     && existing.flexibility_level === payload.flexibilityLevel
+    && existing.is_first_tattoo === (payload.isFirstTattoo ?? false)
     && existing.flash_design_id === (payload.flashDesignId ?? null);
 }
 
@@ -186,7 +188,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
     try {
       if (!isUuid(userId) || !isUuid(payload.artistId) || (requestId && !isUuid(requestId))) return { id: null, error: 'Identifiant invalide.' };
       if (!payload.description.trim() || (payload.budgetMin != null && (!Number.isFinite(payload.budgetMin) || payload.budgetMin < 0)) || (payload.budgetMax != null && (!Number.isFinite(payload.budgetMax) || payload.budgetMax < (payload.budgetMin ?? 0)))) return { id: null, error: 'Description ou budget invalide.' };
-      const existingFields = 'id,client_id,artist_id,project_type,body_zone,size_category,budget_min,budget_max,color_preference,style_preference,description,flexibility_level,flash_design_id';
+      if (payload.referenceUris?.length) return { id: null, error: 'Les pièces jointes ne sont pas encore disponibles.' };
+      const existingFields = 'id,client_id,artist_id,project_type,body_zone,size_category,budget_min,budget_max,budget_unknown,color_preference,style_preference,description,flexibility_level,is_first_tattoo,flash_design_id';
       if (requestId) {
         const { data: prior, error: priorError } = await supabase.from('tattoo_requests')
           .select(existingFields).eq('id', requestId).maybeSingle();
@@ -197,9 +200,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       }
       const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
       if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
-      const { referenceUris, ...rest } = payload;
-      // References need an atomic upload workflow; reject before inserting to avoid duplicate requests on retry.
-      if (referenceUris?.length) return { id: null, error: 'Les pièces jointes ne sont pas encore disponibles.' };
+      const rest = payload;
       const { data, error } = await supabase
         .from('tattoo_requests')
         .insert({

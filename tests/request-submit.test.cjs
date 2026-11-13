@@ -14,9 +14,10 @@ const payload = {
 const existingBrief = {
   id: requestId, client_id: clientId, artist_id: artistId,
   project_type: payload.projectType, body_zone: payload.bodyZone, size_category: payload.sizeCategory,
-  budget_min: payload.budgetMin, budget_max: payload.budgetMax,
+  budget_min: payload.budgetMin, budget_max: payload.budgetMax, budget_unknown: false,
   color_preference: payload.colorPreference, style_preference: null,
-  description: payload.description, flexibility_level: payload.flexibilityLevel, flash_design_id: null,
+  description: payload.description, flexibility_level: payload.flexibilityLevel,
+  is_first_tattoo: false, flash_design_id: null,
 };
 
 function loadStore(client) {
@@ -91,4 +92,10 @@ test('a different brief cannot silently reuse an earlier request id', async () =
   assert.equal(result.id, null);
   assert.match(result.error, /autre demande/);
   assert.equal(writes.length, 0);
+});
+
+test('a changed first tattoo answer cannot reuse an earlier request id', async () => {
+  const { client } = fakeClient({ data: null, error: null }, existingBrief);
+  const result = await loadStore(client).getState().submitRequest({ ...payload, isFirstTattoo: true }, clientId, requestId);
+  assert.equal(result.id, null);
 });
