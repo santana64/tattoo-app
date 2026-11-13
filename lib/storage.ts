@@ -142,6 +142,13 @@ export async function removeReference(requestId: string, path: string): Promise<
   if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
     throw new Error('Chemin de référence invalide.');
   }
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('Reconnectez-vous pour retirer cette référence.');
+  const { data: request, error: requestError } = await supabase.from('tattoo_requests')
+    .select('client_id').eq('id', requestId).maybeSingle();
+  if (requestError || request?.client_id !== user.id) {
+    throw new Error('Seul le client propriétaire peut retirer cette référence.');
+  }
   const bucket = supabase.storage.from('request-references');
   // Keep the historical row until the object is actually gone. A lost response
   // or a denied removal must not make metadata claim that deletion succeeded.

@@ -9,7 +9,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
 
-function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null, removeWithoutDelete = false } = {}) {
+function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null, removeWithoutDelete = false, viewerId = 'client-123', ownerId = 'client-123' } = {}) {
   const calls = [];
   const rows = new Set();
   const files = new Set(['ref_0.jpg', 'ref_1.jpg', 'ref_7.jpg', '.emptyFolderPlaceholder']);
@@ -39,7 +39,10 @@ function storageHarness({ size = 1024, uploadError = null, listError = null, ins
       manipulateAsync: async () => ({ uri: 'compressed-image' }),
       SaveFormat: { JPEG: 'jpeg' },
     },
-    './supabase': { supabase: { from: (table) => {
+    './supabase': { supabase: { auth: { getUser: async () => ({ data: { user: viewerId ? { id: viewerId } : null }, error: null }) }, from: (table) => {
+      if (table === 'tattoo_requests') return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { client_id: ownerId }, error: null }) }) }),
+      };
       assert.equal(table, 'request_references');
       return {
         select: () => ({ eq: () => ({ eq: (_, value) => ({ maybeSingle: async () => ({ data: rows.has(value) ? { id: 'existing' } : null, error: null }) }) }) }),
@@ -135,6 +138,12 @@ test('a removal that reports success but leaves the object keeps historical meta
   const { storage, calls } = storageHarness({ removeWithoutDelete: true });
   await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /encore présente/);
   assert.equal(calls.filter((call) => call.action === 'delete-row').length, 0);
+});
+
+test('a third party cannot treat an empty Storage removal as success', async () => {
+  const { storage, calls } = storageHarness({ viewerId: 'third-party' });
+  await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /client propriétaire/);
+  assert.equal(calls.filter((call) => call.action === 'remove').length, 0);
 });
 
 test('storage errors surface rather than claiming a successful attachment', async () => {

@@ -39,8 +39,18 @@ Les comptes et objets peuvent changer entre cette lecture et un futur déploieme
 3. Le RPC d'aperçus et son index peuvent être retirés uniquement après vérification qu'aucun client ne les appelle. L'index unique des références peut être retiré sans supprimer les lignes. Ne jamais supprimer les fichiers privés ni les demandes pour revenir en arrière.
 4. Si un incident touche les données, utiliser la sauvegarde contrôlée de l'environnement cible plutôt qu'une migration inverse destructive. Réévaluer les liens signés déjà émis jusqu'à leur expiration.
 
+## Projet de test créé le 13 novembre
+
+Le devis Supabase était de 0 $/mois sur l'organisation gratuite `bourrico`, qui comptait un projet actif et trois inactifs. Le projet distinct `inkr-v5-staging` (`lsewxsdulunuuzmszegm`, région `eu-west-1`) a été créé, puis les douze migrations numériques et les deux migrations horodatées du dépôt y ont été appliquées dans l'ordre. Son historique contient quatorze entrées `inkr_*`. Une lecture SQL a confirmé le bucket privé, le plafond 10 Mio, le MIME JPEG et les politiques Storage réservées aux rôles authentifiés. Le conseiller de sécurité signale encore deux fonctions au `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; chaque grant doit être revu selon le contrat public de la fonction avant un changement de sécurité.
+
+Les variables Vercel **Preview** des deux projets ont été orientées vers ce projet et sa clé publiable, sans modifier les valeurs Production. La seconde preview utilise une URL ciblée sur `codex/inkr-v5-completion-excellence` afin de conserver sa variable URL commune aux autres environnements. Les nouveaux builds doivent encore confirmer la résolution effective de cette priorité de variables.
+
+Un essai Storage HTTP anonyme a renvoyé un refus RLS à l'upload, aucune URL signée et aucune liste d'objets ; `remove` a renvoyé un succès avec zéro fichier. Cette dernière réponse ne prouve pas une suppression : le client vérifie désormais le propriétaire et l'absence de l'objet avant de retirer la ligne `request_references`. Aucun compte ou objet de test n'a été créé sur le projet actif.
+
+La création des quatre comptes Auth fictifs reste bloquée : l'API publique rejette les domaines de test réservés, le connecteur refuse la création directe dans `auth.users`, et le navigateur partagé Supabase n'a pas pu démarrer (`gaas-browser node_repl sandbox cannot be disabled`). L'utilisateur a autorisé le recours au tableau de bord ; ce blocage est technique. Les tests HTTP client/artiste/tiers, l'expiration des URL et les parcours connectés ne sont donc pas encore validés.
+
 ## Limite de preuve actuelle
 
-Les migrations sont testées dans PGlite avec les rôles API simulés. Le démarrage du service Supabase Storage local a échoué pendant l'extraction Docker (`no space left on device`) ; ce test ne prouve donc pas le comportement HTTP du service ni l'expiration effective des liens. Aucun environnement Supabase de test distinct et aucun trio de comptes de test n'est disponible à ce stade.
+Les migrations sont testées dans PGlite avec les rôles API simulés et appliquées sur le projet de test hébergé. Le démarrage du service Supabase Storage local a échoué pendant l'extraction Docker (`no space left on device`). L'essai HTTP anonyme hébergé ne remplace pas les essais avec les trois identités authentifiées, notamment pour l'expiration et le remplacement des fichiers.
 
-Les variables **Preview** Vercel ont été complétées le 13 novembre pour corriger les deux échecs de build. Elles pointent provisoirement vers l'URL publique du projet actif. Ne pas y exécuter les parcours connectés ou les essais d'écriture : remplacer ces variables par celles du projet de test avant les tests client et artiste de bout en bout.
+Les variables **Preview** Vercel ont été remplacées par l'URL et la clé publiable du projet de test. Attendre un nouveau build avant de tester la preview : les anciens déploiements gardent leurs variables au moment de leur propre construction.
