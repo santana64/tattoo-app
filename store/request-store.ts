@@ -171,8 +171,10 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       let query;
       if (role === 'artist') {
         // Get artist id first
-        const { data: artist } = await supabase
+        const { data: artist, error: artistError } = await supabase
           .from('artists').select('id').eq('profile_id', userId).single();
+        if (generation !== privateRequestGeneration) return;
+        if (artistError) throw artistError;
         if (!artist) { if (generation === privateRequestGeneration) set({ requests: [], isLoading: false }); return; }
         query = supabase
           .from('tattoo_requests')
@@ -194,7 +196,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (generation !== privateRequestGeneration) return;
       // A failed background refresh keeps what is on screen.
       if (opts?.silent) return;
-      set({ requests: [], isLoading: false, error: "Impossible de charger les demandes." });
+      set({ isLoading: false, error: "Impossible de charger les demandes." });
     }
   },
 

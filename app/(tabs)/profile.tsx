@@ -297,9 +297,9 @@ export default function ProfileScreen() {
   const shown = photos.slice(0, cols * 2);
 
   let priorityBody: React.ReactNode;
-  if (requestsLoading) {
+  if (requestsLoading && requests.length === 0) {
     priorityBody = <PrioritySkeleton />;
-  } else if (requestsError) {
+  } else if (requestsError && pending.length === 0) {
     priorityBody = (
       <View style={styles.priorityNote} accessibilityRole="alert">
         <TText variant="bodySmall" color="secondary">Les demandes n’ont pas pu être chargées.</TText>
@@ -323,6 +323,12 @@ export default function ProfileScreen() {
   } else {
     priorityBody = (
       <View>
+        {!!requestsError && (
+          <View style={styles.priorityNote} accessibilityRole="alert">
+            <TText variant="bodySmall" color="secondary">Actualisation impossible. Ces demandes peuvent dater.</TText>
+            <TextLink label="Réessayer" icon="refresh" onPress={() => { if (userId) void fetchRequests(userId, 'artist'); }} />
+          </View>
+        )}
         {pending.slice(0, PRIORITY_MAX).map((r) => (
           <PriorityRow key={r.id} request={r} onPress={() => router.push(`/request/${r.id}`)} />
         ))}
