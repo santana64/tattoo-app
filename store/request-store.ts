@@ -203,7 +203,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         .select()
         .single();
       if (error) {
-        if (requestId && error.code === '23505') {
+        if (requestId && error.code === '23505' && error.message.includes('tattoo_requests_pkey')) {
           const { data: existing, error: lookupError } = await supabase.from('tattoo_requests')
             .select('id,client_id,artist_id').eq('id', requestId).maybeSingle();
           if (!lookupError && existing?.client_id === userId && existing.artist_id === payload.artistId) {

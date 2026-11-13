@@ -52,7 +52,7 @@ test('a submitted brief uses the stable client-generated request id', async () =
 });
 
 test('a retry after an ambiguous response finds only the same client and artist request', async () => {
-  const duplicate = { data: null, error: { code: '23505', message: 'duplicate key' } };
+  const duplicate = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "tattoo_requests_pkey"' } };
   const existing = { id: requestId, client_id: clientId, artist_id: artistId };
   const { client } = fakeClient(duplicate, existing);
   const store = loadStore(client);
@@ -61,4 +61,13 @@ test('a retry after an ambiguous response finds only the same client and artist 
   const otherStore = loadStore(other.client);
   const denied = await otherStore.getState().submitRequest(payload, clientId, requestId);
   assert.equal(denied.id, null);
+});
+
+test('another unique conflict is never mistaken for a previously sent request', async () => {
+  const conflict = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "flash_bookings_single_copy"' } };
+  const existing = { id: requestId, client_id: clientId, artist_id: artistId };
+  const { client } = fakeClient(conflict, existing);
+  const store = loadStore(client);
+  const result = await store.getState().submitRequest(payload, clientId, requestId);
+  assert.equal(result.id, null);
 });
