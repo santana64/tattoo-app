@@ -53,7 +53,7 @@ Sur l'export web à configuration fictive, les six routes publiques `/welcome`, 
 | `/request/[id]` | parties | dossier et statut | P | bucket privé et URL signée raccordés ; accès réel NV | NV | PARTIAL |
 | `/(tabs)/inbox` | compte | demandes | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/messages` | compte | conversations | P | ? | NV | NOT VERIFIED |
-| `/conversation/[id]` | parties | échange | P | ? | NV | NOT VERIFIED |
+| `/conversation/[id]` | parties | échange texte, relance idempotente | P | échec d'envoi et relance testés localement ; backend réel NV | image jointe désactivée (policy Storage incompatible) | PARTIAL |
 | `/appointment/[id]` | parties | séance | P | ? | NV | NOT VERIFIED |
 | `/review/new` | client | avis après séance | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/profile` | client/artiste | profil et Studio, MetricGrid | P | C/E repérés ; autres NV | ordre des priorités corrigé, formats NV | PARTIAL |
@@ -87,6 +87,7 @@ Sur l'export web à configuration fictive, les six routes publiques `/welcome`, 
 5. **P2 — Actions factices** : lien App Store `id000000000` et commande photo ouvrant seulement une alerte retirés. Il reste à concevoir une vraie modification de photo.
 6. **P1 — Écart de schéma connecté** : l'historique du projet actif et le dépôt ne concordent pas. Ne pas appliquer aveuglément les migrations du dépôt au projet actif.
 7. **P2 — Hydratation du profil** : ouverture directe d'un profil réel : erreur React `#418` puis rendu normal. Vérifier la différence entre HTML statique et état client avant publication.
+8. **P1 — Conversation** : l'envoi texte utilise maintenant un identifiant de message stable. Une réponse perdue est vérifiée par cet identifiant avant d'afficher un échec ; un message non confirmé reste visible et relançable avec le même identifiant. Les caches privés sont vidés au changement de compte. L'ancien bouton d'image de conversation utilisait `posts-media/conv/<demande>/…`, refusé par la policy Storage active `inkr_posts_media_insert_own_artist` pour le client comme pour l'artiste. Il a été retiré ; les références du projet restent gérées dans le dossier privé. Des pièces jointes de conversation exigeraient un bucket privé distinct et ses tests HTTP sur l'environnement isolé.
 
 ## Validation restante avant de qualifier la V5 de complète
 

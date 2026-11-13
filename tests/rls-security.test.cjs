@@ -344,6 +344,16 @@ test('private files are only visible to their owner or the request parties', asy
   });
 });
 
+test('the public portfolio bucket cannot be used for conversation attachments', async () => {
+  const path = `conv/${ids.request}/message.jpg`;
+  for (const uid of [ids.client, ids.artistUser]) {
+    await as(uid, () => assert.rejects(
+      db.query(`insert into storage.objects (bucket_id, name) values ('posts-media', $1)`, [path]),
+      DENIED,
+    ));
+  }
+});
+
 test('the client can remove a reference, while the artist and a third party cannot', async () => {
   const path = `${ids.request}/ref_2.jpg`;
   await as(ids.client, () => db.query(`insert into storage.objects (bucket_id, name) values ('request-references', $1)`, [path]));
