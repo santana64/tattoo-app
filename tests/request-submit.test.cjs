@@ -79,6 +79,19 @@ test('another unique conflict is never mistaken for a previously sent request', 
   assert.equal(result.id, null);
 });
 
+test('a refused or uncertain send never exposes a database error to the client', async () => {
+  for (const failure of [
+    { code: '42501', message: 'new row violates row-level security policy' },
+    { code: 'NETWORK', message: 'TypeError: fetch failed at internal host' },
+  ]) {
+    const { client } = fakeClient({ data: null, error: failure });
+    const result = await loadStore(client).getState().submitRequest(payload, clientId, requestId);
+    assert.equal(result.id, null);
+    assert.match(result.error, /réessayez|Vérifiez/);
+    assert.ok(!result.error.includes(failure.message));
+  }
+});
+
 test('an existing request is recovered even if the artist stopped accepting new projects', async () => {
   const { client, writes } = fakeClient({ data: null, error: null }, existingBrief, 'closed');
   const result = await loadStore(client).getState().submitRequest(payload, clientId, requestId);

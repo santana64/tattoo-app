@@ -218,7 +218,8 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       }
       const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
       if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
-      if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
+      if (artistError) return { id: null, error: 'Impossible de vérifier la disponibilité de cet artiste. Réessayez.' };
+      if (!artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
       const rest = payload;
       const { data, error } = await supabase
         .from('tattoo_requests')
@@ -255,16 +256,18 @@ export const useRequestStore = create<RequestState>((set, get) => ({
           }
           return { id: null, error: 'Cette demande existe déjà ou n’est plus accessible.' };
         }
-        if (error.message.includes('flash_unavailable')) return { id: null, error: 'Ce flash n’est plus disponible.' };
-        return { id: null, error: error.message };
+        if (error.message?.includes('flash_unavailable')) return { id: null, error: 'Ce flash n’est plus disponible.' };
+        if (error.code === '42501') return { id: null, error: 'Envoi refusé. Reconnectez-vous puis réessayez.' };
+        if (error.code === '23514' || error.code === '22P02') return { id: null, error: 'Un champ du projet n’est pas accepté. Vérifiez votre demande.' };
+        return { id: null, error: 'Envoi non confirmé. Vérifiez vos demandes avant de réessayer.' };
       }
 
       if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
       await get().fetchRequests(userId, 'user');
       if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
       return { id: data.id, error: null };
-    } catch (e: any) {
-      return { id: null, error: e.message };
+    } catch {
+      return { id: null, error: 'Envoi non confirmé. Vérifiez vos demandes avant de réessayer.' };
     }
   },
 
