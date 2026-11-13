@@ -100,6 +100,7 @@ export async function uploadReference(
   index: number,
   onProgress?: (p: number) => void
 ): Promise<{ path: string }> {
+  if (!Number.isInteger(index) || index < 0 || index > 2) throw new Error('Emplacement de référence invalide.');
   onProgress?.(0.1);
   const compressed = await compressImage(uri);
   const blob = await uriToBlob(compressed);
@@ -126,7 +127,9 @@ export async function saveReferenceMetadata(requestId: string, path: string): Pr
   if (error) throw error;
   if (data) return;
   const { error: insertError } = await supabase.from('request_references').insert({ request_id: requestId, url: path });
-  if (insertError && insertError.code !== '23505') throw insertError;
+  if (insertError && !(insertError.code === '23505' && insertError.message.includes('request_references_private_path_unique'))) {
+    throw insertError;
+  }
 }
 
 export async function attachReference(uri: string, requestId: string, index: number): Promise<{ path: string }> {

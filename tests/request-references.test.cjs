@@ -9,7 +9,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
 
-function storageHarness({ size = 1024, uploadError = null, listError = null } = {}) {
+function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null } = {}) {
   const calls = [];
   const rows = new Set();
   const bucket = {
@@ -27,7 +27,7 @@ function storageHarness({ size = 1024, uploadError = null, listError = null } = 
     },
     remove: async (paths) => {
       calls.push({ action: 'remove', paths });
-      return { data: paths, error: null };
+      return { data: paths, error: removeError };
     },
     getPublicUrl: () => { throw new Error('Private reference must not request a public URL'); },
   };
@@ -41,7 +41,7 @@ function storageHarness({ size = 1024, uploadError = null, listError = null } = 
       assert.equal(table, 'request_references');
       return {
         select: () => ({ eq: () => ({ eq: (_, value) => ({ maybeSingle: async () => ({ data: rows.has(value) ? { id: 'existing' } : null, error: null }) }) }) }),
-        insert: async ({ url }) => { calls.push({ action: 'insert-row', url }); rows.add(url); return { error: null }; },
+        insert: async ({ url }) => { calls.push({ action: 'insert-row', url }); if (!insertError) rows.add(url); return { error: insertError }; },
         delete: () => ({ eq: () => ({ eq: async (_, value) => { calls.push({ action: 'delete-row', value }); rows.delete(value); return { error: null }; } }) }),
       };
     }, storage: { from: (name) => {
@@ -74,6 +74,13 @@ test('oversized images stop before storage upload', async () => {
   assert.equal(calls.length, 0);
 });
 
+test('only three reference slots can be uploaded', async () => {
+  const { storage, calls } = storageHarness();
+  await assert.rejects(storage.uploadReference('picked-image', 'request-123', 3), /Emplacement/);
+  await assert.rejects(storage.uploadReference('picked-image', 'request-123', -1), /Emplacement/);
+  assert.equal(calls.length, 0);
+});
+
 test('request detail lists private files and signs only reference images', async () => {
   const { storage, calls } = storageHarness();
   const urls = await storage.signedRequestReferences('request-123');
@@ -92,6 +99,12 @@ test('metadata registration is repeatable for a private path', async () => {
   assert.equal(calls.filter((call) => call.action === 'insert-row').length, 1);
 });
 
+test('an unrelated metadata conflict is reported instead of being treated as a retry', async () => {
+  const conflict = { code: '23505', message: 'duplicate key value violates unique constraint "other_index"' };
+  const { storage } = storageHarness({ insertError: conflict });
+  await assert.rejects(storage.saveReferenceMetadata('request-123', 'request-123/ref_0.jpg'), (error) => error === conflict);
+});
+
 test('attaching a reference uploads first, then records its private path', async () => {
   const { storage, calls } = storageHarness();
   await storage.attachReference('picked-image', 'request-123', 2);
@@ -105,6 +118,14 @@ test('client removal clears the object and its historical metadata row', async (
   assert.deepEqual(calls.filter((call) => call.action === 'remove')[0].paths, ['request-123/ref_0.jpg']);
   assert.equal(calls.filter((call) => call.action === 'delete-row').length, 1);
   assert.deepEqual(calls.filter((call) => ['remove', 'delete-row'].includes(call.action)).map((call) => call.action), ['delete-row', 'remove']);
+});
+
+test('an interrupted deletion can be retried against the remaining private object', async () => {
+  const failure = new Error('storage unavailable');
+  const { storage, calls } = storageHarness({ removeError: failure });
+  await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /storage unavailable/);
+  await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /storage unavailable/);
+  assert.equal(calls.filter((call) => call.action === 'remove').length, 2);
 });
 
 test('storage errors surface rather than claiming a successful attachment', async () => {
