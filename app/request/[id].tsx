@@ -131,6 +131,7 @@ export default function RequestDetailScreen() {
   const { user } = useAuthStore();
   const { fetchRequest, updateStatus } = useRequestStore();
   const [request, setRequest] = useState<TattooRequest | null>(null);
+  const [requestViewerId, setRequestViewerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -147,9 +148,11 @@ export default function RequestDetailScreen() {
 
   useEffect(() => {
     let active = true;
-    setRequest(null); setLoading(true); setError(null);
+    setRequest(null); setRequestViewerId(null); setLoading(true); setError(null);
     if (!user) { setLoading(false); return; }
-    fetchRequest(id, user.id).then((data) => { if (active) setRequest(data); })
+    fetchRequest(id, user.id).then((data) => {
+      if (active) { setRequest(data); setRequestViewerId(user.id); }
+    })
       .catch(() => { if (active) setError('Impossible de charger la demande.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -201,7 +204,7 @@ export default function RequestDetailScreen() {
   const handleClarification = () => { void changeStatus('clarification_needed'); };
 
   // ── Loading / unavailable ──
-  if (!request) {
+  if (!request || requestViewerId !== user?.id) {
     return (
       <View style={styles.container}>
         <THeader showBack title="Demande" />
