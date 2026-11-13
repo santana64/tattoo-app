@@ -42,3 +42,5 @@ Les comptes et objets peuvent changer entre cette lecture et un futur déploieme
 ## Limite de preuve actuelle
 
 Les migrations sont testées dans PGlite avec les rôles API simulés. Le démarrage du service Supabase Storage local a échoué pendant l'extraction Docker (`no space left on device`) ; ce test ne prouve donc pas le comportement HTTP du service ni l'expiration effective des liens. Aucun environnement Supabase de test distinct et aucun trio de comptes de test n'est disponible à ce stade.
+
+Les variables **Preview** Vercel ont été complétées le 13 novembre pour corriger les deux échecs de build. Elles pointent provisoirement vers l'URL publique du projet actif. Ne pas y exécuter les parcours connectés ou les essais d'écriture : remplacer ces variables par celles du projet de test avant les tests client et artiste de bout en bout.

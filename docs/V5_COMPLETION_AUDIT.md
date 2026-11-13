@@ -16,6 +16,8 @@ Le 13 novembre, une nouvelle exportation avec la même clé publique a vérifié
 
 Les exports Hermes Android et iOS réussissent avec une configuration Supabase fictive. Ce contrôle valide le bundling des deux plateformes, mais aucun parcours n'a encore été exécuté sur un appareil ou un simulateur natif.
 
+Après autorisation Vercel le 13 novembre, les deux journaux de build de `9b65c1c` ont révélé les causes exactes : le projet `tattoo-app` échouait sur `supabaseUrl is required` car il n'avait aucune variable Supabase ; `tattoo-app-4gmu` échouait sur `supabaseKey is required` car sa clé publique était ciblée sur Production seulement. Les variables manquantes ont été ajoutées **uniquement à Preview**, en utilisant la même URL et clé anonyme publiques déjà présentes dans la configuration Vercel ; aucun secret n'a été ajouté au dépôt et aucune variable Production n'a été modifiée. Les nouvelles previews doivent être vérifiées après le prochain push. Leur configuration pointe actuellement vers le projet Supabase actif : les essais se limitent aux lectures publiques jusqu'à la mise à disposition d'un projet de test distinct.
+
 Sur l'export web à configuration fictive, les six routes publiques `/welcome`, `/sign-in`, `/explore`, `/`, `/legal/terms` et `/legal/privacy-policy` ont été ouvertes à 390, 768 et 1440 px : 18 rendus non vides, sans débordement horizontal ni erreur JavaScript non gérée. Ce balayage n'évalue pas les pages connectées, qui requièrent un backend de test et des comptes par rôle.
 
 ## Légende de couverture
