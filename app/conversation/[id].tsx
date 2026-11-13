@@ -166,7 +166,7 @@ export default function ConversationScreen() {
     fetchMessages, subscribeToRequest, unsubscribeFromRequest,
     sendMessage, retryMessage, markAsRead, messagesByRequest,
   } = useMessageStore();
-  const { getRequest, fetchRequest } = useRequestStore();
+  const { fetchRequest } = useRequestStore();
 
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -174,18 +174,22 @@ export default function ConversationScreen() {
   const [loaded, setLoaded] = useState(false);
   const [baseline, setBaseline] = useState<Set<string> | null>(null);
   const [fetchedRequest, setFetchedRequest] = useState<{ viewerId: string; value: TattooRequest } | null>(null);
+  const [requestLoading, setRequestLoading] = useState(true);
+  const [requestError, setRequestError] = useState(false);
+  const [requestAttempt, setRequestAttempt] = useState(0);
   const flatListRef = useRef<FlatList<Row>>(null);
 
   const messages = useMemo(() => messagesByRequest[id] ?? [], [messagesByRequest, id]);
   const rows = useMemo(() => buildRows(messages), [messages]);
-  const request = getRequest(id) ?? (fetchedRequest && fetchedRequest.viewerId === user?.id ? fetchedRequest.value : null);
+  const request = fetchedRequest && fetchedRequest.viewerId === user?.id && fetchedRequest.value.id === id
+    ? fetchedRequest.value : null;
 
   useEffect(() => {
     setText(''); setFetchedRequest(null); setLoaded(false); setBaseline(null);
   }, [id, user?.id]);
 
   useEffect(() => {
-    if (!id || !user?.id) return;
+    if (!request?.id || !user?.id) return;
     let active = true;
     fetchMessages(id).finally(() => { if (active) setLoaded(true); });
     subscribeToRequest(id);
@@ -194,15 +198,19 @@ export default function ConversationScreen() {
       active = false;
       unsubscribeFromRequest();
     };
-  }, [id, user?.id, fetchMessages, subscribeToRequest, unsubscribeFromRequest, markAsRead]);
+  }, [id, request?.id, user?.id, fetchMessages, subscribeToRequest, unsubscribeFromRequest, markAsRead]);
 
-  // Context for the header when the thread is opened directly (deep link, notification).
+  // Authorize the dossier before loading messages, subscribing, or showing the composer.
   useEffect(() => {
-    if (!id || !user?.id || getRequest(id)) return;
+    setFetchedRequest(null); setRequestError(false); setRequestLoading(true);
+    if (!id || !user?.id) { setRequestLoading(false); return; }
     let active = true;
-    fetchRequest(id, user.id).then((r) => { if (active && r) setFetchedRequest({ viewerId: user.id, value: r }); }).catch(() => {});
+    fetchRequest(id, user.id)
+      .then((r) => { if (active && r) setFetchedRequest({ viewerId: user.id, value: r }); })
+      .catch(() => { if (active) setRequestError(true); })
+      .finally(() => { if (active) setRequestLoading(false); });
     return () => { active = false; };
-  }, [id, user?.id, getRequest, fetchRequest]);
+  }, [id, user?.id, fetchRequest, requestAttempt]);
 
   // History never animates: remember what was already there when the thread opened.
   useEffect(() => {
@@ -216,7 +224,7 @@ export default function ConversationScreen() {
   }, [messages.length, reduced]);
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || !user?.id || isSending) return;
+    if (!request || !text.trim() || !user?.id || isSending) return;
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const content = text.trim();
     setText('');
@@ -224,7 +232,7 @@ export default function ConversationScreen() {
     await sendMessage(id, user.id, content);
     setIsSending(false);
     flatListRef.current?.scrollToEnd({ animated: true });
-  }, [text, user?.id, id, isSending, sendMessage]);
+  }, [text, user?.id, id, isSending, sendMessage, request]);
 
   // Web: Enter sends, Shift+Enter adds a line.
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -250,7 +258,7 @@ export default function ConversationScreen() {
       : [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ');
   const detailsLabel = inquiry ? 'Voir la question' : 'Voir la demande';
   const bubbleMax = Math.min(width * 0.78, 520);
-  const canSend = !!text.trim() && !isSending;
+  const canSend = !!request && !!text.trim() && !isSending;
 
   const renderRow = useCallback(({ item }: { item: Row }) => {
     const isMe = item.msg.senderId === user?.id;
@@ -264,6 +272,29 @@ export default function ConversationScreen() {
       </View>
     );
   }, [user?.id, baseline, bubbleMax, retryMessage, id]);
+
+  if (!request) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingHorizontal: gutter }]}>
+          <IconButton icon="arrow-back" label="Retour" onPress={goBack} />
+        </View>
+        {requestLoading ? <ThreadSkeleton /> : (
+          <EmptyState
+            icon={user ? 'lock-closed-outline' : 'person-outline'}
+            title={requestError ? 'Conversation indisponible' : user ? 'Conversation introuvable' : 'Connectez-vous'}
+            description={requestError
+              ? 'Le chargement a échoué. Vérifiez votre connexion puis réessayez.'
+              : 'Cette conversation est réservée au client et à l’artiste concernés.'}
+            ctaLabel={requestError ? 'Réessayer' : user ? 'Mes demandes' : 'Se connecter'}
+            onCta={requestError
+              ? () => setRequestAttempt((n) => n + 1)
+              : () => router.replace(user ? '/(tabs)/inbox' : '/(auth)/sign-in')}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
