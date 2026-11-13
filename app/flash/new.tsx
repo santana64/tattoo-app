@@ -18,6 +18,7 @@ import { THeader } from '@/components/ui/THeader';
 import { TImagePicker } from '@/components/ui/TImagePicker';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ArtistRouteLoading } from '@/components/ArtistRouteLoading';
 import { Toast } from '@/components/ui/TToast';
 import { Kicker, Masthead, PageWrap, Rule, SettingRow, Toggle } from '@/components/v5';
 import { CartelPreview, Panel, StepControl } from '@/components/v5/studio';
@@ -59,7 +60,9 @@ const STYLE_NAMES = new Map(STYLES.map((s) => [s.slug, s.name]));
 
 export default function NewFlashScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+
+  if (isLoading) return <ArtistRouteLoading title="Nouveau flash" />;
 
   if (!user || user.role !== 'artist' || !user.artistId) {
     return (

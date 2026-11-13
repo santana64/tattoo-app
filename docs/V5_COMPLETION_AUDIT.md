@@ -30,6 +30,8 @@ La sélection réelle d'un JPEG dans le dossier client a d'abord échoué : la C
 
 Un balayage connecté de 13 routes client et 16 routes artiste à 390 px, puis de 8 et 10 routes prioritaires à 1440 px, n'a détecté aucun débordement horizontal, écran vide durable, erreur JavaScript non gérée ou redirection inattendue. Il s'agit d'un contrôle de rendu, pas d'une preuve d'interaction pour toutes ces routes. L'artiste a aussi publié un JPEG fictif : Storage a répondu 200, `posts` a répondu 201, et les deux pièces de recette sont apparues sur le profil public à 390 et 1440 px. Une ouverture directe de `/create` laissait le formulaire affiché après succès car `router.back()` n'avait pas de route interne à dépiler ; la sortie vers le Studio utilise désormais `replace`, vérifié par un second envoi.
 
+Le compte artiste voyait brièvement « Réservé aux tatoueurs » au chargement direct de `/create`, et les trois autres écrans de création avaient le même garde anticipé. Un état de chargement commun précède maintenant la vérification du rôle sur `/create`, `/flash/new`, `/story/new` et `/guest/new`. Les quatre liens directs ont été rejoués en Chromium : aucun faux refus initial, formulaires chargés pour l'artiste ; le client reste refusé après restauration du compte.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -102,6 +104,7 @@ Un balayage connecté de 13 routes client et 16 routes artiste à 390 px, puis d
 10. **P1 — Paiement de test** : le pont HTTPS de retour natif manquait au code actif ; il est intégré et testé sur le staging. Le Checkout s'arrête désormais avec `checkout_unavailable` si la clé ou le prix Stripe manque. La recette du paiement, de la signature webhook et du changement d'abonnement attend une configuration `sk_test_…`, deux prix de test et le secret webhook sur le projet isolé. Les origines des previews doivent aussi être autorisées via `ALLOWED_ORIGINS`. Ne pas reprendre les secrets du projet actif.
 11. **P1 — Images web** : la CSP empêchait la lecture des URL `blob:` produites par le sélecteur. L'autorisation `blob:` a été ajoutée à `connect-src` sans élargir les domaines distants. Le cycle réel de référence privée client/artiste/tiers, retrait et nouvel envoi passe sur le staging.
 12. **P1 — Publication directe** : une publication réussie depuis `/create` ouvert directement conservait le formulaire, ce qui permettait un second envoi accidentel. La navigation remplace maintenant l'écran par le Studio après la confirmation serveur ; la recette réelle a validé la redirection et l'apparition du post public.
+13. **P2 — Garde artiste au chargement** : les écrans de création montraient un refus avant que le profil soit restauré. Un squelette commun évite ce faux état, avec refus réel conservé pour un compte client.
 
 ## Validation restante avant de qualifier la V5 de complète
 
