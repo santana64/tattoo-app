@@ -53,6 +53,7 @@ interface FeedState {
   fetchSelection: () => Promise<void>;
   toggleLike: (postId: string, userId: string) => Promise<boolean>;
   toggleSave: (postId: string, userId: string) => Promise<boolean>;
+  resetPersonalFeed: () => void;
 }
 
 const PAGE_SIZE = 12;
@@ -91,6 +92,16 @@ export const useFeedStore = create<FeedState>((set, get) => {
     pendingActions: new Set(),
     likedPostIds: new Set(),
     savedPostIds: new Set(),
+
+    resetPersonalFeed: () => {
+      feedSeq++;
+      followingIds = null;
+      set({
+        posts: [], scope: 'all', followingKey: null, selection: [],
+        isLoading: false, isRefreshing: false, hasMore: true, cursor: null, error: null,
+        pendingActions: new Set(), likedPostIds: new Set(), savedPostIds: new Set(),
+      });
+    },
 
     fetchFeed: async (userId, nextScope) => {
       const seq = ++feedSeq;
@@ -186,15 +197,17 @@ export const useFeedStore = create<FeedState>((set, get) => {
     },
 
     refresh: async (userId) => {
+      const seq = feedSeq + 1;
       set({ isRefreshing: true });
       await Promise.all([
         get().fetchFeed(userId),
         get().scope === 'all' ? get().fetchSelection() : Promise.resolve(),
       ]);
-      set({ isRefreshing: false });
+      if (seq === feedSeq) set({ isRefreshing: false });
     },
 
     fetchSelection: async () => {
+      const seq = feedSeq;
       const since = new Date(Date.now() - SELECTION_DAYS * DAY_MS).toISOString();
       try {
         const { data, error } = await supabase
@@ -208,6 +221,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
           .order('published_at', { ascending: false })
           .limit(SELECTION_SIZE);
         if (error) throw error;
+        if (seq !== feedSeq) return;
         const { likedPostIds, savedPostIds } = get();
         set({ selection: (data ?? []).map(mapPost(likedPostIds, savedPostIds)) });
       } catch {
@@ -216,6 +230,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
     },
 
     toggleLike: async (postId, userId) => {
+      const seq = feedSeq;
       const key = `like:${postId}`;
       if (!userId || get().pendingActions.has(key)) return false;
       set((s) => ({ pendingActions: new Set(s.pendingActions).add(key) }));
@@ -226,6 +241,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
           ? await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId)
           : await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
         if (error) return false;
+        if (seq !== feedSeq) return false;
         const newSet = new Set(get().likedPostIds);
         if (isLiked) newSet.delete(postId); else newSet.add(postId);
         set((s) => ({
@@ -240,11 +256,12 @@ export const useFeedStore = create<FeedState>((set, get) => {
       } catch {
         return false;
       } finally {
-        set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
+        if (seq === feedSeq) set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
       }
     },
 
     toggleSave: async (postId, userId) => {
+      const seq = feedSeq;
       const key = `save:${postId}`;
       if (!userId || get().pendingActions.has(key)) return false;
       set((s) => ({ pendingActions: new Set(s.pendingActions).add(key) }));
@@ -255,6 +272,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
           ? await supabase.from('saved_posts').delete().eq('user_id', userId).eq('post_id', postId)
           : await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
         if (error) return false;
+        if (seq !== feedSeq) return false;
         const newSet = new Set(get().savedPostIds);
         if (isSaved) newSet.delete(postId); else newSet.add(postId);
         set((s) => ({
@@ -265,7 +283,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
       } catch {
         return false;
       } finally {
-        set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
+        if (seq === feedSeq) set((s) => { const pendingActions = new Set(s.pendingActions); pendingActions.delete(key); return { pendingActions }; });
       }
     },
   };

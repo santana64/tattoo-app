@@ -3,12 +3,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
 
-function loadStore(write) {
+function loadStore(write, cleared = [], authObserver = null) {
   const source = fs.readFileSync(require.resolve('../store/auth-store.ts'), 'utf8');
   const code = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const client = {
+    auth: {
+      signOut: async () => ({ error: null }),
+      onAuthStateChange: (callback) => {
+        if (authObserver) authObserver.callback = callback;
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      },
+    },
     from(table) {
       assert.equal(table, 'profiles');
       return {
@@ -29,6 +36,12 @@ function loadStore(write) {
     '@/lib/moderation': { fetchIsAdmin: async () => false },
     '@/lib/auth-errors': { authErrorMessage: () => 'Erreur de connexion' },
     'react-native': { Platform: { OS: 'web' } },
+    '@/store/request-store': { useRequestStore: { getState: () => ({ resetPrivateRequests: () => cleared.push('requests') }) } },
+    '@/store/message-store': { useMessageStore: { getState: () => ({ resetPrivateMessages: () => cleared.push('messages') }) } },
+    '@/store/notification-store': { useNotificationStore: { getState: () => ({ resetPrivateNotifications: () => cleared.push('notifications') }) } },
+    '@/store/saved-artists-store': { useSavedArtistsStore: { getState: () => ({ reset: () => cleared.push('saved') }) } },
+    '@/store/follow-store': { useFollowStore: { getState: () => ({ reset: () => cleared.push('follows') }) } },
+    '@/store/feed-store': { useFeedStore: { getState: () => ({ resetPersonalFeed: () => cleared.push('feed') }) } },
   };
   const mod = { exports: {} };
   new Function('require', 'module', 'exports', code)(
@@ -79,4 +92,23 @@ test('an old account response cannot overwrite a newly signed-in account', async
   resolveWrite({ data: { id: 'user' }, error: null });
   assert.ok((await oldWrite).error);
   assert.equal(store.getState().user.displayName, 'Nouveau');
+});
+
+test('sign-out clears private caches after the auth server confirms it', async () => {
+  const cleared = [];
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), cleared);
+  await store.getState().signOut();
+  assert.deepEqual(cleared, ['requests', 'messages', 'notifications', 'saved', 'follows', 'feed']);
+  assert.equal(store.getState().user, null);
+});
+
+test('an auth event switching accounts clears private caches before loading the next user', () => {
+  const cleared = [];
+  const authObserver = {};
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), cleared, authObserver);
+  const stop = store.getState().initialize();
+  authObserver.callback('SIGNED_IN', { user: { id: 'another-user' } });
+  assert.deepEqual(cleared, ['requests', 'messages', 'notifications', 'saved', 'follows', 'feed']);
+  assert.equal(store.getState().user, null);
+  stop();
 });

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
+let privateMessageGeneration = 0;
+
 export interface Message {
   id: string;
   requestId: string;
@@ -27,6 +29,7 @@ interface MessageState {
   sendMessage: (requestId: string, senderId: string, content: string, type?: Message['messageType']) => Promise<void>;
   markAsRead: (requestId: string, userId: string) => Promise<void>;
   getUnreadCount: (userId: string) => Promise<number>;
+  resetPrivateMessages: () => void;
 }
 
 function mapMessage(raw: any): Message {
@@ -47,13 +50,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   isLoading: false,
   activeChannel: null,
 
+  resetPrivateMessages: () => {
+    privateMessageGeneration++;
+    get().unsubscribeFromRequest();
+    set({ messagesByRequest: {}, isLoading: false, activeChannel: null });
+  },
+
   fetchMessages: async (requestId) => {
+    const generation = privateMessageGeneration;
     set({ isLoading: true });
     const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('request_id', requestId)
       .order('created_at', { ascending: true });
+    if (generation !== privateMessageGeneration) return;
     if (!error) {
       set((s) => ({
         isLoading: false,
@@ -65,6 +76,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   subscribeToRequest: (requestId) => {
+    const generation = privateMessageGeneration;
     // Unsubscribe from previous channel
     get().unsubscribeFromRequest();
     const channel = supabase
@@ -73,6 +85,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `request_id=eq.${requestId}` },
         (payload) => {
+          if (generation !== privateMessageGeneration) return;
           const newMsg = mapMessage(payload.new);
           set((s) => {
             const existing = s.messagesByRequest[requestId] ?? [];
@@ -100,6 +113,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   sendMessage: async (requestId, senderId, content, type = 'text') => {
+    const generation = privateMessageGeneration;
     const optimisticId = `optimistic-${Date.now()}`;
     const optimistic: Message = {
       id: optimisticId,
@@ -124,6 +138,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       .insert({ request_id: requestId, sender_id: senderId, content, message_type: type })
       .select()
       .single();
+    if (generation !== privateMessageGeneration) return;
     // Replace optimistic with real
     set((s) => ({
       messagesByRequest: {
@@ -138,10 +153,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   markAsRead: async (requestId, userId) => {
+    const generation = privateMessageGeneration;
     // Recipients cannot UPDATE messages directly: the database function checks
     // that the caller is a party to the request and only flags the other side's messages.
     const { error } = await supabase.rpc('mark_messages_read', { p_request_id: requestId });
-    if (error) return;
+    if (error || generation !== privateMessageGeneration) return;
     set((s) => ({
       messagesByRequest: {
         ...s.messagesByRequest,

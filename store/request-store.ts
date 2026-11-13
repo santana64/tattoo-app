@@ -3,6 +3,8 @@ import { supabase, type Tables } from '@/lib/supabase';
 import { isUuid } from '@/lib/catalog';
 import { normalizePreferredSlots } from '@/lib/studio';
 
+let privateRequestGeneration = 0;
+
 export type RequestStatus =
   | 'submitted' | 'accepted' | 'declined'
   | 'clarification_needed' | 'confirmed' | 'completed' | 'archived';
@@ -57,6 +59,7 @@ interface RequestState {
   submitRequest: (payload: SubmitPayload, userId: string, requestId?: string) => Promise<{ id: string | null; error: string | null }>;
   updateStatus: (requestId: string, status: RequestStatus, extra?: { declineReason?: string; artistNotes?: string }) => Promise<{ error: string | null }>;
   getRequest: (id: string) => TattooRequest | undefined;
+  resetPrivateRequests: () => void;
 }
 
 export interface SubmitPayload {
@@ -136,24 +139,33 @@ export const useRequestStore = create<RequestState>((set, get) => ({
   requests: [],
   isLoading: false,
   error: null,
+  resetPrivateRequests: () => {
+    privateRequestGeneration++;
+    set({ requests: [], isLoading: false, error: null });
+  },
   fetchRequest: async (id, userId) => {
+    const generation = privateRequestGeneration;
     if (!isUuid(id) || !isUuid(userId)) return null;
     const { data, error } = await supabase.from('tattoo_requests')
       .select('*, profiles!client_id(display_name,avatar_url), artists!artist_id(blaze,avatar_url,city), request_references(url)')
       .eq('id', id).maybeSingle();
     if (error) throw error;
+    if (generation !== privateRequestGeneration) return null;
     if (!data) return null;
     if (data.client_id !== userId) {
       const { data: owner, error: ownerError } = await supabase.from('artists').select('id').eq('id', data.artist_id).eq('profile_id', userId).maybeSingle();
       if (ownerError) throw ownerError;
+      if (generation !== privateRequestGeneration) return null;
       if (!owner) return null;
     }
     const request = mapRequest(data);
+    if (generation !== privateRequestGeneration) return null;
     set(s => ({ requests: [...s.requests.filter(r => r.id !== id), request] }));
     return request;
   },
 
   fetchRequests: async (userId, role, opts) => {
+    const generation = privateRequestGeneration;
     if (!opts?.silent) set({ isLoading: true, error: null });
     try {
       let query;
@@ -161,7 +173,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         // Get artist id first
         const { data: artist } = await supabase
           .from('artists').select('id').eq('profile_id', userId).single();
-        if (!artist) { set({ requests: [], isLoading: false }); return; }
+        if (!artist) { if (generation === privateRequestGeneration) set({ requests: [], isLoading: false }); return; }
         query = supabase
           .from('tattoo_requests')
           .select(`*, profiles!client_id(display_name, avatar_url), request_references(url)`)
@@ -176,8 +188,10 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       }
       const { data, error } = await query;
       if (error) throw error;
+      if (generation !== privateRequestGeneration) return;
       set({ requests: (data ?? []).map(mapRequest), isLoading: false });
     } catch {
+      if (generation !== privateRequestGeneration) return;
       // A failed background refresh keeps what is on screen.
       if (opts?.silent) return;
       set({ requests: [], isLoading: false, error: "Impossible de charger les demandes." });
@@ -185,6 +199,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
   },
 
   submitRequest: async (payload, userId, requestId) => {
+    const generation = privateRequestGeneration;
     try {
       if (!isUuid(userId) || !isUuid(payload.artistId) || (requestId && !isUuid(requestId))) return { id: null, error: 'Identifiant invalide.' };
       if (!payload.description.trim() || (payload.budgetMin != null && (!Number.isFinite(payload.budgetMin) || payload.budgetMin < 0)) || (payload.budgetMax != null && (!Number.isFinite(payload.budgetMax) || payload.budgetMax < (payload.budgetMin ?? 0)))) return { id: null, error: 'Description ou budget invalide.' };
@@ -194,11 +209,13 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         const { data: prior, error: priorError } = await supabase.from('tattoo_requests')
           .select(existingFields).eq('id', requestId).maybeSingle();
         if (priorError) return { id: null, error: 'Impossible de vérifier votre dernier envoi. Réessayez la vérification.' };
+        if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
         if (prior) return sameSubmittedBrief(prior as Tables<'tattoo_requests'>, payload, userId)
           ? { id: prior.id, error: null }
           : { id: null, error: 'Une autre demande existe déjà pour cet envoi. Consultez vos demandes.' };
       }
       const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
+      if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
       if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
       const rest = payload;
       const { data, error } = await supabase
@@ -228,8 +245,10 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         if (requestId && error.code === '23505' && error.message.includes('tattoo_requests_pkey')) {
           const { data: existing, error: lookupError } = await supabase.from('tattoo_requests')
             .select(existingFields).eq('id', requestId).maybeSingle();
+          if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
           if (!lookupError && existing && sameSubmittedBrief(existing as Tables<'tattoo_requests'>, payload, userId)) {
             await get().fetchRequests(userId, 'user');
+            if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
             return { id: existing.id, error: null };
           }
           return { id: null, error: 'Cette demande existe déjà ou n’est plus accessible.' };
@@ -238,7 +257,9 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         return { id: null, error: error.message };
       }
 
+      if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
       await get().fetchRequests(userId, 'user');
+      if (generation !== privateRequestGeneration) return { id: null, error: 'La session a changé. Rechargez vos demandes.' };
       return { id: data.id, error: null };
     } catch (e: any) {
       return { id: null, error: e.message };
@@ -246,6 +267,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
   },
 
   updateStatus: async (requestId, status, extra) => {
+    const generation = privateRequestGeneration;
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) return { error: 'Reconnectez-vous pour continuer.' };
@@ -263,6 +285,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       if (extra?.artistNotes) updates.artist_notes = extra.artistNotes;
       const { data, error } = await supabase.from('tattoo_requests').update(updates).eq('id', requestId).eq('artist_id', owner.id).eq('status', request.status).select('id').maybeSingle();
       if (error || !data) return { error: 'Modification non enregistrée. Rechargez la demande et réessayez.' };
+      if (generation !== privateRequestGeneration) return { error: 'La session a changé. Rechargez la demande.' };
       set(s => ({ requests: s.requests.map(r => r.id === requestId ? { ...r, status, ...extra } : r) }));
       return { error: null };
     } catch { return { error: 'Connexion impossible. La demande n’a pas été modifiée.' }; }

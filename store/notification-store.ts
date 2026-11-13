@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
+let privateNotificationGeneration = 0;
+
 export interface AppNotification {
   id: string;
   userId: string;
@@ -24,6 +26,7 @@ interface NotificationState {
   unsubscribe: () => void;
   markRead: (id: string) => Promise<void>;
   markAllRead: (userId: string) => Promise<void>;
+  resetPrivateNotifications: () => void;
 }
 
 function mapNotif(raw: any): AppNotification {
@@ -45,7 +48,14 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   isLoading: false,
   channel: null,
 
+  resetPrivateNotifications: () => {
+    privateNotificationGeneration++;
+    get().unsubscribe();
+    set({ notifications: [], unreadCount: 0, isLoading: false, channel: null });
+  },
+
   fetch: async (userId) => {
+    const generation = privateNotificationGeneration;
     set({ isLoading: true });
     const { data } = await supabase
       .from('notifications')
@@ -53,11 +63,13 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
+    if (generation !== privateNotificationGeneration) return;
     const notifications = (data ?? []).map(mapNotif);
     set({ notifications, unreadCount: notifications.filter((n) => !n.isRead).length, isLoading: false });
   },
 
   subscribe: (userId) => {
+    const generation = privateNotificationGeneration;
     get().unsubscribe();
     const channel = supabase
       .channel(`notifications:${userId}`)
@@ -65,6 +77,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
+          if (generation !== privateNotificationGeneration) return;
           const notif = mapNotif(payload.new);
           set((s) => ({
             notifications: [notif, ...s.notifications],
@@ -82,7 +95,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   markRead: async (id) => {
+    const generation = privateNotificationGeneration;
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    if (generation !== privateNotificationGeneration) return;
     set((s) => ({
       notifications: s.notifications.map((n) => n.id === id ? { ...n, isRead: true } : n),
       unreadCount: Math.max(0, s.unreadCount - 1),
@@ -90,7 +105,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   markAllRead: async (userId) => {
+    const generation = privateNotificationGeneration;
     await supabase.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
+    if (generation !== privateNotificationGeneration) return;
     set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, isRead: true })), unreadCount: 0 }));
   },
 }));

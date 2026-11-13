@@ -99,3 +99,18 @@ test('a changed first tattoo answer cannot reuse an earlier request id', async (
   const result = await loadStore(client).getState().submitRequest({ ...payload, isFirstTattoo: true }, clientId, requestId);
   assert.equal(result.id, null);
 });
+
+test('a late submit response cannot repopulate the previous account after sign-out', async () => {
+  let finish;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  const { client, writes } = fakeClient(pending);
+  const store = loadStore(client);
+  const sending = store.getState().submitRequest(payload, clientId, requestId);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(writes.length, 1);
+  store.getState().resetPrivateRequests();
+  finish({ data: { id: requestId }, error: null });
+  const result = await sending;
+  assert.equal(result.id, null);
+  assert.deepEqual(store.getState().requests, []);
+});

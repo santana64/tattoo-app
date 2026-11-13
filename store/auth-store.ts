@@ -4,8 +4,23 @@ import { supabase, Tables } from '@/lib/supabase';
 import { fetchIsAdmin } from '@/lib/moderation';
 import { Platform } from 'react-native';
 import { authErrorMessage } from '@/lib/auth-errors';
+import { useRequestStore } from '@/store/request-store';
+import { useMessageStore } from '@/store/message-store';
+import { useNotificationStore } from '@/store/notification-store';
+import { useSavedArtistsStore } from '@/store/saved-artists-store';
+import { useFollowStore } from '@/store/follow-store';
+import { useFeedStore } from '@/store/feed-store';
 
 let profileLoadVersion = 0;
+
+function clearPrivateSession() {
+  useRequestStore.getState().resetPrivateRequests();
+  useMessageStore.getState().resetPrivateMessages();
+  useNotificationStore.getState().resetPrivateNotifications();
+  useSavedArtistsStore.getState().reset();
+  useFollowStore.getState().reset();
+  useFeedStore.getState().resetPersonalFeed();
+}
 
 function authCallbackUrl() {
   return Platform.OS === 'web' && typeof window !== 'undefined'
@@ -143,6 +158,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // inside this callback: it holds the auth lock until the callback returns.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
+      const previousUserId = get().session?.user.id;
+      if (previousUserId && previousUserId !== session?.user.id) clearPrivateSession();
       clearTimeout(pending);
       profileLoadVersion++;
       if (!session) {
@@ -250,6 +267,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    clearPrivateSession();
     profileLoadVersion++;
     set({ session: null, user: null, isAuthenticated: false, error: null });
   },
@@ -285,6 +303,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     // The user no longer exists server-side: only the local session is left to clear.
     await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    clearPrivateSession();
     profileLoadVersion++;
     set({ session: null, user: null, isAuthenticated: false, error: null });
     return { error: null };
