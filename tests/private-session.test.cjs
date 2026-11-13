@@ -17,7 +17,9 @@ test('a late message fetch cannot restore another account’s conversation after
   let finish;
   const pending = new Promise((resolve) => { finish = resolve; });
   const supabase = { from: () => ({ select: () => ({ eq: () => ({ order: () => pending }) }) }), removeChannel: () => {} };
-  const { useMessageStore } = load('../store/message-store.ts', { '@/lib/supabase': { supabase } });
+  const { useMessageStore } = load('../store/message-store.ts', {
+    '@/lib/supabase': { supabase }, 'expo-crypto': { randomUUID: () => 'temporary-id' },
+  });
   useMessageStore.setState({ messagesByRequest: { old: [{ id: 'private' }] } });
   const fetch = useMessageStore.getState().fetchMessages('old');
   useMessageStore.getState().resetPrivateMessages();
