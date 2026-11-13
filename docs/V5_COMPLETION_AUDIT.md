@@ -24,6 +24,8 @@ Sur l'export web à configuration fictive, les six routes publiques `/welcome`, 
 
 Une recette connectée Chromium sur l'export local pointant exclusivement vers `lsewxsdulunuuzmszegm` a vérifié le profil artiste à 390 et 1440 px, la connexion client et tatoueur, les quatre étapes du brief, l'envoi d'une demande, sa réception par l'artiste, son acceptation, puis sa lecture par le client après reconnexion. Chaque partie a envoyé et reçu un message. Le tiers ne voit pas le dossier ; sa lecture SQL des messages renvoie zéro ligne et son insertion est refusée par la RLS (`42501`). Une URL directe de conversation lui affichait pourtant un composeur vide. L'écran vérifie désormais l'accès au dossier avant de charger les messages, de s'abonner à Realtime ou d'afficher le composeur. Le test navigateur à trois comptes confirme que seuls le client et l'artiste voient le composeur et qu'aucune requête `messages` n'est émise par le tiers. Les captures sont hors dépôt dans `/workspace/shared`.
 
+L'artiste a proposé un créneau fictif depuis le dossier, le client l'a confirmé, et l'agenda artiste l'a annoncé comme prochain rendez-vous. La table `appointments` renvoie la séance confirmée aux deux parties et zéro ligne au tiers et à l'administrateur fictif. La fonction publique `payment-return`, nécessaire au retour Stripe vers l'application native, a été intégrée depuis la dépendance manquante de l'instantané historique avec une liste fermée de destinations d'abonnement. Déployée seulement sur `lsewxsdulunuuzmszegm`, elle répond correctement pour succès, annulation, destination non autorisée et méthode invalide. `create-checkout-session` a été déployée sur ce même staging sans clé Stripe : une période invalide est rejetée (400) et une demande mensuelle répond explicitement `checkout_unavailable` (503), sans créer de client ou de session. Les clés et prix Stripe **de test** ainsi que `ALLOWED_ORIGINS` ne sont pas disponibles dans cet environnement ; aucun Checkout ou webhook de paiement n'a pu être validé. Aucune clé de production n'a été utilisée.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -61,7 +63,7 @@ Une recette connectée Chromium sur l'export local pointant exclusivement vers `
 | `/appointment/[id]` | parties | séance | P | ? | NV | NOT VERIFIED |
 | `/review/new` | client | avis après séance | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/profile` | client/artiste | profil et Studio, MetricGrid | P | C/E repérés ; autres NV | ordre des priorités corrigé, formats NV | PARTIAL |
-| `/(tabs)/agenda` | artiste | calendrier | P | ? | NV | NOT VERIFIED |
+| `/(tabs)/agenda` | artiste | calendrier | P, V | prochain rendez-vous confirmé affiché sur staging | accès artiste vérifié à 390 px | PARTIAL |
 | `/availability` | artiste | horaires et absences | P | ? | NV | NOT VERIFIED |
 | `/analytics` | artiste | chiffres | P | ? | NV | NOT VERIFIED |
 | `/create` | artiste | publication | P | ? | NV | NOT VERIFIED |
@@ -76,7 +78,7 @@ Une recette connectée Chromium sur l'export local pointant exclusivement vers `
 | `/settings/notifications` | compte | préférences | P | ? | NV | NOT VERIFIED |
 | `/settings/privacy` | compte | confidentialité | P | ? | NV | NOT VERIFIED |
 | `/settings/support` | compte | aide | P | ? | NV | NOT VERIFIED |
-| `/settings/subscription` | artiste | Premium Stripe | P | ? | paiement test non vérifié | NOT VERIFIED |
+| `/settings/subscription` | artiste | Premium Stripe | P | retour natif préparé ; absence de config renvoie 503 | Checkout Stripe test non vérifié faute de clés et prix de test | PARTIAL |
 | `/settings/delete-account` | compte | suppression | P | ? | NV | NOT VERIFIED |
 | `/legal/terms` | public | CGU | P | ? | NV | NOT VERIFIED |
 | `/legal/privacy-policy` | public | données personnelles | P | ? | NV | NOT VERIFIED |
@@ -93,6 +95,7 @@ Une recette connectée Chromium sur l'export local pointant exclusivement vers `
 7. **P2 — Hydratation du profil** : ouverture directe d'un profil réel : erreur React `#418` puis rendu normal. Vérifier la différence entre HTML statique et état client avant publication.
 8. **P1 — Conversation** : l'envoi texte utilise maintenant un identifiant de message stable. Une réponse perdue est vérifiée par cet identifiant avant d'afficher un échec ; un message non confirmé reste visible et relançable avec le même identifiant. Les caches privés sont vidés au changement de compte. L'ancien bouton d'image de conversation utilisait `posts-media/conv/<demande>/…`, refusé par la policy Storage active `inkr_posts_media_insert_own_artist` pour le client comme pour l'artiste. Il a été retiré ; les références du projet restent gérées dans le dossier privé. Des pièces jointes de conversation exigeraient un bucket privé distinct et ses tests HTTP sur l'environnement isolé.
 9. **P1 — URL directe de conversation** : corrigée après reproduction avec le compte tiers. L'accès au dossier est confirmé avant de récupérer les messages, de s'abonner à Realtime ou d'afficher le composeur. Test réel à trois identités effectué sur le staging.
+10. **P1 — Paiement de test** : le pont HTTPS de retour natif manquait au code actif ; il est intégré et testé sur le staging. Le Checkout s'arrête désormais avec `checkout_unavailable` si la clé ou le prix Stripe manque. La recette du paiement, de la signature webhook et du changement d'abonnement attend une configuration `sk_test_…`, deux prix de test et le secret webhook sur le projet isolé. Les origines des previews doivent aussi être autorisées via `ALLOWED_ORIGINS`. Ne pas reprendre les secrets du projet actif.
 
 ## Validation restante avant de qualifier la V5 de complète
 
