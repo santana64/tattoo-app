@@ -204,7 +204,7 @@ function CreateForm({ user, router, insets }: {
       if (error) throw error;
       Toast.success(kind === 'photo' ? 'Réalisation publiée' : 'Vidéo publiée');
       void useFeedStore.getState().refresh(user.id);
-      router.back();
+      router.replace('/(tabs)/profile');
     } catch (e: any) {
       const detail = String(e?.message ?? e);
       console.warn('[create] publish failed:', detail, e);

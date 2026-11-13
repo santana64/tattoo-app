@@ -28,6 +28,8 @@ L'artiste a proposé un créneau fictif depuis le dossier, le client l'a confirm
 
 La sélection réelle d'un JPEG dans le dossier client a d'abord échoué : la CSP refusait `fetch(blob:…)`, nécessaire à la compression côté navigateur. `connect-src` autorise désormais `blob:`. Après correction, l'ajout a répondu 200 dans Storage, l'artiste a obtenu un lien signé en lecture seule, et le tiers n'a obtenu aucun lien. Le client a retiré l'image, l'a envoyée de nouveau puis l'a retirée une seconde fois ; la vérification finale donne zéro objet dans le bucket et zéro ligne dans `request_references` pour cette demande. Le parcours interface est donc vérifié sur web à 390 px ; les appareils natifs restent à tester.
 
+Un balayage connecté de 13 routes client et 16 routes artiste à 390 px, puis de 8 et 10 routes prioritaires à 1440 px, n'a détecté aucun débordement horizontal, écran vide durable, erreur JavaScript non gérée ou redirection inattendue. Il s'agit d'un contrôle de rendu, pas d'une preuve d'interaction pour toutes ces routes. L'artiste a aussi publié un JPEG fictif : Storage a répondu 200, `posts` a répondu 201, et les deux pièces de recette sont apparues sur le profil public à 390 et 1440 px. Une ouverture directe de `/create` laissait le formulaire affiché après succès car `router.back()` n'avait pas de route interne à dépiler ; la sortie vers le Studio utilise désormais `replace`, vérifié par un second envoi.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -68,7 +70,7 @@ La sélection réelle d'un JPEG dans le dossier client a d'abord échoué : la C
 | `/(tabs)/agenda` | artiste | calendrier | P, V | prochain rendez-vous confirmé affiché sur staging | accès artiste vérifié à 390 px | PARTIAL |
 | `/availability` | artiste | horaires et absences | P | ? | NV | NOT VERIFIED |
 | `/analytics` | artiste | chiffres | P | ? | NV | NOT VERIFIED |
-| `/create` | artiste | publication | P | ? | NV | NOT VERIFIED |
+| `/create` | artiste | publication | P, V | JPEG, écriture Storage et post public vérifiés sur staging | sortie après succès vérifiée en ouverture directe | PARTIAL |
 | `/flash/new` | artiste | flash | P | ? | NV | NOT VERIFIED |
 | `/story/new` | artiste | story | P | ? | NV | NOT VERIFIED |
 | `/guest/new` | artiste | guest spot | P | ? | NV | NOT VERIFIED |
@@ -99,6 +101,7 @@ La sélection réelle d'un JPEG dans le dossier client a d'abord échoué : la C
 9. **P1 — URL directe de conversation** : corrigée après reproduction avec le compte tiers. L'accès au dossier est confirmé avant de récupérer les messages, de s'abonner à Realtime ou d'afficher le composeur. Test réel à trois identités effectué sur le staging.
 10. **P1 — Paiement de test** : le pont HTTPS de retour natif manquait au code actif ; il est intégré et testé sur le staging. Le Checkout s'arrête désormais avec `checkout_unavailable` si la clé ou le prix Stripe manque. La recette du paiement, de la signature webhook et du changement d'abonnement attend une configuration `sk_test_…`, deux prix de test et le secret webhook sur le projet isolé. Les origines des previews doivent aussi être autorisées via `ALLOWED_ORIGINS`. Ne pas reprendre les secrets du projet actif.
 11. **P1 — Images web** : la CSP empêchait la lecture des URL `blob:` produites par le sélecteur. L'autorisation `blob:` a été ajoutée à `connect-src` sans élargir les domaines distants. Le cycle réel de référence privée client/artiste/tiers, retrait et nouvel envoi passe sur le staging.
+12. **P1 — Publication directe** : une publication réussie depuis `/create` ouvert directement conservait le formulaire, ce qui permettait un second envoi accidentel. La navigation remplace maintenant l'écran par le Studio après la confirmation serveur ; la recette réelle a validé la redirection et l'apparition du post public.
 
 ## Validation restante avant de qualifier la V5 de complète
 
