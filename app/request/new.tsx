@@ -30,6 +30,8 @@ import { fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 import { durationLabel, fetchBookingSettings, type BookingSettings } from '@/lib/care';
 import { cancellationNotice } from '@/components/booking/booking-copy';
 import { attachReference, pickImage } from '@/lib/storage';
+import { randomUUID } from 'expo-crypto';
+import { clearPendingRequest, loadPendingRequest, savePendingRequest } from '@/lib/pending-request';
 
 const FORM_MAX = 640;
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -241,7 +243,7 @@ export default function NewRequestScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isWide, width, gutter } = useContentDimensions();
-  const { submitRequest } = useRequestStore();
+  const { submitRequest, fetchRequest } = useRequestStore();
   const { user } = useAuthStore();
 
   const { artist, loading, error, retry } = useArtist(artistId);
@@ -250,6 +252,9 @@ export default function NewRequestScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [stableRequestId, setStableRequestId] = useState<string | null>(null);
+  const [restoringPending, setRestoringPending] = useState(true);
+  const [recoveredRequest, setRecoveredRequest] = useState(false);
   const [referenceUris, setReferenceUris] = useState<string[]>([]);
   const [pickingReferences, setPickingReferences] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -271,6 +276,25 @@ export default function NewRequestScreen() {
   // The artist's session lengths and cancellation notice; the form works without them.
   const [booking, setBooking] = useState<BookingSettings | null>(null);
   const [bookingLoaded, setBookingLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!artist?.id || !user?.id) { setRestoringPending(false); return; }
+    const scope = { userId: user.id, artistId: artist.id, flashId };
+    setRestoringPending(true);
+    loadPendingRequest(scope)
+      .then(async (id) => {
+        if (!active || !id) return;
+        setStableRequestId(id);
+        const existing = await fetchRequest(id, user.id);
+        if (active && existing) { setPendingRequestId(id); setRecoveredRequest(true); }
+      })
+      .catch(() => {
+        if (active) setSubmitError('Impossible de vérifier votre dernier envoi. Un nouvel essai réutilisera le même identifiant.');
+      })
+      .finally(() => { if (active) setRestoringPending(false); });
+    return () => { active = false; };
+  }, [artist?.id, user?.id, flashId, fetchRequest]);
 
   useEffect(() => {
     if (!artistId) { setBookingLoaded(true); return; }
@@ -412,7 +436,10 @@ export default function NewRequestScreen() {
     let requestId = pendingRequestId;
     try {
       if (!requestId) {
-        const result = await submitRequest(payload, user.id);
+        const stableId = stableRequestId ?? randomUUID();
+        await savePendingRequest({ userId: user.id, artistId: artist.id, flashId }, stableId);
+        setStableRequestId(stableId);
+        const result = await submitRequest(payload, user.id, stableId);
         if (result.error === FLASH_UNAVAILABLE) {
           setFlash(null); setFlashState('unavailable');
         }
@@ -454,7 +481,7 @@ export default function NewRequestScreen() {
   };
 
   // ── Unavailable states ──
-  if (!artist && loading) return <FormSkeleton top={insets.top} />;
+  if ((!artist && loading) || (artist && user && restoringPending)) return <FormSkeleton top={insets.top} />;
   if (sentId && artist) {
     const sizeSent = SIZE_OPTIONS.find((o) => o.key === sizeCategory)?.label;
     const typeSent = PROJECT_TYPES.find((p) => p.key === projectType)?.label;
@@ -474,11 +501,17 @@ export default function NewRequestScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top + Spacing.xl, paddingHorizontal: gutter, gap: Spacing.md }]}>
         <Kicker tone="flame">Demande enregistrée</Kicker>
-        <EditorialTitle>Images en attente.</EditorialTitle>
-        <TText variant="body" color="secondary">Votre demande existe déjà. Certaines images restent à ajouter ; réessayez sans créer de nouvelle demande.</TText>
+        <EditorialTitle>{recoveredRequest ? 'Votre projet est là.' : 'Images en attente.'}</EditorialTitle>
+        <TText variant="body" color="secondary">{recoveredRequest
+          ? 'Votre demande a déjà été envoyée. Ouvrez le dossier pour consulter ou compléter ses images privées.'
+          : 'Votre demande existe déjà. Certaines images restent à ajouter ; réessayez sans créer de nouvelle demande.'}</TText>
         {!!submitError && <TText variant="bodySmall" color="error" accessibilityRole="alert">{submitError}</TText>}
-        <TButton title="Réessayer les images" loading={submitting} onPress={handleSubmit} />
+        {!recoveredRequest && referenceUris.length > 0 && <TButton title="Réessayer les images" loading={submitting} onPress={handleSubmit} />}
         <TButton title="Ouvrir le dossier" variant="secondary" onPress={() => openRequest(pendingRequestId)} />
+        <TButton title="Commencer un autre projet" variant="secondary" onPress={async () => {
+          if (user) await clearPendingRequest({ userId: user.id, artistId: artist.id, flashId });
+          router.replace('/(tabs)/explore');
+        }} />
       </View>
     );
   }

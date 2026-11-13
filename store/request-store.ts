@@ -54,7 +54,7 @@ interface RequestState {
 
   /** `silent` refreshes in place without toggling the loading state (focus, realtime). */
   fetchRequests: (userId: string, role: 'user' | 'artist', opts?: { silent?: boolean }) => Promise<void>;
-  submitRequest: (payload: SubmitPayload, userId: string) => Promise<{ id: string | null; error: string | null }>;
+  submitRequest: (payload: SubmitPayload, userId: string, requestId?: string) => Promise<{ id: string | null; error: string | null }>;
   updateStatus: (requestId: string, status: RequestStatus, extra?: { declineReason?: string; artistNotes?: string }) => Promise<{ error: string | null }>;
   getRequest: (id: string) => TattooRequest | undefined;
 }
@@ -170,9 +170,9 @@ export const useRequestStore = create<RequestState>((set, get) => ({
     }
   },
 
-  submitRequest: async (payload, userId) => {
+  submitRequest: async (payload, userId, requestId) => {
     try {
-      if (!isUuid(userId) || !isUuid(payload.artistId)) return { id: null, error: 'Identifiant invalide.' };
+      if (!isUuid(userId) || !isUuid(payload.artistId) || (requestId && !isUuid(requestId))) return { id: null, error: 'Identifiant invalide.' };
       if (!payload.description.trim() || (payload.budgetMin != null && (!Number.isFinite(payload.budgetMin) || payload.budgetMin < 0)) || (payload.budgetMax != null && (!Number.isFinite(payload.budgetMax) || payload.budgetMax < (payload.budgetMin ?? 0)))) return { id: null, error: 'Description ou budget invalide.' };
       const { data: artist, error: artistError } = await supabase.from('artists').select('booking_status').eq('id', payload.artistId).maybeSingle();
       if (artistError || !artist || artist.booking_status !== 'open') return { id: null, error: 'Cet artiste ne peut pas recevoir de demande actuellement.' };
@@ -182,6 +182,7 @@ export const useRequestStore = create<RequestState>((set, get) => ({
       const { data, error } = await supabase
         .from('tattoo_requests')
         .insert({
+          ...(requestId ? { id: requestId } : {}),
           client_id: userId,
           artist_id: rest.artistId,
           project_type: rest.projectType,
@@ -202,6 +203,15 @@ export const useRequestStore = create<RequestState>((set, get) => ({
         .select()
         .single();
       if (error) {
+        if (requestId && error.code === '23505') {
+          const { data: existing, error: lookupError } = await supabase.from('tattoo_requests')
+            .select('id,client_id,artist_id').eq('id', requestId).maybeSingle();
+          if (!lookupError && existing?.client_id === userId && existing.artist_id === payload.artistId) {
+            await get().fetchRequests(userId, 'user');
+            return { id: existing.id, error: null };
+          }
+          return { id: null, error: 'Cette demande existe déjà ou n’est plus accessible.' };
+        }
         if (error.message.includes('flash_unavailable')) return { id: null, error: 'Ce flash n’est plus disponible.' };
         return { id: null, error: error.message };
       }
