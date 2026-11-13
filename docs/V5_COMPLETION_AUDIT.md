@@ -14,6 +14,8 @@ Une seconde exportation locale avec la clé **publiable** du projet actif a perm
 
 Le 13 novembre, une nouvelle exportation avec la même clé publique a vérifié `/explore` et l'ouverture directe du profil à 390, 1024 et 1440 px. Les six chargements n'ont montré ni débordement horizontal ni erreur React en console. Le clic « Demander un projet » depuis le profil conduit à `/sign-in` avec le retour exact `/request/new?artistId=…`. L'erreur d'hydratation #418 antérieure n'est donc pas reproduite sur cette version, sans preuve suffisante pour la déclarer définitivement corrigée. Les captures locales `inkr-qa-explore-reordered-*` et `inkr-qa-artist-*` sont dans `/workspace/shared` (hors dépôt). La liste d'artistes passe désormais avant les rails de découverte ; le résultat est visible dans le premier écran sur téléphone.
 
+Les exports Hermes Android et iOS réussissent avec une configuration Supabase fictive. Ce contrôle valide le bundling des deux plateformes, mais aucun parcours n'a encore été exécuté sur un appareil ou un simulateur natif.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
