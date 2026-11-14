@@ -68,7 +68,9 @@ export const useSavedArtistsStore = create<SavedArtistsState>((set, get) => {
         const result = wasSaved
           ? await supabase.from('saved_artists').delete().eq('user_id', userId).eq('artist_id', artistId).select('artist_id')
           : await supabase.from('saved_artists').insert({ user_id: userId, artist_id: artistId }).select('artist_id').single();
-        if (result.error) throw result.error;
+        if (result.error || (wasSaved ? !Array.isArray(result.data) || result.data.length !== 1 : !result.data)) {
+          throw result.error ?? new Error('No saved artist row was changed');
+        }
         if (version !== generation) return false;
         const savedArtistIds = new Set(get().savedArtistIds);
         if (wasSaved) savedArtistIds.delete(artistId);

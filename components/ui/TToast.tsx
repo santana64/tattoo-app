@@ -1,16 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withDelay,
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Colors, Radius, Spacing, Fonts, Layout } from '@/constants/theme';
+import { Colors, Radius, Fonts, Layout } from '@/constants/theme';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -57,18 +56,18 @@ export function ToastProvider() {
   const [state, setState] = React.useState<ToastState>({ visible: false, config: { message: '' } });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hide = () => {
+  const hide = useCallback(() => {
     translateY.value = withTiming(-120, { duration: 300 }, () => {
       runOnJS(setState)({ visible: false, config: { message: '' } });
     });
-  };
+  }, [translateY]);
 
-  const show = (config: ToastConfig) => {
+  const show = useCallback((config: ToastConfig) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setState({ visible: true, config });
     translateY.value = withSpring(insets.top + 8, { damping: 15, stiffness: 200 });
     timerRef.current = setTimeout(hide, config.duration ?? 3000);
-  };
+  }, [hide, insets.top, translateY]);
 
   useEffect(() => {
     listeners.push(show);
@@ -76,7 +75,7 @@ export function ToastProvider() {
       const idx = listeners.indexOf(show);
       if (idx > -1) listeners.splice(idx, 1);
     };
-  }, []);
+  }, [show]);
 
   const animStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 

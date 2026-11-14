@@ -1,0 +1,63 @@
+# INKR — réconciliation Supabase avant déploiement
+
+État observé en lecture seule le 12 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
+
+## Écarts vérifiés
+
+| Objet | Projet actif | Dépôt / PR #2 | Conséquence |
+| --- | --- | --- | --- |
+| Historique | `001_initial` à `009_stories` | `001_initial.sql` à `012_booking_care.sql`, puis migrations horodatées | Les versions numériques ne prouvent pas l'équivalence des contenus. `db push` et `migration repair` sont interdits avant correspondance objet par objet. |
+| Recherche | `search_artists(text,text,text,integer,text,integer,integer)` existe | Même contrat appelé par le client | Comparer la définition et les index avant une mise à jour. |
+| Aperçus | `artist_portfolio_previews(uuid[],integer)` absent | Migration `20261112193526_balanced_artist_previews.sql` | Le client utilise son repli tant que le RPC manque. |
+| Références | Table `request_references(id,request_id,url,created_at)` ; 0 ligne observée | Même table ; la PR enregistre un chemin privé dans `url` | Préparer l'unicité et le nettoyage des lignes orphelines sur une copie avant application. |
+| Storage | Bucket `request-references` privé, 10 Mio, 0 objet observé, MIME non restreint | Trois emplacements JPEG, MIME `image/jpeg`, plafond 10 Mio et droits de suppression dans `20261112213805_private_request_reference_lifecycle.sql` | Vérifier les politiques et le service Storage avec trois vrais comptes avant d'autoriser ce changement. |
+| Fonctions privilégiées | Conseillers Supabase : fonctions à `search_path` mutable et `SECURITY DEFINER` exécutables par `anon` | Certaines fonctions sont intentionnellement privilégiées | Revue séparée de chaque fonction et de ses grants avant toute reprise de migrations anciennes. |
+| Rendez-vous (lecture du 14 novembre) | `authenticated` peut `INSERT`, `UPDATE`, `DELETE` ; policy `appointments_manage_artist` active | Migration `20261114164541_appointment_rpc_only.sql` : ces trois privilèges retirés et policy supprimée, transitions par RPC | **Bloquant sécurité** : le client doit accepter lui-même un créneau. Avant toute application active, vérifier qu'aucun ancien client distribué ne dépend des écritures directes. Le staging refuse déjà la modification directe de l'artiste (403) et conserve la lecture des deux parties. |
+| Événements Stripe (lecture du 14 novembre) | `subscriptions` existe ; `stripe_subscription_events` absent | Migration `20261114163800_stripe_subscription_event_order.sql` : journal privé, RPC atomique service role | Appliquer avant la nouvelle version de `stripe-webhook`, sinon le webhook recevra une erreur RPC et Stripe réessaiera. Ne jamais diffuser une clé Stripe dans le client. |
+
+Les comptes et objets peuvent changer entre cette lecture et un futur déploiement. Refaire tous les prévols à ce moment-là.
+
+## Dépendances et ordre sûr
+
+1. Créer un **projet Supabase de test distinct**, avec clés et comptes propres. Exporter d'abord le schéma, les policies, les fonctions, les grants, les buckets et l'historique du projet actif en lecture seule. Sauvegarder aussi le schéma et les données de l'environnement cible avant tout essai.
+2. Construire une table de correspondance entre les neuf migrations actives et les douze migrations numériques du dépôt à partir des objets SQL réels. Vérifier colonnes, contraintes, index, définitions `pg_get_functiondef`, policies et permissions. Aucun ancien fichier numérique ne doit être appliqué par son seul nom.
+3. Sur le projet de test, appliquer uniquement les différences **additives et revues** dont les dépendances existent. Le RPC d'aperçus exige `public.posts` avec `artist_id`, `is_published`, `media_type`, `published_at`. La migration des références exige `public.tattoo_requests`, `public.request_references`, `storage.objects` et `storage.foldername`.
+4. Avant l'index unique, vérifier `select request_id, url, count(*) from public.request_references where url ~ '^[0-9a-f-]{36}/ref_[0-2]\.jpg$' group by 1,2 having count(*) > 1;`. Résoudre toute collision explicitement sur le test ; ne pas supprimer silencieusement des lignes actives. Vérifier aussi les objets Storage qui utilisent d'autres noms et la présence de lignes orphelines.
+5. Exécuter les tests SQL du dépôt, puis les tests **API Storage** avec client propriétaire, artiste destinataire et tiers : upload, liste, URL signée, remplacement, refus d'accès, expiration après une minute, suppression, nouvelle tentative et récupération après réouverture. Vérifier que la table et les objets restent cohérents après chaque erreur injectée.
+6. Pointer les deux previews Vercel vers ce projet de test via leurs variables **Preview** (`EXPO_PUBLIC_SUPABASE_URL` et clé publiable), puis vérifier les parcours client et tatoueur dans le navigateur et sur appareils natifs. Aucune preview ne doit utiliser la clé `service_role` ni écrire sur le projet actif.
+7. Soumettre le diff SQL final, les résultats des tests et la sauvegarde à revue. Une autorisation distincte est nécessaire avant toute écriture sur le projet actif. Déployer le schéma compatible avant de supprimer le repli client du RPC.
+
+Pour les deux migrations du 14 novembre : vérifier d'abord le contrat des anciens clients sur les rendez-vous, sauvegarder les définitions exactes de `appointments_manage_artist`, les grants et la table `subscriptions`, puis appliquer le retrait des écritures directes seulement après la version cliente utilisant exclusivement les RPC. Appliquer le journal Stripe avant de déployer le webhook modifié. Sur une copie du projet actif, tester l'acceptation client, le refus d'écriture directe artiste, l'annulation, la fin de séance, les livraisons Stripe répétées et désordonnées, puis les droits Premium après reconnexion. Une simple réussite du build ne suffit pas.
+
+## Contrôles de compatibilité
+
+- Deux versions du client doivent fonctionner pendant la transition : l'ancienne peut lire les demandes et la nouvelle sait lister les fichiers privés même si une ligne de métadonnées manque.
+- Les nouvelles politiques Storage doivent laisser **SELECT** aux deux parties, **INSERT/UPDATE/DELETE** au client propriétaire et aucun de ces droits au tiers. L'upsert exige SELECT + UPDATE + INSERT.
+- Le dossier ne rend jamais un chemin privé comme URL directe. Les liens signés sont des jetons temporaires : quiconque reçoit le lien peut l'utiliser jusqu'à son expiration, même après déconnexion. Une suppression d'objet doit être vérifiée au niveau du service, y compris avec un ancien lien.
+- Tester les comptes existants, demandes sans image, flash épuisé, réponse réseau perdue après insertion, fichiers partiellement déposés et ancienne ligne `request_references.url` avant d'élargir la diffusion.
+
+## Retour arrière
+
+1. En cas de défaut applicatif, revenir au précédent build client et conserver les migrations additives tant que les anciens clients les tolèrent. Le repli de recherche reste disponible.
+2. Si une policy bloque un parcours, restaurer **la définition exacte capturée avant migration** sur le projet de test, puis refaire les tests RLS. Ne pas rouvrir par défaut un accès large à `storage.objects`.
+3. Le RPC d'aperçus et son index peuvent être retirés uniquement après vérification qu'aucun client ne les appelle. L'index unique des références peut être retiré sans supprimer les lignes. Ne jamais supprimer les fichiers privés ni les demandes pour revenir en arrière.
+4. Si un incident touche les données, utiliser la sauvegarde contrôlée de l'environnement cible plutôt qu'une migration inverse destructive. Réévaluer les liens signés déjà émis jusqu'à leur expiration.
+5. Pour le journal Stripe, revenir temporairement au webhook précédent seulement après avoir coupé les livraisons ou confirmé sa compatibilité ; conserver la table d'événements et ses données pour permettre la reprise. Pour les rendez-vous, restaurer les grants et la policy précédemment capturés uniquement si une incompatibilité d'ancien client est démontrée, puis couper cette exception après correction ; cette restauration rouvre le risque d'acceptation artiste et exige une décision explicite. Le retour au build applicatif précédent ne rétablit pas à lui seul les anciens privilèges SQL.
+
+## Projet de test créé le 13 novembre
+
+Le devis Supabase était de 0 $/mois sur l'organisation gratuite `bourrico`, qui comptait un projet actif et trois inactifs. Le projet distinct `inkr-v5-staging` (`lsewxsdulunuuzmszegm`, région `eu-west-1`) a été créé, puis les douze migrations numériques et les deux migrations horodatées initiales du dépôt y ont été appliquées dans l'ordre. Le 14 novembre, les deux migrations Stripe et rendez-vous ci-dessus y ont été ajoutées : l'historique compte maintenant **seize** entrées. Une lecture SQL a confirmé le bucket privé, le plafond 10 Mio, le MIME JPEG et les politiques Storage réservées aux rôles authentifiés. Le conseiller de sécurité signale encore deux fonctions au `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; chaque grant doit être revu selon le contrat public de la fonction avant un changement de sécurité.
+
+Les variables Vercel **Preview** des deux projets ont été orientées vers ce projet et sa clé publiable, sans modifier les valeurs Production. La seconde preview utilise une URL ciblée sur `codex/inkr-v5-completion-excellence` afin de conserver sa variable URL commune aux autres environnements. Les bundles des deux previews du commit `53178ab` ont confirmé la priorité effective de ces variables : URL du projet de test présente, URL du projet actif absente.
+
+Un essai Storage HTTP anonyme a renvoyé un refus RLS à l'upload, aucune URL signée et aucune liste d'objets ; `remove` a renvoyé un succès avec zéro fichier. Cette dernière réponse ne prouve pas une suppression : le client vérifie désormais le propriétaire et l'absence de l'objet avant de retirer la ligne `request_references`. Aucun compte ou objet de test n'a été créé sur le projet actif.
+
+Quatre comptes Auth fictifs ont été créés par l'API officielle Auth Admin dans une fonction temporaire déployée **uniquement** sur `lsewxsdulunuuzmszegm`. La clé d'administration est restée dans l'environnement serveur Supabase ; les identifiants et sessions ne figurent ni dans le dépôt ni dans les journaux. La fonction exigeait un jeton aléatoire et vérifiait l'URL exacte du projet. Elle a immédiatement été remplacée par une version inerte ; un POST ultérieur a répondu HTTP 410. Les rôles client, artiste, tiers et administrateur se connectent avec succès.
+
+Le script opt-in `scripts/staging-private-references.cjs` a exercé l'API hébergée avec ces comptes : demande unique après répétition du même identifiant, lecture artiste, refus du tiers et de l'administrateur hors RPC, trois emplacements JPEG, refus MIME et taille supérieure à 10 Mio, remplacement, URL signée, expiration, fermeture simulée par un nouveau client Auth, suppression, nouvelle tentative et cohérence de `request_references`. Le tiers reçoit parfois HTTP succès avec zéro objet supprimé ; l'objet reste présent. Un lien signé **déjà utilisé** est encore servi depuis le cache après suppression, même avec `cacheControl: 0`. Un lien court cesse de répondre après expiration. Le client émet donc maintenant des liens d'une minute, renouvelés toutes les 45 secondes dans le dossier, et prévient après suppression. La révocation instantanée d'un lien déjà délivré n'est pas garantie par ce mécanisme ; un proxy authentifié sans cache serait nécessaire si elle devient une exigence absolue.
+
+## Limite de preuve actuelle
+
+Les migrations sont testées dans PGlite avec les rôles API simulés et appliquées sur le projet de test hébergé. Le service Storage local n'a pas pu démarrer faute d'espace Docker ; les essais HTTP hébergés à trois identités le remplacent pour les références. Le dossier de références et le rendez-vous proposé/accepté ont aussi été exercés depuis l'interface web ; cela ne remplace ni les essais sur appareils natifs ni un paiement Stripe de test.
+
+Les variables **Preview** Vercel ont été remplacées par l'URL et la clé publiable du projet de test. Les bundles de `53178ab` prouvent que les deux nouvelles previews utilisent ce projet ; les anciens déploiements gardent leurs variables au moment de leur propre construction.

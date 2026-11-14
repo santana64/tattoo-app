@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View, Linking, Alert, Platform } from 'react-native';
+import { AppState, ScrollView, StyleSheet, View, Linking, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Layout } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
+import { Toast } from '@/components/ui/TToast';
 import { Kicker, PageWrap, Rule, SectionHead, StatusDot } from '@/components/v5';
 import { Panel, Segmented } from '@/components/v5/studio';
 import { BenefitRow, PremiumHero } from '@/components/v5/premium';
@@ -52,6 +53,7 @@ interface SubscriptionInfo {
 export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { checkout } = useLocalSearchParams<{ checkout?: string }>();
   const { width } = useContentDimensions();
   const wide = width >= 820;
   const { user, refreshProfile } = useAuthStore();
@@ -59,6 +61,18 @@ export default function SubscriptionScreen() {
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+
+  useEffect(() => {
+    if (checkout === 'success') void refreshProfile();
+  }, [checkout, refreshProfile]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshProfile();
+    });
+    return () => listener.remove();
+  }, [refreshProfile]);
 
   // Real renewal details, read-only (RLS: own artist only).
   useEffect(() => {
@@ -89,14 +103,12 @@ export default function SubscriptionScreen() {
           : { period },
       });
       if (error || !data?.url) {
-        Alert.alert('Erreur', error?.message ?? 'Impossible de démarrer le paiement. Réessayez.');
+        Toast.error('Impossible de démarrer le paiement. Vérifiez votre connexion puis réessayez.');
         return;
       }
       await Linking.openURL(data.url);
-      // After returning from checkout, refresh profile to get updated tier
-      await refreshProfile();
-    } catch (e: any) {
-      Alert.alert('Erreur', e.message ?? 'Une erreur est survenue.');
+    } catch {
+      Toast.error('Le paiement n’a pas pu s’ouvrir. Réessayez.');
     } finally {
       setIsCheckingOut(false);
     }
@@ -122,6 +134,19 @@ export default function SubscriptionScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PageWrap style={{ paddingTop: Spacing.lg }}>
+          {checkout === 'success' && (
+            <View accessibilityLiveRegion="polite" style={styles.checkoutNotice}>
+              <TText variant="bodySmall">{isPremium
+                ? 'Votre abonnement Premium est actif.'
+                : 'Retour du paiement détecté. L’activation sera visible ici après confirmation par Stripe.'}</TText>
+              {!isPremium && <TButton title="Vérifier mon abonnement" variant="secondary" size="md" fullWidth={false} onPress={() => { void refreshProfile(); }} />}
+            </View>
+          )}
+          {(checkout === 'cancel' || checkout === 'cancelled') && (
+            <View accessibilityLiveRegion="polite" style={styles.checkoutNotice}>
+              <TText variant="bodySmall">Le parcours de paiement a été quitté. Votre statut d’abonnement reste indiqué ci-dessous.</TText>
+            </View>
+          )}
           {isPremium ? (
             <PremiumHero kicker="Votre abonnement" title="INKR" emphasis="Premium.">
               <View style={styles.statusLine}>
@@ -238,6 +263,7 @@ export default function SubscriptionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  checkoutNotice: { padding: Spacing.md, borderWidth: 1, borderColor: Colors.line, gap: Spacing.sm },
   statusLine: { gap: 10 },
 
   period: {

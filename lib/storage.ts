@@ -99,8 +99,98 @@ export async function uploadReference(
   requestId: string,
   index: number,
   onProgress?: (p: number) => void
-): Promise<UploadResult> {
-  return uploadFile(uri, 'request-references', `${requestId}/ref_${index}.jpg`, onProgress);
+): Promise<{ path: string }> {
+  if (!Number.isInteger(index) || index < 0 || index > 2) throw new Error('Emplacement de référence invalide.');
+  onProgress?.(0.1);
+  const compressed = await compressImage(uri);
+  const blob = await uriToBlob(compressed);
+  if (blob.size > 10 * 1024 * 1024) throw new Error('Cette image dépasse la limite de 10 Mo.');
+  const path = `${requestId}/ref_${index}.jpg`;
+  const { error } = await supabase.storage.from('request-references').upload(path, blob, {
+    contentType: 'image/jpeg',
+    cacheControl: '0',
+    upsert: true,
+  });
+  if (error) throw error;
+  onProgress?.(1);
+  // This bucket is private. A public URL would be unusable and misleading.
+  return { path };
+}
+
+export interface SignedRequestReference { path: string; url: string }
+
+export async function saveReferenceMetadata(requestId: string, path: string): Promise<void> {
+  if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
+    throw new Error('Chemin de référence invalide.');
+  }
+  const { data, error } = await supabase.from('request_references')
+    .select('id').eq('request_id', requestId).eq('url', path).maybeSingle();
+  if (error) throw error;
+  if (data) return;
+  const { error: insertError } = await supabase.from('request_references').insert({ request_id: requestId, url: path });
+  if (insertError && !(insertError.code === '23505' && insertError.message.includes('request_references_private_path_unique'))) {
+    throw insertError;
+  }
+}
+
+export async function attachReference(uri: string, requestId: string, index: number): Promise<{ path: string }> {
+  const result = await uploadReference(uri, requestId, index);
+  await saveReferenceMetadata(requestId, result.path);
+  return result;
+}
+
+export async function removeReference(requestId: string, path: string): Promise<void> {
+  if (!['ref_0.jpg', 'ref_1.jpg', 'ref_2.jpg'].some((name) => path === `${requestId}/${name}`)) {
+    throw new Error('Chemin de référence invalide.');
+  }
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('Reconnectez-vous pour retirer cette référence.');
+  const { data: request, error: requestError } = await supabase.from('tattoo_requests')
+    .select('client_id').eq('id', requestId).maybeSingle();
+  if (requestError || request?.client_id !== user.id) {
+    throw new Error('Seul le client propriétaire peut retirer cette référence.');
+  }
+  const bucket = supabase.storage.from('request-references');
+  // Keep the historical row until the object is actually gone. A lost response
+  // or a denied removal must not make metadata claim that deletion succeeded.
+  const { error } = await bucket.remove([path]);
+  if (error) throw error;
+  const { data: remaining, error: listError } = await bucket.list(requestId, {
+    limit: 10,
+    search: path.slice(requestId.length + 1),
+  });
+  if (listError) throw listError;
+  if (remaining?.some((file) => `${requestId}/${file.name}` === path)) {
+    throw new Error('La référence est encore présente. Réessayez.');
+  }
+  const { data: deleted, error: deleteError } = await supabase.from('request_references')
+    .delete().eq('request_id', requestId).eq('url', path).select('id');
+  if (deleteError) throw deleteError;
+  // A historical row may legitimately be absent. A zero-row DELETE alone is
+  // ambiguous: confirm that no row remains before reporting success.
+  if (!deleted?.length) {
+    const { data: stale, error: checkError } = await supabase.from('request_references')
+      .select('id').eq('request_id', requestId).eq('url', path).maybeSingle();
+    if (checkError) throw checkError;
+    if (stale) throw new Error('Les métadonnées de la référence sont encore présentes. Réessayez.');
+  }
+}
+
+// An already fetched signed URL can remain cached after deletion. Keep that
+// bearer-token window short, and refresh while the dossier stays open.
+export async function signedRequestReferences(requestId: string, expiresIn = 60): Promise<SignedRequestReference[]> {
+  const bucket = supabase.storage.from('request-references');
+  const { data: files, error } = await bucket.list(requestId, { limit: 10, sortBy: { column: 'name', order: 'asc' } });
+  if (error) throw error;
+  const paths = (files ?? [])
+    .filter((file) => /^ref_[0-2]\.jpg$/.test(file.name))
+    .map((file) => `${requestId}/${file.name}`);
+  const signed = await Promise.all(paths.map(async (path) => {
+    const { data, error: signError } = await bucket.createSignedUrl(path, expiresIn);
+    if (signError) throw signError;
+    return { path, url: data.signedUrl };
+  }));
+  return signed;
 }
 
 // ─── Pick image from library ──────────────────────────────────────────────────

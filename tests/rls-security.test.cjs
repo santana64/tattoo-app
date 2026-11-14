@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql', '20261112213805_private_request_reference_lifecycle.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -342,6 +342,93 @@ test('private files are only visible to their owner or the request parties', asy
       DENIED,
     );
   });
+});
+
+test('the public portfolio bucket cannot be used for conversation attachments', async () => {
+  const path = `conv/${ids.request}/message.jpg`;
+  for (const uid of [ids.client, ids.artistUser]) {
+    await as(uid, () => assert.rejects(
+      db.query(`insert into storage.objects (bucket_id, name) values ('posts-media', $1)`, [path]),
+      DENIED,
+    ));
+  }
+});
+
+test('the client can remove a reference, while the artist and a third party cannot', async () => {
+  const path = `${ids.request}/ref_2.jpg`;
+  await as(ids.client, () => db.query(`insert into storage.objects (bucket_id, name) values ('request-references', $1)`, [path]));
+  assert.equal((await as(ids.artistUser, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 0);
+  assert.equal((await as(ids.outsider, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 0);
+  assert.equal((await as(ids.client, () => rows(`delete from storage.objects where bucket_id = 'request-references' and name = $1 returning name`, [path]))).length, 1);
+});
+
+test('request storage accepts only the three flat reference slots', async () => {
+  const bucket = await one(`select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'request-references'`);
+  assert.equal(bucket.public, false);
+  assert.equal(Number(bucket.file_size_limit), 10485760);
+  assert.deepEqual(bucket.allowed_mime_types, ['image/jpeg']);
+  await as(ids.client, async () => {
+    for (const name of ['evil.jpg', 'ref_7.jpg', 'nested/ref_0.jpg']) {
+      await assert.rejects(
+        db.query(`insert into storage.objects (bucket_id, name) values ('request-references', $1)`, [`${ids.request}/${name}`]),
+        DENIED,
+        name,
+      );
+    }
+  });
+});
+
+test('a reference path is unique per request and only its client can remove metadata', async () => {
+  const path = `${ids.request}/ref_1.jpg`;
+  await as(ids.client, () => db.query(`insert into public.request_references (request_id, url) values ($1, $2)`, [ids.request, path]));
+  assert.equal((await as(ids.artistUser, () => rows(`select url from public.request_references where request_id = $1`, [ids.request]))).length, 1);
+  assert.equal((await as(ids.outsider, () => rows(`select url from public.request_references where request_id = $1`, [ids.request]))).length, 0);
+  await as(ids.client, () => assert.rejects(db.query(`insert into public.request_references (request_id, url) values ($1, $2)`, [ids.request, path]), /duplicate key/));
+  assert.equal((await as(ids.artistUser, () => rows(`delete from public.request_references where request_id = $1 and url = $2 returning id`, [ids.request, path]))).length, 0);
+  assert.equal((await as(ids.client, () => rows(`delete from public.request_references where request_id = $1 and url = $2 returning id`, [ids.request, path]))).length, 1);
+});
+
+test('portfolio previews are balanced per artist and exclude unpublished work', async () => {
+  const secondUser = await createUser('preview-artist');
+  let secondArtist;
+  await as(secondUser, async () => {
+    await db.query(`update public.profiles set role = 'artist' where id = $1`, [secondUser]);
+    secondArtist = (await one(
+      `insert into public.artists (profile_id, blaze, city) values ($1, 'Second atelier', 'Lyon') returning id`,
+      [secondUser],
+    )).id;
+    await db.query(
+      `insert into public.posts (artist_id, media_url, is_published)
+       values ($1, 'https://example.test/second.jpg', true),
+              ($1, 'https://example.test/draft.jpg', false)`,
+      [secondArtist],
+    );
+  });
+  await as(ids.artistUser, async () => {
+    for (let i = 0; i < 8; i++) {
+      await db.query(
+        `insert into public.posts (artist_id, media_url, is_published, published_at)
+         values ($1, $2, true, now() + ($3 || ' seconds')::interval)`,
+        [ids.artist, `https://example.test/work-${i}.jpg`, i],
+      );
+    }
+  });
+
+  await as(null, async () => {
+    const previews = await rows(
+      `select * from public.artist_portfolio_previews($1::uuid[], 3)`,
+      [[ids.artist, secondArtist]],
+    );
+    assert.equal(previews.filter((r) => r.artist_id === ids.artist).length, 3);
+    assert.deepEqual(previews.filter((r) => r.artist_id === secondArtist).map((r) => r.media_url),
+      ['https://example.test/second.jpg']);
+    assert.equal(previews.some((r) => r.media_url.endsWith('/draft.jpg')), false);
+  });
+  await as(ids.artistUser, () => db.query(
+    `delete from public.posts where artist_id = $1 and media_url like 'https://example.test/work-%'`,
+    [ids.artist],
+  ));
+  await db.query(`delete from auth.users where id = $1`, [secondUser]);
 });
 
 // ── existing flows still work ────────────────────────────────
@@ -1164,6 +1251,44 @@ test('a crash report is accepted from anyone and read by administrators only', a
   // The table refuses a flood.
   await db.query(`insert into public.client_errors (message) select 'flood' from generate_series(1, 60)`);
   assert.equal((await as(null, () => one(report, ['one more', null, null, null, null]))).ok, false);
+});
+
+test('Stripe subscription events are atomic, private and resistant to replay and stale delivery', async () => {
+  const apply = async (eventId, created, subscriptionId, status, deleted = false) => {
+    const params = [eventId, created, ids.artist, subscriptionId, status, 'price_test', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false, deleted];
+    return (await one(`select public.apply_stripe_subscription_event($1, $2::timestamptz, $3::uuid, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9, $10) as applied`, params)).applied;
+  };
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(`select * from public.stripe_subscription_events`), DENIED);
+    await assert.rejects(db.query(`select public.apply_stripe_subscription_event('forged', now(), $1::uuid, 'sub_bad', 'active', null, now(), now(), false, false)`, [ids.artist]), DENIED);
+  });
+  await db.exec('set role service_role');
+  try {
+    assert.equal(await apply('evt_1', '2026-11-14T10:00:00Z', 'sub_old', 'active'), true);
+    assert.equal(await apply('evt_1', '2026-11-14T10:00:00Z', 'sub_old', 'active'), false);
+    assert.equal(await apply('evt_2', '2026-11-14T11:00:00Z', 'sub_new', 'active'), true);
+    assert.equal(await apply('evt_3', '2026-11-14T12:00:00Z', 'sub_old', 'canceled', true), false);
+    assert.equal(await apply('evt_4', '2026-11-14T09:00:00Z', 'sub_old', 'past_due'), false);
+    assert.equal((await one(`select tier, stripe_subscription_id from public.artists where id = $1`, [ids.artist])).stripe_subscription_id, 'sub_new');
+    assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'subscription_renewed'`, [ids.artistUser])).n, 1);
+    assert.equal(await apply('evt_5', '2026-11-14T13:00:00Z', 'sub_new', 'canceled', true), true);
+    assert.equal((await one(`select tier from public.artists where id = $1`, [ids.artist])).tier, 'normal');
+    assert.equal(await apply('evt_6', '2026-11-14T12:00:00Z', 'sub_new', 'active'), false);
+    assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'subscription_renewed'`, [ids.artistUser])).n, 2);
+  } finally {
+    await db.exec('reset role');
+  }
+});
+
+test('appointments cannot be confirmed or forged through direct API writes', async () => {
+  const privileges = await one(`select
+    has_table_privilege('authenticated', 'public.appointments', 'INSERT') as insert_allowed,
+    has_table_privilege('authenticated', 'public.appointments', 'UPDATE') as update_allowed,
+    has_table_privilege('authenticated', 'public.appointments', 'DELETE') as delete_allowed`);
+  assert.deepEqual(privileges, { insert_allowed: false, update_allowed: false, delete_allowed: false });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(`update public.appointments set status = 'confirmed' where id = $1`, [ids.appointment]), DENIED);
+  });
 });
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {

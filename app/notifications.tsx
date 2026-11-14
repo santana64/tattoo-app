@@ -15,6 +15,7 @@ import { THeader } from '@/components/ui/THeader';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { TButton } from '@/components/ui/TButton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Toast } from '@/components/ui/TToast';
 import { Kicker, Masthead, Rule } from '@/components/v5';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useNotificationStore, AppNotification } from '@/store/notification-store';
@@ -218,7 +219,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const { gutter } = useContentDimensions();
   const { user } = useAuthStore();
-  const { notifications, isLoading, fetch, markRead, markAllRead, subscribe, unsubscribe } =
+  const { notifications, isLoading, error, fetch, markRead, markAllRead, subscribe, unsubscribe } =
     useNotificationStore();
 
   useEffect(() => {
@@ -244,13 +245,15 @@ export default function NotificationsScreen() {
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const handleNotifPress = (notif: AppNotification) => {
-    markRead(notif.id);
+    void markRead(notif.id);
     const target = notifTarget(notif);
     if (target) router.push(target);
   };
 
-  const handleMarkAll = () => {
-    if (user?.id) markAllRead(user.id);
+  const handleMarkAll = async () => {
+    if (user?.id && !await markAllRead(user.id)) {
+      Toast.error('Notifications non mises à jour. Vérifiez votre connexion puis réessayez.');
+    }
   };
 
   if (!user) {
@@ -295,6 +298,12 @@ export default function NotificationsScreen() {
           />
         )}
       </View>
+      {!!error && notifications.length > 0 && (
+        <View accessibilityRole="alert" style={{ paddingVertical: Spacing.sm, gap: Spacing.xs }}>
+          <TText variant="bodySmall" color="error">{error}</TText>
+          <TButton title="Réessayer" variant="secondary" size="md" fullWidth={false} onPress={() => { void fetch(user.id); }} />
+        </View>
+      )}
     </View>
   );
 
@@ -332,7 +341,10 @@ export default function NotificationsScreen() {
           />
         }
         ListEmptyComponent={
-          isLoading ? <ListSkeleton /> : (
+          isLoading ? <ListSkeleton /> : error ? (
+            <EmptyState icon="cloud-offline-outline" title="Chargement impossible" description={error}
+              ctaLabel="Réessayer" onCta={() => { void fetch(user.id); }} style={styles.empty} />
+          ) : (
             <EmptyState
               icon="notifications-outline"
               title="Rien de nouveau pour l’instant"

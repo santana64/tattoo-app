@@ -60,6 +60,28 @@ test('repeated clicks during persistence add only one like', async () => {
   assert.equal(store.getState().likedPostIds.has('post'), true);
 });
 
+const emptyDelete = () => ({
+  eq: () => ({ eq: () => ({
+    select: async () => ({ data: [], error: null }),
+    then: (resolve) => Promise.resolve({ data: [], error: null }).then(resolve),
+  }) }),
+});
+
+test('a like removal affecting zero rows keeps the local count', async () => {
+  const store = loadStore({ from: () => ({ delete: emptyDelete }) });
+  store.setState({ likedPostIds: new Set(['post']), posts: [{ id: 'post', likesCount: 4, isLiked: true }] });
+  assert.equal(await store.getState().toggleLike('post', 'user'), false);
+  assert.equal(store.getState().posts[0].likesCount, 4);
+  assert.equal(store.getState().likedPostIds.has('post'), true);
+});
+
+test('a saved post removal affecting zero rows remains saved locally', async () => {
+  const store = loadStore({ from: () => ({ delete: emptyDelete }) });
+  store.setState({ savedPostIds: new Set(['post']), posts: [{ id: 'post', isSaved: true }] });
+  assert.equal(await store.getState().toggleSave('post', 'user'), false);
+  assert.equal(store.getState().savedPostIds.has('post'), true);
+});
+
 test('network failure is distinguishable from an empty feed', async () => {
   const query = { select() { return this; }, eq() { return this; }, order() { return this; }, limit: async () => ({ error: { message: 'offline' } }) };
   const store = loadStore({ from: () => query });

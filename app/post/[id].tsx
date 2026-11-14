@@ -254,10 +254,14 @@ function PostContent({ row, artist }: { row: Tables<'posts'>; artist: Artist | n
     const current = kind === 'like' ? isLiked : isSaved;
     const table = kind === 'like' ? 'post_likes' : 'saved_posts';
     try {
-      const { error } = current
-        ? await supabase.from(table).delete().eq('post_id', id).eq('user_id', user.id)
-        : await supabase.from(table).insert({ post_id: id, user_id: user.id });
-      if (error) throw error;
+      if (current) {
+        const { data, error } = await supabase.from(table).delete()
+          .eq('post_id', id).eq('user_id', user.id).select('post_id');
+        if (error || data?.length !== 1) throw error ?? new Error('No membership row was removed');
+      } else {
+        const { error } = await supabase.from(table).insert({ post_id: id, user_id: user.id });
+        if (error) throw error;
+      }
       if (kind === 'like') { setLiked(!current); setLikes((n) => Math.max(0, n + (current ? -1 : 1))); }
       else setSaved(!current);
       useFeedStore.setState((state) => {

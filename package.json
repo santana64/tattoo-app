@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "build:web": "expo export -p web && node scripts/postexport-web.js",
+    "build:web": "expo export -p web --clear && node scripts/postexport-web.js",
     "preview:web": "node scripts/preview-web.js",
     "test": "node --test tests/*.test.cjs"
   },
@@ -27,6 +27,7 @@
     "expo-auth-session": "~7.0.10",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.13",
+    "expo-crypto": "~15.0.8",
     "expo-font": "~14.0.11",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",

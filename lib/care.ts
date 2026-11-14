@@ -202,8 +202,8 @@ export async function publishStory(artistId: string, mediaUrl: string, caption?:
 }
 
 export async function deleteStory(id: string): Promise<boolean> {
-  const { error } = await supabase.from('stories').delete().eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('stories').delete().eq('id', id).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 export function recordStoryView(storyId: string): void {
@@ -247,8 +247,9 @@ export async function sendHealedPhoto(appointmentId: string, photoUrl: string, n
 }
 
 export async function setHealedPhotoPublic(id: string, isPublic: boolean): Promise<boolean> {
-  const { error } = await supabase.from('healed_photos').update({ is_public: isPublic }).eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('healed_photos')
+    .update({ is_public: isPublic }).eq('id', id).select('id').maybeSingle();
+  return !error && data?.id === id;
 }
 
 // ── Reactions ────────────────────────────────────────────────────────────────
@@ -283,10 +284,15 @@ export async function fetchMyReactions(userId: string, postIds: string[]): Promi
 
 /** Sets, changes or (with null) removes the caller's reaction. */
 export async function setReaction(userId: string, postId: string, emoji: ReactionKey | null): Promise<boolean> {
-  const { error } = emoji
-    ? await supabase.from('post_reactions').upsert({ post_id: postId, user_id: userId, emoji }, { onConflict: 'post_id,user_id' })
-    : await supabase.from('post_reactions').delete().eq('post_id', postId).eq('user_id', userId);
-  return !error;
+  if (emoji) {
+    const { error } = await supabase.from('post_reactions').upsert(
+      { post_id: postId, user_id: userId, emoji }, { onConflict: 'post_id,user_id' },
+    );
+    return !error;
+  }
+  const { data, error } = await supabase.from('post_reactions').delete()
+    .eq('post_id', postId).eq('user_id', userId).select('post_id');
+  return !error && data?.length === 1;
 }
 
 /** Counts after the caller moves from `previous` to `next`, without waiting for the server. */
@@ -348,6 +354,7 @@ export async function fetchClientErrors(limit = 50): Promise<ClientError[]> {
 }
 
 export async function clearClientErrors(): Promise<boolean> {
-  const { error } = await supabase.from('client_errors').delete().lt('created_at', new Date().toISOString());
-  return !error;
+  const { data, error } = await supabase.from('client_errors')
+    .delete().lt('created_at', new Date().toISOString()).select('id');
+  return !error && !!data?.length;
 }

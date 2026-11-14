@@ -56,6 +56,7 @@ Une migration qui retire des droits doit être déployée **après** le client q
 
 ```bash
 supabase functions deploy create-checkout-session
+supabase functions deploy payment-return --no-verify-jwt
 supabase functions deploy delete-account
 supabase functions deploy send-push
 supabase functions deploy stripe-webhook --no-verify-jwt
@@ -69,6 +70,8 @@ Secrets attendus (`supabase secrets set NOM=valeur`) :
 | `STRIPE_SECRET_KEY` | Paiement, résiliation à la suppression du compte |
 | `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY` | Tarifs Premium |
 | `STRIPE_WEBHOOK_SECRET` | Signature du webhook |
+
+Sur le projet de test isolé, utiliser uniquement une clé `sk_test_…`, des prix Stripe de test et l'URL du webhook de test. `payment-return` est public car Stripe y redirige le navigateur ; il n'accepte que les deux destinations d'abonnement prévues. Sans clé ni prix configurés, `create-checkout-session` renvoie `checkout_unavailable` (503).
 
 ## Déploiement web
 

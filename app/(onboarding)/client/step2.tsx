@@ -5,6 +5,7 @@ import { Spacing } from '@/constants/theme';
 import { Kicker } from '@/components/v5';
 import { TInput } from '@/components/ui/TInput';
 import { TButton } from '@/components/ui/TButton';
+import { TText } from '@/components/ui/TText';
 import { OnboardingScreen, OnboardingChip } from '@/components/OnboardingProgress';
 import { useAuthStore } from '@/store/auth-store';
 
@@ -17,16 +18,28 @@ export default function ClientStep2() {
   const router = useRouter();
   const { updateProfile } = useAuthStore();
   const [city, setCity] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const handleContinue = () => {
-    if (city.trim()) {
-      updateProfile({ city: city.trim() });
+  const handleContinue = async () => {
+    if (saving) return;
+    if (!city.trim()) { router.push('/(onboarding)/client/step3'); return; }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const result = await updateProfile({ city: city.trim() });
+      if (result.error) { setSaveError(result.error); return; }
+      router.push('/(onboarding)/client/step3');
+    } catch {
+      setSaveError('Enregistrement impossible. Vérifiez votre connexion puis réessayez.');
+    } finally {
+      setSaving(false);
     }
-    router.push('/(onboarding)/client/step3');
   };
 
   const selectCity = (c: string) => {
     setCity(c);
+    setSaveError(null);
   };
 
   const isSelected = (c: string) => c.toLowerCase() === city.trim().toLowerCase();
@@ -46,7 +59,9 @@ export default function ClientStep2() {
         <TButton
           title={city.trim() ? 'Continuer' : 'Passer cette étape'}
           variant={city.trim() ? 'primary' : 'secondary'}
-          onPress={handleContinue}
+          onPress={() => { void handleContinue(); }}
+          loading={saving}
+          disabled={saving}
         />
       }
     >
@@ -54,16 +69,18 @@ export default function ClientStep2() {
         label="Ville"
         optional
         value={city}
-        onChangeText={setCity}
+        onChangeText={(value) => { setCity(value); setSaveError(null); }}
         placeholder="Paris, Lyon, Bordeaux…"
         autoComplete="postal-address-locality"
         textContentType="addressCity"
         autoCapitalize="words"
         autoCorrect={false}
         returnKeyType="done"
-        onSubmitEditing={handleContinue}
+        onSubmitEditing={() => { void handleContinue(); }}
         maxLength={60}
+        editable={!saving}
       />
+      {!!saveError && <TText variant="bodySmall" color="error" accessibilityRole="alert">{saveError}</TText>}
 
       <Kicker tone="muted" style={styles.suggestLabel}>Suggestions</Kicker>
       <View style={styles.chips}>

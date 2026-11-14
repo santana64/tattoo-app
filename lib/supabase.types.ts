@@ -897,6 +897,10 @@ export interface Database {
           | 'stat_posts' | 'stat_profile_views' | 'stat_requests_month'
         > & { total_count: number; open_count: number })[];
       };
+      artist_portfolio_previews: {
+        Args: { p_artist_ids: string[]; p_per_artist?: number };
+        Returns: { artist_id: string; media_url: string }[];
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

@@ -15,6 +15,8 @@ export default function ClientStep3() {
   const router = useRouter();
   const { updateProfile, completeOnboarding } = useAuthStore();
   const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const finale = useOnboardingFinale();
 
   const toggle = (slug: string) => {
@@ -23,26 +25,28 @@ export default function ClientStep3() {
     );
   };
 
-  const handleFinish = () => {
-    updateProfile({ stylePreferences: selected });
-    completeOnboarding();
-    router.replace('/(tabs)');
-  };
-
-  const handleSkip = () => {
-    updateProfile({ stylePreferences: [] });
-    completeOnboarding();
-    router.replace('/(tabs)');
+  const finish = async (preferences: string[]) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const profile = await updateProfile({ stylePreferences: preferences });
+      if (profile.error) { setError(profile.error); return; }
+      const completed = await completeOnboarding();
+      if (completed.error) { setError(completed.error); return; }
+      finale.celebrate(
+        { title: 'Bienvenue', accent: 'sur Inkr.', lede: 'Votre fil est prêt. Bonne exploration.' },
+        () => router.replace('/(tabs)'),
+      );
+    } catch {
+      setError('Enregistrement impossible. Vérifiez votre connexion.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const hasSelection = selected.length > 0;
   const count = selected.length;
-
-  // Rare moment: a short welcome before the original finish/skip handlers run.
-  const finish = (then: () => void) => finale.celebrate(
-    { title: 'Bienvenue', accent: 'sur Inkr.', lede: 'Votre fil est prêt. Bonne exploration.' },
-    then,
-  );
 
   return (
     <OnboardingScreen
@@ -60,21 +64,23 @@ export default function ClientStep3() {
           <TButton
             title={hasSelection ? 'Terminer' : 'Passer cette étape'}
             variant={hasSelection ? 'primary' : 'secondary'}
-            onPress={() => finish(handleFinish)}
-            disabled={finale.active}
+            onPress={() => { void finish(selected); }}
+            disabled={finale.active || busy}
+            loading={busy}
           />
           {hasSelection ? (
             <TButton
               title="Continuer sans préférence"
               variant="ghost"
               size="md"
-              onPress={() => finish(handleSkip)}
-              disabled={finale.active}
+              onPress={() => { void finish([]); }}
+              disabled={finale.active || busy}
             />
           ) : null}
         </>
       }
     >
+      {!!error && <TText variant="bodySmall" color="error" accessibilityRole="alert">{error}</TText>}
       <View style={styles.grid}>
         {STYLES.map((style) => (
           <OnboardingChip

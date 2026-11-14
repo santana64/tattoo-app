@@ -227,6 +227,7 @@ export function OnboardingChip({
       haptic
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
+      aria-checked={Platform.OS === 'web' ? selected : undefined}
       accessibilityLabel={accessibilityLabel ?? label}
       hitSlop={{ top: 4, bottom: 4 }}
       style={[styles.chip, selected && styles.chipSelected]}
@@ -344,7 +345,7 @@ const styles = StyleSheet.create({
   },
   footerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.xs },
   footerActions: { flex: 1, minWidth: 0, gap: Spacing['3xs'] },
-  footerActionsWide: { flex: 0, width: 340, marginLeft: 'auto' },
+  footerActionsWide: { width: 340, maxWidth: '100%', flexShrink: 1, marginLeft: 'auto' },
 
   cartel: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
   cartelNumber: { color: Colors.onInk, fontSize: 96, lineHeight: 90, letterSpacing: -3 },
