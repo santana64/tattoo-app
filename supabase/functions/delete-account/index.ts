@@ -109,7 +109,12 @@ serve(async (req) => {
       removeFolder(admin, 'verification-docs', user.id),
       removeFolder(admin, 'healed-photos', user.id),
     ];
-    if (artist) cleanups.push(removeFolder(admin, 'posts-media', artist.id));
+    if (artist) {
+      // Cover uploads use the artist id; the user id is retained above for
+      // older objects written before that path convention.
+      cleanups.push(removeFolder(admin, 'covers', artist.id));
+      cleanups.push(removeFolder(admin, 'posts-media', artist.id));
+    }
     for (const request of requests ?? []) {
       cleanups.push(removeFolder(admin, 'request-references', request.id));
     }
