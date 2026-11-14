@@ -554,6 +554,7 @@ export default function RequestDetailScreen() {
                 onPress={() => setSelectedReason(key)}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: selected, selected }}
+                aria-checked={Platform.OS === 'web' ? selected : undefined}
                 style={(state) => [
                   styles.reasonRow,
                   ((state as { hovered?: boolean }).hovered || state.pressed) && { backgroundColor: Colors.wash },

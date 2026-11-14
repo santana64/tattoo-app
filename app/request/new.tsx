@@ -642,6 +642,7 @@ export default function NewRequestScreen() {
                       onPress={() => { haptic(); setSizeCategory(opt.key); }}
                       accessibilityRole="radio"
                       accessibilityState={{ checked: selected, selected }}
+                      aria-checked={Platform.OS === 'web' ? selected : undefined}
                       accessibilityLabel={`Taille ${opt.label}, ${opt.sub}`}
                       style={(state) => [styles.sizeCell, ((state as Hover).hovered || selected) && styles.sizeCellActive]}
                     >
@@ -727,6 +728,7 @@ export default function NewRequestScreen() {
               onPress={() => { haptic(); setIsFlexible(!isFlexible); }}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: isFlexible }}
+              aria-checked={Platform.OS === 'web' ? isFlexible : undefined}
               style={(state) => [styles.toggleRow, (state as Hover).hovered && { backgroundColor: Colors.wash }]}
             >
               <View style={[styles.checkbox, isFlexible && styles.checkboxOn]}>

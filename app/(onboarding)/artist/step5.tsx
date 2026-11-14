@@ -71,6 +71,7 @@ function PlanCard({
       }}
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
+      aria-checked={Platform.OS === 'web' ? selected : undefined}
       accessibilityLabel={premium ? 'Formule Premium' : 'Formule gratuite'}
       style={(state) => [
         styles.card,

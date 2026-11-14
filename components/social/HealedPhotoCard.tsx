@@ -53,6 +53,7 @@ function PublicRow({ value, onToggle, disabled, hint }: {
       accessibilityLabel="Afficher sur le profil de l’artiste"
       accessibilityHint={hint}
       accessibilityState={{ checked: value, disabled }}
+      aria-checked={Platform.OS === 'web' ? value : undefined}
       style={[styles.toggleRow, disabled && { opacity: 0.6 }]}
     >
       <View style={{ flex: 1, minWidth: 0 }}>

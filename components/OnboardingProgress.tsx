@@ -227,6 +227,7 @@ export function OnboardingChip({
       haptic
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
+      aria-checked={Platform.OS === 'web' ? selected : undefined}
       accessibilityLabel={accessibilityLabel ?? label}
       hitSlop={{ top: 4, bottom: 4 }}
       style={[styles.chip, selected && styles.chipSelected]}

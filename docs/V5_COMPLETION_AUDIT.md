@@ -48,6 +48,8 @@ Les retraits de favoris artiste, œuvre enregistrée et j'aime exigeaient parfoi
 
 Le désabonnement d'un artiste et le retrait d'une réaction suivent à présent la même confirmation de ligne. Les essais RLS HTTP ont confirmé zéro ligne pour le tiers et la conservation des données du client, puis le retrait du client. Sur le profil web à 390 px, un faux `DELETE` à zéro ligne a gardé le bouton « Suivi » ; un retrait réel a été observé avec une ligne renvoyée par l'API et le bouton « Suivre » est revenu. Le rechargement de ce scénario automatisé a été instable une fois ; une nouvelle connexion et la lecture SQL ont confirmé l'état final non suivi. Cette instabilité de navigation mérite un nouveau passage ciblé.
 
+Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et retrouvé la ligne `artist_weekly_schedule` après réouverture ; l'état initial vide a ensuite été restauré. La revue d'accessibilité a montré que React Native Web rendait les contrôles `switch` et `radio` sans `aria-checked` malgré `accessibilityState`. Les interrupteurs, choix radio et cases partagées exposent désormais leur état web ; les filtres à bouton exposent `aria-pressed`. À 390 px, les valeurs DOM ont été vérifiées avant/après interaction, et le focus clavier des interrupteurs et choix a une bordure visible de 2 px. La recette lecteur d'écran sur appareil reste à effectuer.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -86,7 +88,7 @@ Le désabonnement d'un artiste et le retrait d'une réaction suivent à présent
 | `/review/new` | client | avis après séance | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/profile` | client/artiste | profil et Studio, MetricGrid | P | C/E repérés ; autres NV | ordre des priorités corrigé, formats NV | PARTIAL |
 | `/(tabs)/agenda` | artiste | calendrier | P, V | prochain rendez-vous confirmé affiché sur staging | accès artiste vérifié à 390 px | PARTIAL |
-| `/availability` | artiste | horaires et absences | P, V | blocage et retrait réels, refus RLS tiers confirmé ; horaires NV | interactions à 390 px vérifiées ; natif NV | PARTIAL |
+| `/availability` | artiste | horaires et absences | P, V | horaires persistés puis restaurés ; blocage et retrait réels, refus RLS tiers confirmé | interactions à 390 px vérifiées ; natif NV | PARTIAL |
 | `/analytics` | artiste | chiffres | P | ? | NV | NOT VERIFIED |
 | `/create` | artiste | publication | P, V | JPEG, écriture Storage et post public vérifiés sur staging | sortie après succès vérifiée en ouverture directe | PARTIAL |
 | `/flash/new` | artiste | flash | P, V | publication fictive et persistance vérifiées | ouverture directe et demande client liées testées ; natif NV | PARTIAL |
