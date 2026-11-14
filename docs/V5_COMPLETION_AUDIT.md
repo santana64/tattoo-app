@@ -83,6 +83,8 @@ Un nouvel essai RLS sur le staging a créé une demande et une référence JPEG 
 
 Le même flux a été rejoué dans l'interface web connectée à 390 px sur le staging : le client a choisi une image, désactivé la publication et envoyé la photo ; elle s'est chargée depuis une URL signée après rechargement du rendez-vous. L'artiste a vu cette photo privée ; le tiers a obtenu « Rendez-vous introuvable ». La publication par le client a rendu la photo signée visible sur le profil public anonyme, puis la dépublication l'en a retirée après rechargement. Aucun `pageerror` Chromium n'a été relevé. La fixture UI et ses fichiers ont été supprimés (zéro photo, zéro objet, zéro demande UI). Sur `9efb139`, CI et deux previews Vercel sont vertes ; l'interaction de cette photo a été exécutée sur l'export local staging, pas sur les previews protégées.
 
+La publication d'une nouvelle photo cicatrisée est désormais désactivée par défaut : le client doit l'activer explicitement. Sur l'export web staging, une séance terminée fictive a affiché `aria-checked="false"` et « Seuls vous et l’artiste la verrez. » à l'ouverture du formulaire. Cette fixture a été supprimée.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.

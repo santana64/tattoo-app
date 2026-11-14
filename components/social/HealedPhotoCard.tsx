@@ -77,7 +77,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
