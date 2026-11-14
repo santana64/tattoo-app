@@ -93,6 +93,26 @@ test('confirmed profile and onboarding writes update local state', async () => {
   assert.equal(store.getState().user.onboardingCompleted, true);
 });
 
+test('role selection waits for a changed row and rejects a silent denial', async () => {
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }));
+  store.setState({ user: { id: 'user', role: 'user', onboardingCompleted: true } });
+  await assert.rejects(store.getState().setRole('artist'), /Rôle non enregistré/);
+  assert.equal(store.getState().user.role, 'user');
+  assert.equal(store.getState().user.onboardingCompleted, true);
+});
+
+test('role selection does not update the next account after a delayed response', async () => {
+  let confirm;
+  const pending = new Promise((resolve) => { confirm = resolve; });
+  const store = loadStore(() => pending);
+  store.setState({ user: { id: 'user', role: 'user', onboardingCompleted: true } });
+  const oldWrite = store.getState().setRole('artist');
+  store.setState({ session: { user: { id: 'new-user' } }, user: { id: 'new-user', role: 'user' } });
+  confirm({ data: { id: 'user' }, error: null });
+  await assert.rejects(oldWrite, /session a changé/);
+  assert.equal(store.getState().user.role, 'user');
+});
+
 test('artist settings remain unchanged when RLS updates zero rows', async () => {
   const store = loadStore(() => Promise.resolve({ data: null, error: null }), [], null,
     () => Promise.resolve({ data: null, error: null }));

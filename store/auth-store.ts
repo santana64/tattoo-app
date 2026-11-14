@@ -278,11 +278,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Becoming an artist reopens onboarding so the artist steps can run (and pass routing).
     const becomesArtist = role === 'artist' && get().user?.role !== 'artist';
     const changes = becomesArtist ? { role, onboarding_completed: false } : { role };
-    const { error } = await supabase.from('profiles').update(changes).eq('id', session.user.id);
-    if (error) {
-      console.warn('[auth] role update failed', error.code, error.message);
-      throw new Error(writeErrorMessage(error) ?? 'Enregistrement impossible.');
+    const { data, error } = await supabase.from('profiles').update(changes)
+      .eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) {
+      if (error) console.warn('[auth] role update failed', error.code, error.message);
+      throw new Error(error ? writeErrorMessage(error) ?? 'Enregistrement impossible.' : 'Rôle non enregistré. Réessayez.');
     }
+    if (get().session?.user.id !== session.user.id) throw new Error('La session a changé. Rechargez votre profil.');
     set((s) => ({ user: s.user ? { ...s.user, role, ...(becomesArtist ? { onboardingCompleted: false } : {}) } : null }));
   },
 
