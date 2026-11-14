@@ -1316,6 +1316,14 @@ test('unpublished healed photos cannot be fetched from Storage by outsiders', as
   await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1));
   await as(ids.client, () => db.query(`update public.healed_photos set is_public = false where photo_url = $1`, [objectName]));
   await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 0));
+  // Rows written by the previous client contain a full public URL. They must
+  // retain the same permissions after the bucket is made private.
+  const legacyUrl = `https://project-a.supabase.co/storage/v1/object/public/healed-photos/${objectName}`;
+  await db.query(`update public.healed_photos set photo_url = $1 where photo_url = $2`, [legacyUrl, objectName]);
+  await as(ids.artistUser, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1));
+  await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 0));
+  await as(ids.client, () => db.query(`update public.healed_photos set is_public = true where photo_url = $1`, [legacyUrl]));
+  await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1));
 });
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
