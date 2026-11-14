@@ -219,10 +219,16 @@ export async function fetchFollowedArtistIds(userId: string): Promise<string[]> 
 }
 
 export async function setFollow(userId: string, artistId: string, follow: boolean): Promise<boolean> {
-  const { error } = follow
-    ? await supabase.from('artist_follows').upsert({ follower_id: userId, artist_id: artistId }, { onConflict: 'follower_id,artist_id', ignoreDuplicates: true })
-    : await supabase.from('artist_follows').delete().eq('follower_id', userId).eq('artist_id', artistId);
-  return !error;
+  if (follow) {
+    const { error } = await supabase.from('artist_follows').upsert(
+      { follower_id: userId, artist_id: artistId },
+      { onConflict: 'follower_id,artist_id', ignoreDuplicates: true },
+    );
+    return !error;
+  }
+  const { data, error } = await supabase.from('artist_follows').delete()
+    .eq('follower_id', userId).eq('artist_id', artistId).select('artist_id');
+  return !error && data?.length === 1;
 }
 
 export async function isOnWaitlist(userId: string, artistId: string): Promise<boolean> {

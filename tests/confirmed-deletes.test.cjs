@@ -9,7 +9,10 @@ function load(relativePath, response, onUpdate = null) {
   let target;
   const chain = {
     eq: () => chain,
-    select: () => ({ maybeSingle: async () => response }),
+    select: () => ({
+      maybeSingle: async () => response,
+      then: (resolve, reject) => Promise.resolve(response).then(resolve, reject),
+    }),
     then: (resolve, reject) => Promise.resolve(response).then(resolve, reject),
   };
   const supabase = { from: (table) => { target = table; return {
@@ -65,3 +68,23 @@ test('unblocking a period reports success only after a confirmed removal', async
     assert.equal(loaded.table(), 'artist_availability');
   }
 });
+
+for (const [modulePath, method, table] of [
+  ['../lib/studio.ts', 'setFollow', 'artist_follows'],
+  ['../lib/care.ts', 'setReaction', 'post_reactions'],
+]) {
+  test(`${method} does not report a removal when RLS returns zero rows`, async () => {
+    for (const [response, expected] of [
+      [{ data: [], error: null }, false],
+      [{ data: null, error: { code: '42501' } }, false],
+      [{ data: [{ id: 'removed' }], error: null }, true],
+    ]) {
+      const loaded = load(modulePath, response);
+      const result = method === 'setFollow'
+        ? await loaded.exports.setFollow('user', 'artist', false)
+        : await loaded.exports.setReaction('user', 'post', null);
+      assert.equal(result, expected);
+      assert.equal(loaded.table(), table);
+    }
+  });
+}

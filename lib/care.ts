@@ -283,10 +283,15 @@ export async function fetchMyReactions(userId: string, postIds: string[]): Promi
 
 /** Sets, changes or (with null) removes the caller's reaction. */
 export async function setReaction(userId: string, postId: string, emoji: ReactionKey | null): Promise<boolean> {
-  const { error } = emoji
-    ? await supabase.from('post_reactions').upsert({ post_id: postId, user_id: userId, emoji }, { onConflict: 'post_id,user_id' })
-    : await supabase.from('post_reactions').delete().eq('post_id', postId).eq('user_id', userId);
-  return !error;
+  if (emoji) {
+    const { error } = await supabase.from('post_reactions').upsert(
+      { post_id: postId, user_id: userId, emoji }, { onConflict: 'post_id,user_id' },
+    );
+    return !error;
+  }
+  const { data, error } = await supabase.from('post_reactions').delete()
+    .eq('post_id', postId).eq('user_id', userId).select('post_id');
+  return !error && data?.length === 1;
 }
 
 /** Counts after the caller moves from `previous` to `next`, without waiting for the server. */

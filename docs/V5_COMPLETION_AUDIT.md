@@ -46,6 +46,8 @@ La fonction `delete-account` du dépôt a été déployée **uniquement sur le s
 
 Les retraits de favoris artiste, œuvre enregistrée et j'aime exigeaient parfois seulement une réponse HTTP sans erreur ; zéro ligne retirée changeait pourtant l'état local. Les stores et les pages œuvre/vidéo exigent maintenant exactement une ligne supprimée. À 390 px, le client a ajouté, rechargé et retiré un favori artiste, une œuvre et un j'aime ; un `DELETE` simulé sans ligne a conservé chacun des trois états, puis un retrait réel a persisté au rechargement. En HTTP réel sur le staging, le tiers a obtenu zéro ligne à la suppression des trois types d'objets du client, dont les données sont restées intactes ; les objets fictifs créés pour cet essai ont été nettoyés.
 
+Le désabonnement d'un artiste et le retrait d'une réaction suivent à présent la même confirmation de ligne. Les essais RLS HTTP ont confirmé zéro ligne pour le tiers et la conservation des données du client, puis le retrait du client. Sur le profil web à 390 px, un faux `DELETE` à zéro ligne a gardé le bouton « Suivi » ; un retrait réel a été observé avec une ligne renvoyée par l'API et le bouton « Suivre » est revenu. Le rechargement de ce scénario automatisé a été instable une fois ; une nouvelle connexion et la lecture SQL ont confirmé l'état final non suivi. Cette instabilité de navigation mérite un nouveau passage ciblé.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
