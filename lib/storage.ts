@@ -163,9 +163,17 @@ export async function removeReference(requestId: string, path: string): Promise<
   if (remaining?.some((file) => `${requestId}/${file.name}` === path)) {
     throw new Error('La référence est encore présente. Réessayez.');
   }
-  const { error: deleteError } = await supabase.from('request_references')
-    .delete().eq('request_id', requestId).eq('url', path);
+  const { data: deleted, error: deleteError } = await supabase.from('request_references')
+    .delete().eq('request_id', requestId).eq('url', path).select('id');
   if (deleteError) throw deleteError;
+  // A historical row may legitimately be absent. A zero-row DELETE alone is
+  // ambiguous: confirm that no row remains before reporting success.
+  if (!deleted?.length) {
+    const { data: stale, error: checkError } = await supabase.from('request_references')
+      .select('id').eq('request_id', requestId).eq('url', path).maybeSingle();
+    if (checkError) throw checkError;
+    if (stale) throw new Error('Les métadonnées de la référence sont encore présentes. Réessayez.');
+  }
 }
 
 // An already fetched signed URL can remain cached after deletion. Keep that

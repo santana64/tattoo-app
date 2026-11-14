@@ -9,9 +9,10 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
 
-function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null, removeWithoutDelete = false, viewerId = 'client-123', ownerId = 'client-123' } = {}) {
+function storageHarness({ size = 1024, uploadError = null, listError = null, insertError = null, removeError = null, removeWithoutDelete = false, metadataPresent = false, metadataDeleteDenied = false, viewerId = 'client-123', ownerId = 'client-123' } = {}) {
   const calls = [];
   const rows = new Set();
+  if (metadataPresent) rows.add('request-123/ref_0.jpg');
   const files = new Set(['ref_0.jpg', 'ref_1.jpg', 'ref_7.jpg', '.emptyFolderPlaceholder']);
   const bucket = {
     upload: async (name, blob, options) => {
@@ -47,7 +48,12 @@ function storageHarness({ size = 1024, uploadError = null, listError = null, ins
       return {
         select: () => ({ eq: () => ({ eq: (_, value) => ({ maybeSingle: async () => ({ data: rows.has(value) ? { id: 'existing' } : null, error: null }) }) }) }),
         insert: async ({ url }) => { calls.push({ action: 'insert-row', url }); if (!insertError) rows.add(url); return { error: insertError }; },
-        delete: () => ({ eq: () => ({ eq: async (_, value) => { calls.push({ action: 'delete-row', value }); rows.delete(value); return { error: null }; } }) }),
+        delete: () => ({ eq: () => ({ eq: (_, value) => ({ select: async () => {
+          calls.push({ action: 'delete-row', value });
+          const hadRow = rows.has(value);
+          if (!metadataDeleteDenied) rows.delete(value);
+          return { data: hadRow && !metadataDeleteDenied ? [{ id: 'existing' }] : [], error: null };
+        } }) }) }),
       };
     }, storage: { from: (name) => {
       assert.equal(name, 'request-references');
@@ -119,11 +125,16 @@ test('attaching a reference uploads first, then records its private path', async
 });
 
 test('client removal clears the object and its historical metadata row', async () => {
-  const { storage, calls } = storageHarness();
+  const { storage, calls } = storageHarness({ metadataPresent: true });
   await storage.removeReference('request-123', 'request-123/ref_0.jpg');
   assert.deepEqual(calls.filter((call) => call.action === 'remove')[0].paths, ['request-123/ref_0.jpg']);
   assert.equal(calls.filter((call) => call.action === 'delete-row').length, 1);
   assert.deepEqual(calls.filter((call) => ['remove', 'list', 'delete-row'].includes(call.action)).map((call) => call.action), ['remove', 'list', 'delete-row']);
+});
+
+test('a denied historical metadata deletion is reported for retry', async () => {
+  const { storage } = storageHarness({ metadataPresent: true, metadataDeleteDenied: true });
+  await assert.rejects(storage.removeReference('request-123', 'request-123/ref_0.jpg'), /métadonnées/);
 });
 
 test('an interrupted deletion can be retried against the remaining private object', async () => {
