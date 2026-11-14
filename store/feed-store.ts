@@ -237,10 +237,14 @@ export const useFeedStore = create<FeedState>((set, get) => {
       const { likedPostIds } = get();
       const isLiked = likedPostIds.has(postId);
       try {
-        const { error } = isLiked
-          ? await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', userId)
-          : await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
-        if (error) return false;
+        if (isLiked) {
+          const { data, error } = await supabase.from('post_likes').delete()
+            .eq('post_id', postId).eq('user_id', userId).select('post_id');
+          if (error || data?.length !== 1) return false;
+        } else {
+          const { error } = await supabase.from('post_likes').insert({ post_id: postId, user_id: userId });
+          if (error) return false;
+        }
         if (seq !== feedSeq) return false;
         const newSet = new Set(get().likedPostIds);
         if (isLiked) newSet.delete(postId); else newSet.add(postId);
@@ -268,10 +272,14 @@ export const useFeedStore = create<FeedState>((set, get) => {
       const { savedPostIds } = get();
       const isSaved = savedPostIds.has(postId);
       try {
-        const { error } = isSaved
-          ? await supabase.from('saved_posts').delete().eq('user_id', userId).eq('post_id', postId)
-          : await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
-        if (error) return false;
+        if (isSaved) {
+          const { data, error } = await supabase.from('saved_posts').delete()
+            .eq('user_id', userId).eq('post_id', postId).select('post_id');
+          if (error || data?.length !== 1) return false;
+        } else {
+          const { error } = await supabase.from('saved_posts').insert({ user_id: userId, post_id: postId });
+          if (error) return false;
+        }
         if (seq !== feedSeq) return false;
         const newSet = new Set(get().savedPostIds);
         if (isSaved) newSet.delete(postId); else newSet.add(postId);

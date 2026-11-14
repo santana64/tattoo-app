@@ -44,6 +44,8 @@ Une mise à jour du profil artiste pouvait aussi répondre sans erreur avec zér
 
 La fonction `delete-account` du dépôt a été déployée **uniquement sur le staging**, avec JWT requis. Elle a refusé une requête sans session (401), supprimé un compte Auth fictif jetable et laissé le client de recette connectable. La création du compte jetable est passée par une fonction Auth Admin temporaire limitée à l'administrateur fictif ; celle-ci a été aussitôt redéployée en réponse inerte 410. Aucune clé d'administration n'a été copiée dans le dépôt ou le frontend. **Blocage externe web** : le préflight de `delete-account` pour l'origine Preview répond 200 sans `Access-Control-Allow-Origin`, car `ALLOWED_ORIGINS` n'est pas configuré sur le staging. Le tableau de bord Supabase n'est pas accessible depuis ce navigateur et le connecteur ne propose pas la gestion des secrets. La variable doit être renseignée dans les secrets Edge Functions du projet de test avec les origines HTTPS exactes des previews, puis le préflight et la suppression depuis l'interface doivent être retestés. Le même réglage est requis pour Checkout dans le navigateur ; aucun secret Production ne doit être utilisé.
 
+Les retraits de favoris artiste, œuvre enregistrée et j'aime exigeaient parfois seulement une réponse HTTP sans erreur ; zéro ligne retirée changeait pourtant l'état local. Les stores et les pages œuvre/vidéo exigent maintenant exactement une ligne supprimée. À 390 px, le client a ajouté, rechargé et retiré un favori artiste, une œuvre et un j'aime ; un `DELETE` simulé sans ligne a conservé chacun des trois états, puis un retrait réel a persisté au rechargement. En HTTP réel sur le staging, le tiers a obtenu zéro ligne à la suppression des trois types d'objets du client, dont les données sont restées intactes ; les objets fictifs créés pour cet essai ont été nettoyés.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -68,11 +70,11 @@ La fonction `delete-account` du dépôt a été déployée **uniquement sur le s
 | `/(tabs)/index` | public | fil et abonnements | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/explore` | public | recherche RPC, ArtistCard, filtres | P, V | E ; chargement/vides NV | largeurs 360–1440, autres NV | PARTIAL |
 | `/artist/[id]` | public | profil, portfolio, réservation | P, V | chargé avec données publiques ; autres NV | CTA visible à 390 px ; hydratation à diagnostiquer | PARTIAL |
-| `/post/[id]` | public | œuvre | P | ? | NV | NOT VERIFIED |
+| `/post/[id]` | public | œuvre | P, V | favori et j'aime confirmés, retrait zéro ligne refusé | ajout/retrait et rechargement testés à 390 px ; autres états NV | PARTIAL |
 | `/reels/[id]` | public | vidéo | P | ? | NV | NOT VERIFIED |
 | `/series/[id]` | public | série | P | ? | NV | NOT VERIFIED |
 | `/flash/[id]` | public | flash et disponibilité | P, V | flash publié et demande liée vérifiés ; archivage confirmé | retrait propriétaire testé à 390 px ; natif NV | PARTIAL |
-| `/saved` | compte | artistes et œuvres enregistrés | P | ? | NV | NOT VERIFIED |
+| `/saved` | compte | artistes et œuvres enregistrés | P, V | source serveur et RLS vérifiés depuis le profil et l'œuvre | rendu cinq largeurs ; interactions propres à la liste NV | PARTIAL |
 | `/request/new` | client | brief, créneaux, soumission | P, V | envoi réel du brief sans image vérifié sur staging ; reprise d'images NV | quatre étapes et confirmation vérifiées à 390 px | PARTIAL |
 | `/request/[id]` | parties | dossier et statut | P, V | accès client/artiste, refus du tiers, acceptation, référence privée et retrait réels | réouverture et cycle image vérifiés à 390 px | PARTIAL |
 | `/(tabs)/inbox` | compte | demandes | P, V | demande reçue par l'artiste sur staging | ouverture du dossier vérifiée | PARTIAL |
