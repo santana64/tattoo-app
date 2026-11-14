@@ -79,8 +79,8 @@ Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et ret
 | Route | Rôle prévu | Fonction et composants principaux | V5 | États chargement / vide / erreur / succès | Navigation / action, accessibilité et formats | Classement |
 |---|---|---|---|---|---|---|
 | `/(auth)/welcome` | public | entrée galerie, Stage | P | ? | NV | NOT VERIFIED |
-| `/(auth)/sign-in` | public | connexion, Auth | P, V | formulaire visible ; envoi NV | retour depuis le profil vérifié à 390 px | PARTIAL |
-| `/(auth)/role-select` | compte | rôle client/artiste | P | ? | NV | NOT VERIFIED |
+| `/(auth)/sign-in` | public | connexion, Auth | P, V | connexion réelle client/artiste/tiers/admin | retour depuis le profil vérifié à 390 px ; autres erreurs à couvrir | PARTIAL |
+| `/(auth)/role-select` | compte | rôle client/artiste | P, V | écriture confirmée et refus zéro ligne testés sur staging | navigation de l'écran à compléter sur un nouveau compte | PARTIAL |
 | `/auth/callback` | public | retour OAuth | P | ? | NV | NOT VERIFIED |
 | `/(onboarding)/client/step1` | client | identité | P, V | refus et succès serveur vérifiés | navigation bloquée sur refus, contrôlée sur succès ; cinq largeurs | PARTIAL |
 | `/(onboarding)/client/step2` | client | ville | P, V | refus et succès serveur vérifiés | navigation bloquée sur refus, contrôlée sur succès ; cinq largeurs | PARTIAL |
@@ -92,7 +92,7 @@ Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et ret
 | `/(onboarding)/artist/step5` | artiste | formule et fin | P | succès serveur corrigé ; autres NV | NV | PARTIAL |
 | `/(tabs)/index` | public | fil et abonnements | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/explore` | public | recherche RPC, ArtistCard, filtres | P, V | E ; chargement/vides NV | largeurs 360–1440, autres NV | PARTIAL |
-| `/artist/[id]` | public | profil, portfolio, réservation | P, V | chargé avec données publiques ; autres NV | CTA visible à 390 px ; hydratation à diagnostiquer | PARTIAL |
+| `/artist/[id]` | public | profil, portfolio, réservation | P, V | chargé avec données publiques ; autres NV | CTA visible à 390 px ; ouvertures directes et rechargements 390/1440 sans #418 | PARTIAL |
 | `/post/[id]` | public | œuvre | P, V | favori et j'aime confirmés, retrait zéro ligne refusé | ajout/retrait et rechargement testés à 390 px ; autres états NV | PARTIAL |
 | `/reels/[id]` | public | vidéo | P | ? | NV | NOT VERIFIED |
 | `/series/[id]` | public | série | P | ? | NV | NOT VERIFIED |
@@ -103,7 +103,7 @@ Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et ret
 | `/(tabs)/inbox` | compte | demandes | P, V | demande reçue par l'artiste sur staging | ouverture du dossier vérifiée | PARTIAL |
 | `/(tabs)/messages` | compte | conversations | P | ? | NV | NOT VERIFIED |
 | `/conversation/[id]` | parties | échange texte, relance idempotente | P, V | échange client/artiste réel, refus tiers UI et RLS ; échec et relance testés localement | image jointe désactivée (policy Storage incompatible) | PARTIAL |
-| `/appointment/[id]` | parties | séance | P | ? | NV | NOT VERIFIED |
+| `/appointment/[id]` | parties | séance | P, V | proposition et acceptation client réelles sur staging ; refus tiers HTTP | attente artiste, confirmation et rechargement vérifiés à 390 px ; natif NV | PARTIAL |
 | `/review/new` | client | avis après séance | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/profile` | client/artiste | profil et Studio, MetricGrid | P | C/E repérés ; autres NV | ordre des priorités corrigé, formats NV | PARTIAL |
 | `/(tabs)/agenda` | artiste | calendrier | P, V | prochain rendez-vous confirmé affiché sur staging | accès artiste vérifié à 390 px | PARTIAL |
@@ -125,17 +125,17 @@ Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et ret
 | `/settings/delete-account` | compte | suppression | P | ? | NV | NOT VERIFIED |
 | `/legal/terms` | public | CGU | P | ? | NV | NOT VERIFIED |
 | `/legal/privacy-policy` | public | données personnelles | P | ? | NV | NOT VERIFIED |
-| `/admin` | admin | modération | P | ? | permissions réelles NV | NOT VERIFIED |
+| `/admin` | admin | modération | P, V | accès réservé client/tiers, onglets administrateur | accès direct 390 px et RLS de conversation testés ; actions UI NV | PARTIAL |
 
 ## Écarts classés
 
 1. **P1 — Références du brief** : sélection de trois images, compression JPEG, plafond 10 Mio, stockage sous l'identifiant de la demande et lecture signée depuis le bucket privé implémentés. Un échec après création conserve l'identifiant en session ; un marqueur local contenant uniquement cet identifiant permet de retrouver le dossier après réouverture et de réutiliser le même identifiant après une réponse réseau ambiguë. Si cette vérification échoue, le formulaire attend une nouvelle vérification au lieu de permettre un envoi potentiellement trompeur. Un ancien identifiant ne peut pas faire passer un brief différent pour une nouvelle demande. Le dossier liste les fichiers déposés et permet au client d'en ajouter ou retirer ; les URI d'images ne sont pas conservées localement, donc elles doivent être resélectionnées après fermeture. Le chemin privé est enregistré de façon idempotente dans `request_references` ; le bucket reste la source de vérité pour l'affichage. La migration locale, **non appliquée au projet actif**, ajoute l'unicité des chemins, les droits de suppression du client, limite les noms à trois emplacements et impose JPEG et 10 Mio côté Storage. Elle a été appliquée et testée sur `inkr-v5-staging`. Les liens signés expirent après une minute et sont renouvelés toutes les 45 secondes pendant l'ouverture du dossier ainsi qu'au retour au premier plan. L'API réelle à trois identités et l'expiration ont été testées ; le cache peut encore servir un lien déjà utilisé jusqu'à son expiration. L'ajout, la lecture, la suppression et la nouvelle tentative dans l'interface web ont été vérifiés ; les appareils natifs restent à tester.
-2. **P1 — Validation des écritures** : le compte et la fin d'onboarding annonçaient un succès avant la réponse serveur. Corrigé dans cette branche ; validation avec un backend de test encore requise.
+2. **P1 — Validation des écritures** : le compte, le rôle et la fin d'onboarding annonçaient parfois un succès avant une ligne confirmée. Corrigé dans cette branche ; les refus zéro ligne et les écritures autorisées ont été testés sur le staging pour le profil et le rôle. Le parcours complet d'un compte neuf reste à rejouer.
 3. **P1 — Aperçus recherche** : une limite globale pouvait masquer le portfolio des derniers artistes d'une page. Un RPC à quota par artiste, avec index et test SQL, est préparé. La migration doit précéder le client.
 4. **P2 — Studio** : les chiffres précédaient les demandes à traiter. Ordre et hauteur de titre ajustés ; validation avec un compte artiste chargé encore requise.
 5. **P2 — Actions factices** : lien App Store `id000000000` et commande photo ouvrant seulement une alerte retirés. Il reste à concevoir une vraie modification de photo.
 6. **P1 — Écart de schéma connecté** : l'historique du projet actif et le dépôt ne concordent pas. Ne pas appliquer aveuglément les migrations du dépôt au projet actif.
-7. **P2 — Hydratation du profil** : ouverture directe d'un profil réel : erreur React `#418` puis rendu normal. Vérifier la différence entre HTML statique et état client avant publication.
+7. **P2 — Hydratation du profil** : une ancienne ouverture directe d'un profil réel avait produit React `#418`. Les ouvertures directes et rechargements ultérieurs sur les bonnes routes ne l'ont pas reproduite à 390, 1024 et 1440 px ; surveiller la réapparition sur les previews et après authentification.
 8. **P1 — Conversation** : l'envoi texte utilise maintenant un identifiant de message stable. Une réponse perdue est vérifiée par cet identifiant avant d'afficher un échec ; un message non confirmé reste visible et relançable avec le même identifiant. Les caches privés sont vidés au changement de compte. L'ancien bouton d'image de conversation utilisait `posts-media/conv/<demande>/…`, refusé par la policy Storage active `inkr_posts_media_insert_own_artist` pour le client comme pour l'artiste. Il a été retiré ; les références du projet restent gérées dans le dossier privé. Des pièces jointes de conversation exigeraient un bucket privé distinct et ses tests HTTP sur l'environnement isolé.
 9. **P1 — URL directe de conversation** : corrigée après reproduction avec le compte tiers. L'accès au dossier est confirmé avant de récupérer les messages, de s'abonner à Realtime ou d'afficher le composeur. Test réel à trois identités effectué sur le staging.
 10. **P1 — Paiement de test** : le pont HTTPS de retour natif manquait au code actif ; il est intégré et testé sur le staging. Le Checkout s'arrête désormais avec `checkout_unavailable` si la clé ou le prix Stripe manque. La recette du paiement, de la signature webhook et du changement d'abonnement attend une configuration `sk_test_…`, deux prix de test et le secret webhook sur le projet isolé. Les origines des previews doivent aussi être autorisées via `ALLOWED_ORIGINS`. Ne pas reprendre les secrets du projet actif.
