@@ -86,8 +86,8 @@ export async function blockDays(artistId: string, from: Date, to: Date, label?: 
 }
 
 export async function unblockPeriod(id: string): Promise<string | null> {
-  const { error } = await supabase.from('artist_availability').delete().eq('id', id);
-  return error ? 'Suppression impossible. Réessayez.' : null;
+  const { data, error } = await supabase.from('artist_availability').delete().eq('id', id).select('id').maybeSingle();
+  return error || !data ? 'Suppression impossible. Réessayez.' : null;
 }
 
 // ── Free slots ───────────────────────────────────────────────────────────────

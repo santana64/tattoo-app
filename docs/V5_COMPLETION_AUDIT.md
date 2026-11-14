@@ -34,6 +34,8 @@ Le compte artiste voyait brièvement « Réservé aux tatoueurs » au chargement
 
 Sur le staging, l'artiste a publié une story, un guest spot et un flash fictifs. La story a persisté après reconnexion ; le guest spot était visible sur le profil public ; le flash a prérempli une demande client et conservé son identifiant dans `tattoo_requests`. Une suppression RLS refusée peut répondre sans erreur et avec zéro ligne : les suppressions de story et de guest spot exigent désormais une ligne renvoyée avant d'afficher un succès. Les deux ont ensuite été supprimés depuis l'interface artiste, puis leur absence a été confirmée en base. Le bouton de suppression du guest spot, auparavant masqué même pour son propriétaire, est visible uniquement sur sa page. Le flash a été **archivé** depuis l'interface : il n'apparaît plus publiquement, tandis que sa ligne et la clé étrangère de la demande historique sont préservées. Le tiers ne pouvait ni supprimer ces lignes ni modifier le flash dans les essais RLS. Les vérifications mobiles natives restent ouvertes.
 
+La suppression des jours bloqués avait le même risque de faux succès. Elle demande désormais une ligne supprimée en réponse. Un blocage fictif a été créé sur le staging : le tiers n'a obtenu aucune ligne à la suppression, l'artiste l'a retiré et une seconde suppression n'a renvoyé aucune ligne. Le même ajout et retrait ont été rejoués depuis l'écran Disponibilités à 390 px.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -72,7 +74,7 @@ Sur le staging, l'artiste a publié une story, un guest spot et un flash fictifs
 | `/review/new` | client | avis après séance | P | ? | NV | NOT VERIFIED |
 | `/(tabs)/profile` | client/artiste | profil et Studio, MetricGrid | P | C/E repérés ; autres NV | ordre des priorités corrigé, formats NV | PARTIAL |
 | `/(tabs)/agenda` | artiste | calendrier | P, V | prochain rendez-vous confirmé affiché sur staging | accès artiste vérifié à 390 px | PARTIAL |
-| `/availability` | artiste | horaires et absences | P | ? | NV | NOT VERIFIED |
+| `/availability` | artiste | horaires et absences | P, V | blocage et retrait réels, refus RLS tiers confirmé ; horaires NV | interactions à 390 px vérifiées ; natif NV | PARTIAL |
 | `/analytics` | artiste | chiffres | P | ? | NV | NOT VERIFIED |
 | `/create` | artiste | publication | P, V | JPEG, écriture Storage et post public vérifiés sur staging | sortie après succès vérifiée en ouverture directe | PARTIAL |
 | `/flash/new` | artiste | flash | P, V | publication fictive et persistance vérifiées | ouverture directe et demande client liées testées ; natif NV | PARTIAL |

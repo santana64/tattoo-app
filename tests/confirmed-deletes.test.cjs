@@ -53,3 +53,15 @@ test('archiving a flash preserves linked historical requests and confirms the af
     assert.deepEqual(patch, { is_published: false });
   }
 });
+
+test('unblocking a period reports success only after a confirmed removal', async () => {
+  for (const [response, expected] of [
+    [{ data: null, error: null }, 'Suppression impossible. Réessayez.'],
+    [{ data: null, error: { code: '42501' } }, 'Suppression impossible. Réessayez.'],
+    [{ data: { id: 'period-id' }, error: null }, null],
+  ]) {
+    const loaded = load('../lib/studio.ts', response);
+    assert.equal(await loaded.exports.unblockPeriod('period-id'), expected);
+    assert.equal(loaded.table(), 'artist_availability');
+  }
+});
