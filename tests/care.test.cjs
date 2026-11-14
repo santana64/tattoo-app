@@ -19,6 +19,26 @@ function load(file, supabase = {}) {
 const care = load('care.ts');
 const ics = load('ics.ts');
 
+test('clearing error logs requires a row confirmed by the server', async () => {
+  const withResponse = (response) => load('care.ts', {
+    from(table) {
+      assert.equal(table, 'client_errors');
+      return { delete() {
+        return { lt(column, value) {
+          assert.equal(column, 'created_at');
+          assert.ok(!Number.isNaN(Date.parse(value)));
+          return { select: async (columns) => {
+            assert.equal(columns, 'id');
+            return response;
+          } };
+        } };
+      } };
+    },
+  });
+  assert.equal(await withResponse({ data: [], error: null }).clearClientErrors(), false);
+  assert.equal(await withResponse({ data: [{ id: 'error-1' }], error: null }).clearClientErrors(), true);
+});
+
 test('healed photo visibility requires a confirmed changed row', async () => {
   const withResponse = (response) => load('care.ts', {
     from(table) {

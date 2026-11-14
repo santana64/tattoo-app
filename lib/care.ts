@@ -354,6 +354,7 @@ export async function fetchClientErrors(limit = 50): Promise<ClientError[]> {
 }
 
 export async function clearClientErrors(): Promise<boolean> {
-  const { error } = await supabase.from('client_errors').delete().lt('created_at', new Date().toISOString());
-  return !error;
+  const { data, error } = await supabase.from('client_errors')
+    .delete().lt('created_at', new Date().toISOString()).select('id');
+  return !error && !!data?.length;
 }

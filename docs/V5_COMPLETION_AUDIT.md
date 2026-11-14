@@ -71,6 +71,8 @@ Le désabonnement d'un artiste et le retrait d'une réaction suivent à présent
 
 Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et retrouvé la ligne `artist_weekly_schedule` après réouverture ; l'état initial vide a ensuite été restauré. La revue d'accessibilité a montré que React Native Web rendait les contrôles `switch` et `radio` sans `aria-checked` malgré `accessibilityState`. Les interrupteurs, choix radio et cases partagées exposent désormais leur état web ; les filtres à bouton exposent `aria-pressed`. À 390 px, les valeurs DOM ont été vérifiées avant/après interaction, et le focus clavier des interrupteurs et choix a une bordure visible de 2 px. La recette lecteur d'écran sur appareil reste à effectuer.
 
+La purge des erreurs côté administration exige désormais au moins un identifiant confirmé par le serveur avant d'afficher « Erreurs effacées ». Sur le staging isolé, un compte client a créé une erreur fictive ; le tiers a obtenu zéro ligne à sa suppression, puis l'administrateur a supprimé cette seule ligne avec confirmation. La fixture est absente après le test.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
