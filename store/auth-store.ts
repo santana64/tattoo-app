@@ -378,12 +378,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (updates.coverUrl !== undefined) row.cover_url = updates.coverUrl;
 
     if (Object.keys(row).length) {
-      const { error } = await supabase.from('artists').update(row).eq('id', artistId).eq('profile_id', profileId);
-      if (error) {
-        console.warn('[auth] artist update failed', error.code, error.message);
-        return { error: writeErrorMessage(error) };
+      const { data, error } = await supabase.from('artists').update(row)
+        .eq('id', artistId).eq('profile_id', profileId).select('id').maybeSingle();
+      if (error || !data) {
+        if (error) console.warn('[auth] artist update failed', error.code, error.message);
+        return { error: error ? writeErrorMessage(error) : 'Modification non enregistrée. Réessayez.' };
       }
     }
+    if (get().session?.user.id !== profileId) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({
       user: s.user ? {
         ...s.user,

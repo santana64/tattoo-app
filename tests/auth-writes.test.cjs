@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
 
-function loadStore(write, cleared = [], authObserver = null) {
+function loadStore(write, cleared = [], authObserver = null, artistWrite = null) {
   const source = fs.readFileSync(require.resolve('../store/auth-store.ts'), 'utf8');
   const code = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -17,6 +17,19 @@ function loadStore(write, cleared = [], authObserver = null) {
       },
     },
     from(table) {
+      if (table === 'artists' && artistWrite) return {
+        update(values) {
+          let checks = 0;
+          const chain = {
+            eq() { checks++; return chain; },
+            select() {
+              assert.equal(checks, 2);
+              return { maybeSingle: () => artistWrite(values) };
+            },
+          };
+          return chain;
+        },
+      };
       assert.equal(table, 'profiles');
       return {
         update(values) {
@@ -78,6 +91,34 @@ test('confirmed profile and onboarding writes update local state', async () => {
   assert.equal(store.getState().user.displayName, 'Après');
   assert.equal((await store.getState().completeOnboarding()).error, null);
   assert.equal(store.getState().user.onboardingCompleted, true);
+});
+
+test('artist settings remain unchanged when RLS updates zero rows', async () => {
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), [], null,
+    () => Promise.resolve({ data: null, error: null }));
+  store.setState({ user: { id: 'user', artistId: 'artist-1', artistBlaze: 'Avant' } });
+  assert.ok((await store.getState().saveArtist({ blaze: 'Après' })).error);
+  assert.equal(store.getState().user.artistBlaze, 'Avant');
+});
+
+test('artist settings update after the server confirms the row', async () => {
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), [], null,
+    () => Promise.resolve({ data: { id: 'artist-1' }, error: null }));
+  store.setState({ user: { id: 'user', artistId: 'artist-1', artistBlaze: 'Avant' } });
+  assert.equal((await store.getState().saveArtist({ blaze: 'Après' })).error, null);
+  assert.equal(store.getState().user.artistBlaze, 'Après');
+});
+
+test('an old artist write cannot overwrite the next account', async () => {
+  let confirm;
+  const pending = new Promise((resolve) => { confirm = resolve; });
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), [], null, () => pending);
+  store.setState({ user: { id: 'user', artistId: 'artist-1', artistBlaze: 'Avant' } });
+  const oldWrite = store.getState().saveArtist({ blaze: 'Après' });
+  store.setState({ session: { user: { id: 'new-user' } }, user: { id: 'new-user', artistBlaze: 'Nouveau' } });
+  confirm({ data: { id: 'artist-1' }, error: null });
+  assert.ok((await oldWrite).error);
+  assert.equal(store.getState().user.artistBlaze, 'Nouveau');
 });
 
 test('an old account response cannot overwrite a newly signed-in account', async () => {
