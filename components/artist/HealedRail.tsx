@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useReducedMotion } from 'react-native-reanimated';
@@ -42,10 +42,16 @@ export function HealedRail({ artistId, gutter = Layout.gutter }: HealedRailProps
 
   useEffect(() => {
     let active = true;
-    fetchArtistHealedPhotos(artistId)
-      .then((list) => { if (active) setPhotos(list); })
-      .catch(() => { if (active) setPhotos([]); });
-    return () => { active = false; };
+    setPhotos([]);
+    const refresh = () => {
+      fetchArtistHealedPhotos(artistId)
+        .then((list) => { if (active) setPhotos(list); })
+        .catch(() => { if (active) setPhotos([]); });
+    };
+    refresh();
+    const timer = setInterval(refresh, 45_000);
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') refresh(); });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [artistId]);
 
   if (photos.length === 0) return null;
@@ -76,7 +82,7 @@ export function HealedRail({ artistId, gutter = Layout.gutter }: HealedRailProps
             accessibilityLabel={`Tatouage cicatrisé ${i + 1} sur ${photos.length}${p.note ? ` : ${p.note}` : ''}`}
             accessibilityHint="Affiche la photo en grand."
           >
-            <WorkPlate uri={p.photo_url} mark={`N° ${String(i + 1).padStart(2, '0')}`} style={styles.tile} />
+            <WorkPlate uri={p.display_url} mark={`N° ${String(i + 1).padStart(2, '0')}`} style={styles.tile} />
           </PressableScale>
         ))}
       </ScrollView>
@@ -93,7 +99,7 @@ export function HealedRail({ artistId, gutter = Layout.gutter }: HealedRailProps
           {open && (
             <View style={[styles.viewer, { width: viewerW }]} pointerEvents="box-none">
               <Image
-                source={{ uri: open.photo_url }}
+                source={{ uri: open.display_url }}
                 style={{ width: viewerW, height: viewerH }}
                 contentFit="contain"
                 cachePolicy="memory-disk"

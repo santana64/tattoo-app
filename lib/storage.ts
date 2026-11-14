@@ -88,9 +88,10 @@ export async function uploadHealedPhoto(
   uri: string,
   userId: string,
   onProgress?: (p: number) => void
-): Promise<UploadResult> {
+): Promise<{ path: string }> {
   // The storage policy only lets a user write under a first folder named after their id.
-  return uploadFile(uri, 'healed-photos', `${userId}/${Date.now()}.jpg`, onProgress, false);
+  const uploaded = await uploadFile(uri, 'healed-photos', `${userId}/${Date.now()}.jpg`, onProgress, false);
+  return { path: uploaded.path };
 }
 
 // ─── Upload request reference ─────────────────────────────────────────────────

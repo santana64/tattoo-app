@@ -220,26 +220,48 @@ export function storyAge(createdAt: string, now = new Date()): string {
 
 // ── Healed photos ────────────────────────────────────────────────────────────
 
-export type HealedPhoto = Tables<'healed_photos'>;
+export type HealedPhoto = Tables<'healed_photos'> & { display_url: string };
+
+const HEALED_PATH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]+\.jpg$/i;
+
+/** Existing rows held public URLs; new rows hold only a private Storage path. */
+export function healedPhotoPath(value: string): string | null {
+  if (HEALED_PATH.test(value)) return value;
+  const base = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/+$/, '');
+  if (!base) return null;
+  const prefix = `${base}/storage/v1/object/public/healed-photos/`;
+  if (!value.startsWith(prefix)) return null;
+  const path = value.slice(prefix.length);
+  return HEALED_PATH.test(path) ? path : null;
+}
+
+export async function signHealedPhoto(photo: Tables<'healed_photos'>): Promise<HealedPhoto> {
+  const path = healedPhotoPath(photo.photo_url);
+  if (!path) throw new Error('Invalid healed photo path');
+  const { data, error } = await supabase.storage.from('healed-photos').createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) throw error ?? new Error('Healed photo unavailable');
+  return { ...photo, display_url: data.signedUrl };
+}
 
 export async function fetchArtistHealedPhotos(artistId: string, limit = 12): Promise<HealedPhoto[]> {
   const { data, error } = await supabase
     .from('healed_photos').select('*').eq('artist_id', artistId).eq('is_public', true)
     .order('created_at', { ascending: false }).limit(limit);
   if (error) throw error;
-  return data ?? [];
+  return Promise.all((data ?? []).map(signHealedPhoto));
 }
 
 export async function fetchAppointmentHealedPhoto(appointmentId: string): Promise<HealedPhoto | null> {
   const { data, error } = await supabase
     .from('healed_photos').select('*').eq('appointment_id', appointmentId).order('created_at', { ascending: false }).limit(1);
   if (error) throw error;
-  return data?.[0] ?? null;
+  return data?.[0] ? signHealedPhoto(data[0]) : null;
 }
 
-export async function sendHealedPhoto(appointmentId: string, photoUrl: string, note: string | undefined, isPublic: boolean): Promise<string | null> {
+export async function sendHealedPhoto(appointmentId: string, photoPath: string, note: string | undefined, isPublic: boolean): Promise<string | null> {
+  if (!healedPhotoPath(photoPath) || photoPath.startsWith('https:')) return 'Chemin de photo invalide.';
   const { error } = await supabase.from('healed_photos').insert({
-    appointment_id: appointmentId, photo_url: photoUrl, note: note?.trim() || null, is_public: isPublic,
+    appointment_id: appointmentId, photo_url: photoPath, note: note?.trim() || null, is_public: isPublic,
   });
   if (!error) return null;
   if (error.message.includes('not_completed_session')) return 'La photo cicatrisée s’envoie une fois la séance terminée.';

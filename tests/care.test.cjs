@@ -19,6 +19,35 @@ function load(file, supabase = {}) {
 const care = load('care.ts');
 const ics = load('ics.ts');
 
+test('healed photos resolve only own-bucket paths and receive short signed URLs', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://project-a.supabase.co';
+  try {
+    const path = '11111111-2222-3333-4444-555555555555/1794598245921.jpg';
+    const legacy = `https://project-a.supabase.co/storage/v1/object/public/healed-photos/${path}`;
+    const mock = { storage: { from(bucket) {
+      assert.equal(bucket, 'healed-photos');
+      return { createSignedUrl: async (requested, seconds) => {
+        assert.equal(requested, path);
+        assert.equal(seconds, 60);
+        return { data: { signedUrl: 'https://signed.example/photo' }, error: null };
+      } };
+    } } };
+    const c = load('care.ts', mock);
+    assert.equal(c.healedPhotoPath(path), path);
+    assert.equal(c.healedPhotoPath(legacy), path);
+    assert.equal(c.healedPhotoPath(legacy.replace('project-a', 'project-b')), null);
+    assert.equal(c.healedPhotoPath('https://outside.example/photo.jpg'), null);
+    assert.equal(c.healedPhotoPath('../other.jpg'), null);
+    const signed = await c.signHealedPhoto({ id: 'photo-1', photo_url: legacy });
+    assert.equal(signed.photo_url, legacy);
+    assert.equal(signed.display_url, 'https://signed.example/photo');
+  } finally {
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+    else process.env.EXPO_PUBLIC_SUPABASE_URL = oldUrl;
+  }
+});
+
 test('clearing error logs requires a row confirmed by the server', async () => {
   const withResponse = (response) => load('care.ts', {
     from(table) {

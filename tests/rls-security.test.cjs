@@ -108,7 +108,7 @@ before(async () => {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   // These migrations claim to be idempotent: prove it.
-  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql', '20261112213805_private_request_reference_lifecycle.sql']) {
+  for (const file of ['005_p0_security.sql', '006_notifications_and_reviews.sql', '007_push_delivery.sql', '008_artist_search.sql', '009_moderation.sql', '010_reels.sql', '011_studio.sql', '012_booking_care.sql', '20261112213805_private_request_reference_lifecycle.sql', '20261114183000_private_healed_photos.sql']) {
     await db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
 
@@ -1147,17 +1147,18 @@ test('a story lasts 24 hours at most and each viewer counts once', async () => {
 test('a healed photo comes from the client of a finished session and is private until they say so', async () => {
   // Same effect as the artist closing the session.
   await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);
-  const send = `insert into public.healed_photos (appointment_id, artist_id, client_id, photo_url, note) values ($1, $2, $3, 'https://example.test/h.jpg', $4) returning id, artist_id, client_id`;
+  const send = `insert into public.healed_photos (appointment_id, artist_id, client_id, photo_url, note) values ($1, $2, $3, $5, $4) returning id, artist_id, client_id`;
+  const path = `${ids.client}/1794598245920.jpg`;
   await as(ids.outsider, async () => {
-    await assert.rejects(db.query(send, [ids.appointment, ids.artist, ids.outsider, null]), /not_completed_session/);
+    await assert.rejects(db.query(send, [ids.appointment, ids.artist, ids.outsider, null, path]), /not_completed_session/);
   });
   await as(ids.client, async () => {
-    await assert.rejects(db.query(send, [ids.reminded, ids.artist, ids.client, null]), /not_completed_session/, 'the session must be finished');
+    await assert.rejects(db.query(send, [ids.reminded, ids.artist, ids.client, null, path]), /not_completed_session/, 'the session must be finished');
   });
   let photo;
   await as(ids.client, async () => {
     // Forged parties are overwritten from the appointment.
-    const saved = await one(send, [ids.appointment, null, ids.outsider, '  Six semaines après  ']);
+    const saved = await one(send, [ids.appointment, null, ids.outsider, '  Six semaines après  ', path]);
     assert.equal(saved.artist_id, ids.artist);
     assert.equal(saved.client_id, ids.client);
     photo = saved.id;
@@ -1289,6 +1290,32 @@ test('appointments cannot be confirmed or forged through direct API writes', asy
   await as(ids.artistUser, async () => {
     await assert.rejects(db.query(`update public.appointments set status = 'confirmed' where id = $1`, [ids.appointment]), DENIED);
   });
+});
+
+test('unpublished healed photos cannot be fetched from Storage by outsiders', async () => {
+  const bucket = await one(`select public from storage.buckets where id = 'healed-photos'`);
+  assert.equal(bucket.public, false, 'a public bucket bypasses the photo visibility setting');
+  await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);
+  const objectName = `${ids.client}/1794598245921.jpg`;
+  await as(ids.client, async () => {
+    await assert.rejects(
+      db.query(`insert into public.healed_photos (appointment_id, photo_url) values ($1, $2)`, [ids.appointment, `${ids.outsider}/1794598245921.jpg`]),
+      /invalid_healed_photo_path/,
+    );
+    await db.query(`insert into storage.objects (bucket_id, name) values ('healed-photos', $1)`, [objectName]);
+    await db.query(`insert into public.healed_photos (appointment_id, photo_url, is_public) values ($1, $2, false)`, [ids.appointment, objectName]);
+    assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1);
+  });
+  for (const uid of [ids.artistUser]) {
+    await as(uid, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1));
+  }
+  for (const uid of [ids.outsider, null]) {
+    await as(uid, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 0));
+  }
+  await as(ids.client, () => db.query(`update public.healed_photos set is_public = true where photo_url = $1`, [objectName]));
+  await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 1));
+  await as(ids.client, () => db.query(`update public.healed_photos set is_public = false where photo_url = $1`, [objectName]));
+  await as(null, async () => assert.equal((await rows(`select name from storage.objects where bucket_id = 'healed-photos' and name = $1`, [objectName])).length, 0));
 });
 
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
