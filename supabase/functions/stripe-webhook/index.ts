@@ -80,6 +80,7 @@ serve(async (req) => {
       .maybeSingle();
     if (error) {
       console.error('stripe-webhook artist lookup failed', { customerId, message: error.message });
+      throw error;
     }
     return data;
   };

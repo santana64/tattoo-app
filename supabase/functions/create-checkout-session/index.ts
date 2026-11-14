@@ -44,6 +44,9 @@ serve(async (req) => {
     const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
     const priceId = Deno.env.get(period === 'monthly' ? 'STRIPE_PRICE_MONTHLY' : 'STRIPE_PRICE_YEARLY');
     if (!stripeKey || !priceId) return json(req, { error: 'checkout_unavailable' }, 503);
+    if (Deno.env.get('SUPABASE_URL') === 'https://lsewxsdulunuuzmszegm.supabase.co' && !stripeKey.startsWith('sk_test_')) {
+      return json(req, { error: 'checkout_unavailable' }, 503);
+    }
     const stripe = new Stripe(stripeKey, {
       apiVersion: '2023-10-16',
       httpClient: Stripe.createFetchHttpClient(),
@@ -78,14 +81,17 @@ serve(async (req) => {
         email: profile?.email ?? user.email,
         name: profile?.display_name,
         metadata: { supabase_user_id: user.id, artist_id: artist.id },
-      });
+      }, { idempotencyKey: `inkr-customer-${artist.id}` });
       customerId = customer.id;
 
-      const { error: saveError } = await supabase
+      const { data: saved, error: saveError } = await supabase
         .from('artists')
         .update({ stripe_customer_id: customerId })
-        .eq('id', artist.id);
-      if (saveError) throw new Error(`customer id not saved: ${saveError.message}`);
+        .eq('id', artist.id)
+        .is('stripe_customer_id', null)
+        .select('id')
+        .maybeSingle();
+      if (saveError || !saved) throw new Error('customer id not saved');
     }
 
     const session = await stripe.checkout.sessions.create({
