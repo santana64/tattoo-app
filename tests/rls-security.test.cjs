@@ -1253,6 +1253,33 @@ test('a crash report is accepted from anyone and read by administrators only', a
   assert.equal((await as(null, () => one(report, ['one more', null, null, null, null]))).ok, false);
 });
 
+test('Stripe subscription events are atomic, private and resistant to replay and stale delivery', async () => {
+  const apply = async (eventId, created, subscriptionId, status, deleted = false) => {
+    const params = [eventId, created, ids.artist, subscriptionId, status, 'price_test', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false, deleted];
+    return (await one(`select public.apply_stripe_subscription_event($1, $2::timestamptz, $3::uuid, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9, $10) as applied`, params)).applied;
+  };
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(`select * from public.stripe_subscription_events`), DENIED);
+    await assert.rejects(db.query(`select public.apply_stripe_subscription_event('forged', now(), $1::uuid, 'sub_bad', 'active', null, now(), now(), false, false)`, [ids.artist]), DENIED);
+  });
+  await db.exec('set role service_role');
+  try {
+    assert.equal(await apply('evt_1', '2026-11-14T10:00:00Z', 'sub_old', 'active'), true);
+    assert.equal(await apply('evt_1', '2026-11-14T10:00:00Z', 'sub_old', 'active'), false);
+    assert.equal(await apply('evt_2', '2026-11-14T11:00:00Z', 'sub_new', 'active'), true);
+    assert.equal(await apply('evt_3', '2026-11-14T12:00:00Z', 'sub_old', 'canceled', true), false);
+    assert.equal(await apply('evt_4', '2026-11-14T09:00:00Z', 'sub_old', 'past_due'), false);
+    assert.equal((await one(`select tier, stripe_subscription_id from public.artists where id = $1`, [ids.artist])).stripe_subscription_id, 'sub_new');
+    assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'subscription_renewed'`, [ids.artistUser])).n, 1);
+    assert.equal(await apply('evt_5', '2026-11-14T13:00:00Z', 'sub_new', 'canceled', true), true);
+    assert.equal((await one(`select tier from public.artists where id = $1`, [ids.artist])).tier, 'normal');
+    assert.equal(await apply('evt_6', '2026-11-14T12:00:00Z', 'sub_new', 'active'), false);
+    assert.equal((await one(`select count(*)::int as n from public.notifications where user_id = $1 and type = 'subscription_renewed'`, [ids.artistUser])).n, 2);
+  } finally {
+    await db.exec('reset role');
+  }
+});
+
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
   // Owner-level fixtures: a finished session, its review, and a report.
   await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);
