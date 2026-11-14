@@ -247,8 +247,9 @@ export async function sendHealedPhoto(appointmentId: string, photoUrl: string, n
 }
 
 export async function setHealedPhotoPublic(id: string, isPublic: boolean): Promise<boolean> {
-  const { error } = await supabase.from('healed_photos').update({ is_public: isPublic }).eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('healed_photos')
+    .update({ is_public: isPublic }).eq('id', id).select('id').maybeSingle();
+  return !error && data?.id === id;
 }
 
 // ── Reactions ────────────────────────────────────────────────────────────────
