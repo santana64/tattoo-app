@@ -202,8 +202,8 @@ export async function publishStory(artistId: string, mediaUrl: string, caption?:
 }
 
 export async function deleteStory(id: string): Promise<boolean> {
-  const { error } = await supabase.from('stories').delete().eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('stories').delete().eq('id', id).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 export function recordStoryView(storyId: string): void {

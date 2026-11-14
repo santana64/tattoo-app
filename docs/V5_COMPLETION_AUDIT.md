@@ -32,6 +32,8 @@ Un balayage connecté de 13 routes client et 16 routes artiste à 390 px, puis d
 
 Le compte artiste voyait brièvement « Réservé aux tatoueurs » au chargement direct de `/create`, et les trois autres écrans de création avaient le même garde anticipé. Un état de chargement commun précède maintenant la vérification du rôle sur `/create`, `/flash/new`, `/story/new` et `/guest/new`. Les quatre liens directs ont été rejoués en Chromium : aucun faux refus initial, formulaires chargés pour l'artiste ; le client reste refusé après restauration du compte.
 
+Sur le staging, l'artiste a publié une story, un guest spot et un flash fictifs. La story a persisté après reconnexion ; le guest spot était visible sur le profil public ; le flash a prérempli une demande client et conservé son identifiant dans `tattoo_requests`. Une suppression RLS refusée peut répondre sans erreur et avec zéro ligne : les suppressions de story et de guest spot exigent désormais une ligne renvoyée avant d'afficher un succès. Les deux ont ensuite été supprimés depuis l'interface artiste, puis leur absence a été confirmée en base. Le bouton de suppression du guest spot, auparavant masqué même pour son propriétaire, est visible uniquement sur sa page. Le flash a été **archivé** depuis l'interface : il n'apparaît plus publiquement, tandis que sa ligne et la clé étrangère de la demande historique sont préservées. Le tiers ne pouvait ni supprimer ces lignes ni modifier le flash dans les essais RLS. Les vérifications mobiles natives restent ouvertes.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -59,7 +61,7 @@ Le compte artiste voyait brièvement « Réservé aux tatoueurs » au chargement
 | `/post/[id]` | public | œuvre | P | ? | NV | NOT VERIFIED |
 | `/reels/[id]` | public | vidéo | P | ? | NV | NOT VERIFIED |
 | `/series/[id]` | public | série | P | ? | NV | NOT VERIFIED |
-| `/flash/[id]` | public | flash et disponibilité | P | ? | NV | NOT VERIFIED |
+| `/flash/[id]` | public | flash et disponibilité | P, V | flash publié et demande liée vérifiés ; archivage confirmé | retrait propriétaire testé à 390 px ; natif NV | PARTIAL |
 | `/saved` | compte | artistes et œuvres enregistrés | P | ? | NV | NOT VERIFIED |
 | `/request/new` | client | brief, créneaux, soumission | P, V | envoi réel du brief sans image vérifié sur staging ; reprise d'images NV | quatre étapes et confirmation vérifiées à 390 px | PARTIAL |
 | `/request/[id]` | parties | dossier et statut | P, V | accès client/artiste, refus du tiers, acceptation, référence privée et retrait réels | réouverture et cycle image vérifiés à 390 px | PARTIAL |
@@ -73,9 +75,9 @@ Le compte artiste voyait brièvement « Réservé aux tatoueurs » au chargement
 | `/availability` | artiste | horaires et absences | P | ? | NV | NOT VERIFIED |
 | `/analytics` | artiste | chiffres | P | ? | NV | NOT VERIFIED |
 | `/create` | artiste | publication | P, V | JPEG, écriture Storage et post public vérifiés sur staging | sortie après succès vérifiée en ouverture directe | PARTIAL |
-| `/flash/new` | artiste | flash | P | ? | NV | NOT VERIFIED |
-| `/story/new` | artiste | story | P | ? | NV | NOT VERIFIED |
-| `/guest/new` | artiste | guest spot | P | ? | NV | NOT VERIFIED |
+| `/flash/new` | artiste | flash | P, V | publication fictive et persistance vérifiées | ouverture directe et demande client liées testées ; natif NV | PARTIAL |
+| `/story/new` | artiste | story | P, V | publication, persistance après reconnexion, suppression vérifiées | ouverture directe et retrait propriétaire testés ; natif NV | PARTIAL |
+| `/guest/new` | artiste | guest spot | P, V | création, affichage public et suppression vérifiés | sortie du formulaire et retrait propriétaire testés ; natif NV | PARTIAL |
 | `/customization` | artiste | page publique | P | ? | NV | NOT VERIFIED |
 | `/premium-guide` | artiste | guide | P | ? | NV | NOT VERIFIED |
 | `/notifications` | compte | alertes | P | erreurs et confirmations serveur corrigées ; API réelle NV | NV | PARTIAL |

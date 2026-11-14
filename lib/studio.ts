@@ -292,9 +292,11 @@ export async function createFlash(artistId: string, input: FlashInput): Promise<
   return { id: data.id, error: null };
 }
 
-export async function deleteFlash(id: string): Promise<boolean> {
-  const { error } = await supabase.from('flash_designs').delete().eq('id', id);
-  return !error;
+/** Hide a flash without clearing the foreign key on requests already sent for it. */
+export async function archiveFlash(id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('flash_designs')
+    .update({ is_published: false }).eq('id', id).eq('is_published', true).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 // ── Guest spots ──────────────────────────────────────────────────────────────
@@ -359,8 +361,8 @@ export async function createGuestSpot(artistId: string, input: GuestSpotInput): 
 }
 
 export async function deleteGuestSpot(id: string): Promise<boolean> {
-  const { error } = await supabase.from('guest_spots').delete().eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('guest_spots').delete().eq('id', id).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 // ── Series ───────────────────────────────────────────────────────────────────
