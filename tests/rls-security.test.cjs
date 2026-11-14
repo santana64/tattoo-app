@@ -1280,6 +1280,17 @@ test('Stripe subscription events are atomic, private and resistant to replay and
   }
 });
 
+test('appointments cannot be confirmed or forged through direct API writes', async () => {
+  const privileges = await one(`select
+    has_table_privilege('authenticated', 'public.appointments', 'INSERT') as insert_allowed,
+    has_table_privilege('authenticated', 'public.appointments', 'UPDATE') as update_allowed,
+    has_table_privilege('authenticated', 'public.appointments', 'DELETE') as delete_allowed`);
+  assert.deepEqual(privileges, { insert_allowed: false, update_allowed: false, delete_allowed: false });
+  await as(ids.artistUser, async () => {
+    await assert.rejects(db.query(`update public.appointments set status = 'confirmed' where id = $1`, [ids.appointment]), DENIED);
+  });
+});
+
 test('deleting an account removes its data instead of failing on foreign keys', async () => {
   // Owner-level fixtures: a finished session, its review, and a report.
   await db.query(`update public.appointments set status = 'completed' where id = $1`, [ids.appointment]);

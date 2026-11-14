@@ -239,16 +239,6 @@ export default function AppointmentScreen() {
   const haptic = (type: Haptics.NotificationFeedbackType) => { if (Platform.OS !== 'web') Haptics.notificationAsync(type); };
 
   // ── Existing transitions ──
-  const handleConfirm = async () => {
-    if (busy) return;
-    setBusy('confirm'); setActionError(null);
-    const { error } = await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointment.id);
-    setBusy(null);
-    haptic(error ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
-    if (!error) setAppointment((prev) => (prev ? { ...prev, status: 'confirmed' } : prev));
-    else setActionError('La confirmation n’a pas été enregistrée. Réessayez.');
-  };
-
   const handleRespond = async (accept: boolean) => {
     if (busy) return;
     setBusy(accept ? 'accept' : 'decline'); setActionError(null);
@@ -563,9 +553,9 @@ export default function AppointmentScreen() {
               isArtist && appointment.status === 'proposed' ? (
                 <View style={styles.barRow}>
                   <TButton title="Message" variant="secondary" onPress={openChat} fullWidth={false} accessibilityLabel={`Écrire à ${counterpart}`} />
-                  <View style={{ flex: 1 }}>
-                    <TButton title="Confirmer le rendez-vous" onPress={handleConfirm} loading={busy === 'confirm'} disabled={!!busy} />
-                  </View>
+                  <TText variant="caption" color="secondary" style={{ flex: 1 }}>
+                    En attente de l’acceptation du client.
+                  </TText>
                 </View>
               ) : !isArtist && appointment.status === 'proposed' && upcoming ? (
                 <View style={styles.barRow}>
