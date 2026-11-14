@@ -36,6 +36,10 @@ Sur le staging, l'artiste a publié une story, un guest spot et un flash fictifs
 
 La suppression des jours bloqués avait le même risque de faux succès. Elle demande désormais une ligne supprimée en réponse. Un blocage fictif a été créé sur le staging : le tiers n'a obtenu aucune ligne à la suppression, l'artiste l'a retiré et une seconde suppression n'a renvoyé aucune ligne. Le même ajout et retrait ont été rejoués depuis l'écran Disponibilités à 390 px.
 
+Un balayage web des 48 routes à 360, 390, 768, 1024 et 1440 px a donné 240 visites : 190 rendus directs sans écran vide durable, erreur JavaScript ou débordement horizontal ; 50 redirections attendues sur les dix routes d'authentification/onboarding avec comptes déjà configurés. Ces dix routes ont ensuite été rejouées avec les comptes fictifs marqués temporairement incomplets sur **le staging seulement**, puis restaurés : 60 visites supplémentaires. Ce contrôle a découvert un pied d'onboarding débordant de 7 à 57 px à 1024 px et un bouton tronqué. L'ajustement du groupe d'actions a supprimé le débordement sur les 60 visites ; captures avant/après : `/workspace/shared/inkr-onboarding-1024-{before,after}.png`. Le balayage prouve le rendu et la géométrie des états accessibles, pas toutes les interactions de chaque route.
+
+Les deux premières étapes client avançaient avant la réponse à `profiles.update`. Un refus HTTP 403 injecté pendant la recette a reproduit une navigation trompeuse vers l'étape 2 sans message d'erreur. Les étapes prénom et ville attendent désormais la confirmation serveur, affichent l'erreur et gardent le formulaire utilisable. Sur le staging, le refus a conservé chaque étape et l'envoi confirmé a persisté les valeurs avant d'avancer ; les données fictives initiales du compte ont ensuite été restaurées.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
@@ -49,8 +53,8 @@ La suppression des jours bloqués avait le même risque de faux succès. Elle de
 | `/(auth)/sign-in` | public | connexion, Auth | P, V | formulaire visible ; envoi NV | retour depuis le profil vérifié à 390 px | PARTIAL |
 | `/(auth)/role-select` | compte | rôle client/artiste | P | ? | NV | NOT VERIFIED |
 | `/auth/callback` | public | retour OAuth | P | ? | NV | NOT VERIFIED |
-| `/(onboarding)/client/step1` | client | identité | P | ? | NV | NOT VERIFIED |
-| `/(onboarding)/client/step2` | client | ville | P | ? | NV | NOT VERIFIED |
+| `/(onboarding)/client/step1` | client | identité | P, V | refus et succès serveur vérifiés | navigation bloquée sur refus, contrôlée sur succès ; cinq largeurs | PARTIAL |
+| `/(onboarding)/client/step2` | client | ville | P, V | refus et succès serveur vérifiés | navigation bloquée sur refus, contrôlée sur succès ; cinq largeurs | PARTIAL |
 | `/(onboarding)/client/step3` | client | styles et fin | P | succès serveur corrigé ; autres NV | NV | PARTIAL |
 | `/(onboarding)/artist/step1` | artiste | identité d'atelier | P | ? | NV | NOT VERIFIED |
 | `/(onboarding)/artist/step2` | artiste | styles | P | ? | NV | NOT VERIFIED |
