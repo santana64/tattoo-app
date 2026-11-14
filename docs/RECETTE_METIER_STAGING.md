@@ -32,6 +32,8 @@ Avec le compte **artiste**, ouvrir le Studio : modifier le profil puis le rechar
 
 La suppression de compte **depuis les previews web** et le paiement Stripe **TEST** attendent les origines autorisées et les secrets de test sur le Supabase staging. Ne pas tenter un paiement réel ni supprimer un compte utilisé pour les autres scénarios. Une fois la configuration terminée, utiliser un compte fictif jetable pour la suppression et les cartes de test officielles Stripe pour le paiement. Le retour de Checkout ne doit pas suffire à afficher Premium avant confirmation serveur.
 
+La fonction `delete-account` version 3 a été vérifiée directement sur `inkr-v5-staging` avec un compte jetable et deux objets fictifs, dans `avatars` et `healed-photos`. Elle a répondu `200 {"deleted":true}` après retrait des fichiers ; une requête SQL de contrôle a trouvé **0 utilisateur Auth et 0 objet Storage** pour cet identifiant, et une nouvelle connexion a été refusée. Le test automatisé vérifie aussi qu'une suppression Storage qui annonce un succès sans retirer le fichier produit une erreur et conserve le compte pour une nouvelle tentative. La fonction temporaire de création de compte a été remise à sa réponse `410 Gone` après le test. Le bouton web de suppression reste à tester une fois `ALLOWED_ORIGINS` disponible.
+
 ## Signaler un défaut
 
 Noter : la preview utilisée, la date, le compte fictif (rôle seulement), la largeur d'écran, l'étape, le résultat attendu, le résultat observé, et une capture sans données privées. Pour un blocage, indiquer si le rechargement ou une nouvelle connexion le reproduit. Ne jamais joindre de mot de passe, de jeton, de lien signé vers une référence, ni de clé API.
