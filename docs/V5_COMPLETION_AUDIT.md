@@ -75,6 +75,10 @@ La purge des erreurs côté administration exige désormais au moins un identifi
 
 Un export web local successif a révélé que Metro conservait parfois le bundle JavaScript d'un autre environnement : l'HTML généré depuis les lectures publiques du projet actif ciblait l'artiste réel, mais le navigateur interrogeait encore le staging et affichait « introuvable ». `build:web` efface désormais le cache et contrôle l'URL Supabase et la clé publique réellement embarquées ; un mélange provoque l'échec du build. Avec le bundle correct, l'ouverture directe du profil public actif à 390 et 1440 px a affiché l'artiste sans erreur de console ni React #418. Ce contrôle était en lecture seule ; il ne prouve pas le comportement des previews Vercel protégées.
 
+Sur `f27cd7a`, la CI et les deux previews Vercel sont vertes. Des liens de partage temporaires autorisés par le propriétaire ont permis d'ouvrir directement le profil fictif de staging sur les deux previews protégées : HTTP 200, nom et profil visibles, aucune erreur React #418 ; la seconde a été contrôlée à 390 et 1440 px sans débordement horizontal. Les liens ne figurent pas dans le dépôt. Le préflight `OPTIONS` des deux fonctions `delete-account` et `create-checkout-session` reste sans `Access-Control-Allow-Origin` pour les deux origines Preview exactes, malgré HTTP 200 : la configuration `ALLOWED_ORIGINS` n'est toujours pas démontrée.
+
+Un nouvel essai RLS sur le staging a créé une demande et une référence JPEG fictives : l'artiste lisait la métadonnée, le tiers ne la lisait pas, et leurs deux tentatives de suppression ont rendu zéro ligne. Le client propriétaire a retrouvé la ligne et l'objet, supprimé l'objet, constaté son absence, puis supprimé la ligne historique avec un identifiant confirmé. La demande fictive a été nettoyée.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
