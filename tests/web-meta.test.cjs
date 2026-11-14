@@ -17,9 +17,17 @@ const site = loadTs('lib/site.ts');
 const retry = loadTs('hooks/use-auto-retry.ts', (name) =>
   name === 'react-native' ? { Platform: { OS: 'web' } } : require(name));
 const {
-  CAPS, artistMeta, postMeta, flashMeta, seriesMeta, buildSitemap, fetchPublicPages, inlineScriptHashes, selectRows,
+  CAPS, artistMeta, postMeta, flashMeta, seriesMeta, buildSitemap, fetchPublicPages, inlineScriptHashes, selectRows, assertBundleEnvironment,
   renderArtistPage, renderPostPage, renderFlashPage, renderSeriesPage,
 } = require('../scripts/postexport-web.js');
+
+test('web export refuses a bundle cached for another Supabase project or key', () => {
+  const expected = { url: 'https://project-a.supabase.co', key: 'public-key-a' };
+  assert.doesNotThrow(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","public-key-a")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-b.supabase.co","public-key-b")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","old-key")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","public-key-a");https://project-b.supabase.co', expected));
+});
 
 test('public pages are indexable, personal ones are not', () => {
   for (const segments of [['(tabs)'], ['(tabs)', 'index'], ['(tabs)', 'explore'], ['(auth)', 'welcome'], ['artist', '[id]'], ['post', '[id]'], ['series', '[id]'], ['legal', 'terms']]) {

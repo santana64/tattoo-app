@@ -73,6 +73,8 @@ Sur Disponibilités, l'artiste a activé le lundi, enregistré la semaine et ret
 
 La purge des erreurs côté administration exige désormais au moins un identifiant confirmé par le serveur avant d'afficher « Erreurs effacées ». Sur le staging isolé, un compte client a créé une erreur fictive ; le tiers a obtenu zéro ligne à sa suppression, puis l'administrateur a supprimé cette seule ligne avec confirmation. La fixture est absente après le test.
 
+Un export web local successif a révélé que Metro conservait parfois le bundle JavaScript d'un autre environnement : l'HTML généré depuis les lectures publiques du projet actif ciblait l'artiste réel, mais le navigateur interrogeait encore le staging et affichait « introuvable ». `build:web` efface désormais le cache et contrôle l'URL Supabase et la clé publique réellement embarquées ; un mélange provoque l'échec du build. Avec le bundle correct, l'ouverture directe du profil public actif à 390 et 1440 px a affiché l'artiste sans erreur de console ni React #418. Ce contrôle était en lecture seule ; il ne prouve pas le comportement des previews Vercel protégées.
+
 ## Légende de couverture
 
 - **P** : parcours ou composant V5 présent dans le code ; **V** : rendu visuellement vérifié ; **NV** : non vérifié en interaction réelle.
