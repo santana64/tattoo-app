@@ -1,5 +1,13 @@
 # INKR V5 — audit de reprise
 
+## Mise à jour factuelle — 15 novembre 2026 (remplace les blocages obsolètes ci-dessous)
+
+- **GitHub** : `d1e943f` a passé la CI et les deux previews Vercel. Le correctif supplémentaire `e91ce9c` protège un compte nouvellement connecté contre la réponse tardive de suppression d'un autre compte, évite le message incorrect « compte intact » sur résultat ambigu, et ajoute trois tests. Sa CI est passée ; les previews de ce commit doivent être vérifiées séparément.
+- **CORS staging débloqué** : six préflights HTTP réels pour les deux origines Preview et une origine témoin, sur `delete-account` et `create-checkout-session`. Les deux origines Preview ont obtenu leur `Access-Control-Allow-Origin` exact ; l'origine témoin n'a reçu aucun en-tête ACAO. Un HTTP 200 OPTIONS seul ne suffisait pas : ce sont les en-têtes qui ont été vérifiés.
+- **Stripe TEST configuré, sans LIVE** : dans l'environnement de test INKR (`acct_1Ubxk0BIelrUrSJe`), produit `INKR Premium` ; prix mensuel `price_1UbxyuBIelrUrSJe0WZYGY6p` (1 900 centimes EUR/mois), annuel `price_1Ubxz1BIelrUrSJeERSR5OAC` (14 900 centimes EUR/an). Ces tarifs de test sont configurés avec `tax_behavior=inclusive` à titre provisoire, sans décision fiscale définitive ni activation de Stripe Tax.
+- **Webhook signé reçu** : endpoint TEST `we_1Uby1NBIelrUrSJeOgYJHvja` vers `https://lsewxsdulunuuzmszegm.supabase.co/functions/v1/stripe-webhook`, API `2023-10-16`, cinq événements souscrits : `customer.subscription.created`, `updated`, `deleted`, `checkout.session.completed`, `checkout.session.expired`. Fonction Edge déployée avec `verify_jwt=false` et validation de signature Stripe dans le code. Un client fictif sans paiement réel et un abonnement d'essai ensuite annulé ont provoqué `customer.subscription.created` et `customer.subscription.deleted` ; les journaux Edge du staging indiquent deux POST HTTP 200 vers cette fonction. Il s'agit d'une preuve de réception et d'acceptation par le handler, **pas** d'une preuve que l'abonnement d'un artiste INKR ait changé d'état en base (client fictif non lié à un artiste).
+- **Restant** : recette Checkout authentifié depuis la preview avec un artiste fictif, vérification serveur de `artists.tier` et `subscriptions` après paiement TEST et annulation, compatibilité du schéma du projet actif, puis tests sur appareils et accessibilité. Pas de fusion de PR, pas de migration production sans autorisation distincte. Les anciennes notes ci-dessous décrivent l'état au moment où elles ont été écrites.
+
 12 novembre 2026. Base : `main` à `5c995e1`, refonte Claude `9d98ff4` (111 fichiers modifiés). Branche de travail : `codex/inkr-v5-completion-excellence`.
 
 ## Niveau de preuve

@@ -28,6 +28,18 @@ Avec le compte **artiste**, ouvrir le Studio : modifier le profil puis le rechar
 - Ouvrir directement un profil artiste dans un nouvel onglet puis actualiser : pas d'écran blanc, de saut majeur ni d'erreur d'hydratation dans la console.
 - Tester à largeur téléphone, tablette et ordinateur, ainsi qu'au zoom navigateur 200 % : les boutons de validation doivent rester visibles et utilisables au clavier.
 
+## Recette Stripe TEST à effectuer (mise à jour du 15 novembre)
+
+Le CORS des deux previews et la réception d'événements webhook signés ont été validés sur `lsewxsdulunuuzmszegm`, mais cela **ne valide pas** le Checkout INKR ni les droits Premium. Utiliser exclusivement l'environnement Stripe TEST `acct_1Ubxk0BIelrUrSJe` et un compte artiste **fictif** du staging :
+
+1. Sur l'une des deux previews, ouvrir Paramètres → Abonnement avec le compte artiste de test. Choisir le plan à 19 €/mois ; lancer Checkout et vérifier que la page Stripe est en **TEST** et affiche 19 € pour l'offre mensuelle. Vérifier séparément l'affichage du plan annuel à 149 €/an.
+2. Finaliser uniquement avec une carte de test officiellement documentée par Stripe : https://docs.stripe.com/testing ; ne saisir aucune carte bancaire réelle. Ne transmettre aucune clé `sk_test_`, `whsec_` ni session utilisateur dans les rapports.
+3. Après le retour Checkout, recharger l'interface. Contrôler côté Supabase staging que le client Stripe de l'artiste est lié, que la table `subscriptions` contient le bon abonnement/prix et que le tier de l'artiste est `premium` **après webhook**, et non simplement après redirection.
+4. Rejouer un abandon de Checkout (statut Premium inchangé) ; puis une annulation de l'abonnement TEST et contrôler la transition en base et l'interface. Vérifier dans Stripe la livraison HTTP 2xx des événements abonnements et l'absence d'effet doublon.
+5. Nettoyer les objets Stripe TEST de recette non nécessaires, ainsi que les fixtures fictives du staging. Ne pas supprimer les comptes réutilisés par les autres recettes.
+
+Le scénario d'essai d'abonnement Stripe créé et annulé le 15 novembre a uniquement confirmé deux POST webhook HTTP 200 ; il ne constitue **pas** cette recette de bout en bout.
+
 ## Scénarios en attente de configuration
 
 La suppression de compte **depuis les previews web** et le paiement Stripe **TEST** attendent les origines autorisées et les secrets de test sur le Supabase staging. Ne pas tenter un paiement réel ni supprimer un compte utilisé pour les autres scénarios. Une fois la configuration terminée, utiliser un compte fictif jetable pour la suppression et les cartes de test officielles Stripe pour le paiement. Le retour de Checkout ne doit pas suffire à afficher Premium avant confirmation serveur.
