@@ -15,6 +15,7 @@ import { BenefitRow, PremiumHero } from '@/components/v5/premium';
 import { useAuthStore } from '@/store/auth-store';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { supabase } from '@/lib/supabase';
+import { waitForCheckoutActivation } from '@/lib/checkout-activation';
 
 const FREE_FEATURES = [
   { label: 'Profil de base', on: true },
@@ -63,8 +64,17 @@ export default function SubscriptionScreen() {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
 
   useEffect(() => {
-    if (checkout === 'success') void refreshProfile();
-  }, [checkout, refreshProfile]);
+    if (checkout !== 'success' || !user?.id || isPremium) return;
+    let active = true;
+    void waitForCheckoutActivation(
+      user.id,
+      refreshProfile,
+      () => useAuthStore.getState().user,
+      undefined,
+      () => active,
+    );
+    return () => { active = false; };
+  }, [checkout, user?.id, isPremium, refreshProfile]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
