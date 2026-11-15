@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "build:web": "expo export -p web --clear && node scripts/postexport-web.js",
     "preview:web": "node scripts/preview-web.js",
-    "test": "node --test tests/*.test.cjs"
+    "test": "node --test tests/*.test.cjs",
+    "release:check": "node scripts/check-release-evidence.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/geist": "^0.4.2",
