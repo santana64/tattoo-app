@@ -2,6 +2,8 @@
 
 État observé en lecture seule le 12 novembre, puis recontrôlé le 15 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
 
+**État G0 détaillé (15/11/2026)** : consulter [l'inventaire vérifié des versions distribuées](G0_CLIENT_DISTRIBUTION_AUDIT.md). Les recherches publiques n'ont identifié aucun paquet mobile pour les identifiants de l'application, mais les canaux privés EAS, Play Console, TestFlight et APK ne sont pas encore audités : **G0 reste NO-GO**.
+
 ## Portes de passage P0 — critères GO/NO-GO avant migration active
 
 **Statut au 15 novembre 2026 : NO-GO.** Ce protocole formalise les preuves attendues et ne constitue **pas** une autorisation de migration, de fusion ou de déploiement. Une lecture SQL de contrôle sur `jxmefklkixzzdceeorcg` confirme **deux** rendez-vous `status='proposed'`, la policy `appointments_manage_artist` en `ALL`, les privilèges `INSERT/UPDATE/DELETE` de `authenticated` sur `appointments`, et les deux buckets `healed-photos` / `request-references` en `public=false`. Ne publier aucun identifiant de compte ou de rendez-vous issu de cette inspection.
