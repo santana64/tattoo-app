@@ -3,17 +3,24 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
 
-function loadStore(write, cleared = [], authObserver = null, artistWrite = null) {
+function loadStore(write, cleared = [], authObserver = null, artistWrite = null, deleteInvoke = null, signedOut = []) {
   const source = fs.readFileSync(require.resolve('../store/auth-store.ts'), 'utf8');
   const code = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const client = {
     auth: {
-      signOut: async () => ({ error: null }),
+      signOut: async () => { signedOut.push('sign-out'); return { error: null }; },
       onAuthStateChange: (callback) => {
         if (authObserver) authObserver.callback = callback;
         return { data: { subscription: { unsubscribe: () => {} } } };
+      },
+    },
+    functions: {
+      invoke: (fn, options) => {
+        assert.equal(fn, 'delete-account');
+        assert.equal(options.method, 'POST');
+        return deleteInvoke ? deleteInvoke() : Promise.resolve({ data: null, error: null });
       },
     },
     from(table) {
@@ -172,4 +179,47 @@ test('an auth event switching accounts clears private caches before loading the 
   assert.deepEqual(cleared, ['requests', 'messages', 'notifications', 'saved', 'follows', 'feed']);
   assert.equal(store.getState().user, null);
   stop();
+});
+
+test('late account deletion does not sign out a different account', async () => {
+  let resolveDeletion;
+  const pending = new Promise((resolve) => { resolveDeletion = resolve; });
+  const cleared = [];
+  const signedOut = [];
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), cleared, null, null,
+    () => pending, signedOut);
+  const deletion = store.getState().deleteAccount();
+  store.setState({
+    session: { user: { id: 'another-user' } },
+    user: { id: 'another-user', displayName: 'Nouvel utilisateur' },
+    isAuthenticated: true,
+  });
+  resolveDeletion({ data: { deleted: true }, error: null });
+  const result = await deletion;
+  assert.match(result.error, /session a changé/);
+  assert.equal(store.getState().session.user.id, 'another-user');
+  assert.equal(store.getState().user.displayName, 'Nouvel utilisateur');
+  assert.deepEqual(cleared, []);
+  assert.deepEqual(signedOut, []);
+});
+
+test('ambiguous deletion response does not promise an intact account', async () => {
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), [], null, null,
+    () => Promise.resolve({ data: null, error: { message: 'network interruption' } }));
+  const result = await store.getState().deleteAccount();
+  assert.match(result.error, /n’a pas pu être confirmée/);
+  assert.doesNotMatch(result.error, /compte est intact/);
+  assert.equal(store.getState().session.user.id, 'user');
+});
+
+test('confirmed deletion of same account clears its private session', async () => {
+  const cleared = [];
+  const signedOut = [];
+  const store = loadStore(() => Promise.resolve({ data: null, error: null }), cleared, null, null,
+    () => Promise.resolve({ data: { deleted: true }, error: null }), signedOut);
+  const result = await store.getState().deleteAccount();
+  assert.equal(result.error, null);
+  assert.deepEqual(signedOut, ['sign-out']);
+  assert.deepEqual(cleared, ['requests', 'messages', 'notifications', 'saved', 'follows', 'feed']);
+  assert.equal(store.getState().session, null);
 });

@@ -49,7 +49,7 @@ export default function DeleteAccountScreen() {
       }
       router.replace('/(auth)/welcome');
     } catch {
-      setDeleteError('La suppression a échoué. Votre compte est intact : vérifiez votre connexion puis réessayez.');
+      setDeleteError('La suppression n’a pas pu être confirmée. Vérifiez si votre ancien compte est encore accessible avant de réessayer.');
     } finally {
       setIsDeleting(false);
     }

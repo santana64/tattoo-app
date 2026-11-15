@@ -289,8 +289,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   deleteAccount: async () => {
-    if (!get().session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const targetUserId = get().session?.user.id;
+    if (!targetUserId) return { error: 'Session expirée. Reconnectez-vous.' };
     const { data, error } = await supabase.functions.invoke('delete-account', { method: 'POST' });
+    // The server may have removed the old account while a different person signed in.
+    // Never sign out, clear caches or redirect the account that is now active.
+    if (get().session?.user.id !== targetUserId) {
+      return { error: 'La session a changé pendant la suppression. Vérifiez le statut de votre ancien compte avant de réessayer.' };
+    }
     if (error || !data?.deleted) {
       let code: string | undefined;
       try {
@@ -300,11 +306,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return {
         error: code === 'subscription_cancel_failed'
           ? 'Votre abonnement Premium n’a pas pu être résilié. Votre compte n’a pas été supprimé : réessayez ou contactez le support.'
-          : 'La suppression a échoué. Votre compte est intact : vérifiez votre connexion puis réessayez.',
+          : 'La suppression n’a pas pu être confirmée. Vérifiez si votre ancien compte est encore accessible avant de réessayer.',
       };
     }
-    // The user no longer exists server-side: only the local session is left to clear.
+    // Only clear the local session if it still belongs to the deleted account.
     await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    if (get().session?.user.id && get().session?.user.id !== targetUserId) {
+      return { error: 'La session a changé pendant la suppression. Vérifiez le statut de votre ancien compte avant de réessayer.' };
+    }
     clearPrivateSession();
     profileLoadVersion++;
     set({ session: null, user: null, isAuthenticated: false, error: null });
