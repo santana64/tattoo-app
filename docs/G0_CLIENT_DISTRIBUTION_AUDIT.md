@@ -37,6 +37,19 @@ Les vérifications suivantes doivent être réalisées dans les comptes proprié
 5. **Web** : vérifier quelle révision est servie sous les domaines de production et les règles SSO, sans y déployer. Contrôler les variables backend du déploiement réellement accessible. Les 3 erreurs `platform=web` ne sont pas un recensement des utilisateurs.
 6. **Protocole de version minimale** : pour **chaque** version distribuée, tester réellement les parcours rendez-vous, références et photos sur une copie. Si un ancien client est incompatible, démontrer qu'il a été mis à jour **ou** qu'il est bloqué de manière explicite et sûre avant la migration restrictive. La simple valeur `1.0.0` côté JavaScript, partagée entre builds, n'est pas un identifiant de capacité fiable.
 
+
+## Complément G0 : canaux privés et tentative Android sur poste autorisé
+
+**Relevé du 15 novembre 2026, aucun identifiant ni secret conservé dans le dépôt.**
+
+- **EAS CLI** : installation temporaire via `npx eas-cli@latest` sur le PC autorisé ; la commande `eas whoami` retourne **`Not logged in`**. Les historiques privés `eas build:list` et `eas update:list` n'ont donc pas été consultés. Le dépôt contient `eas.json` et les identifiants de paquet, mais **aucun `extra.eas.projectId` vérifié dans `app.json`**. Il faudra d'abord s'authentifier au bon compte/projet Expo, sans écrire de jeton dans le dépôt.
+- **Consoles privées** : aucune session autorisée de Google Play Console ni App Store Connect/TestFlight disponible à cet outil. Les recherches publiques antérieures ne peuvent pas remplacer l'historique des pistes de test privées.
+- **Fichiers locaux** : recherche de noms de fichiers APK/AAB/IPA dans `Downloads`, `Desktop` et `Documents`. Des APK d'un autre projet ont été identifiés, ainsi qu'une archive de sources INKR, mais **aucun paquet installable INKR vérifié dans ce périmètre**. Les autres disques, partages, installations antérieures et machines ne sont pas exclus.
+- **Recette Android tentée, non réussie** : AVD `Medium_Phone_API_30` (Android 11/API 30, Play Store, x86) découvert sur Windows ; aucun appareil physique connecté à ADB. Démarrage de l'émulateur avec fenêtre, animations et snapshots désactivés, option `-memory 1024` ; l'émulateur a **relevé la RAM virtuelle à 2048 Mio** et ADB l'a brièvement vu en `device`, sans `sys.boot_completed=1` constaté ni INKR installé. La RAM Windows est descendue vers **0,5 Gio** ; l'émulateur a été arrêté par `adb emu kill`, puis ADB n'a plus listé de périphérique. À la fin de la tentative, environ **3,39 Gio** de RAM étaient libres.
+- **Nettoyage sans fermeture d'applications** : libération non destructive de working sets de 14 processus en arrière-plan (OneDrive, Opera, Claude, Discord, lanceurs de jeux). Ce mécanisme ne supprime pas de données et la RAM ainsi récupérée peut être réutilisée immédiatement par les applications : ce n'est pas un gain durable garanti.
+
+**Décision : G0 toujours NO-GO et recette Android non validée.** Ne pas interpréter `Not logged in` comme une absence de builds, ni l'émulateur `device` comme un test natif réussi. Pour poursuivre : (1) connexion du propriétaire à EAS, (2) historique des canaux Google/Apple ou confirmation documentée de leur absence, (3) inventaire APK manuels, (4) essai sur un téléphone Android relié par USB, ou sur une machine disposant d'assez de RAM pour démarrer Android, Metro et INKR simultanément.
+
 ## Décision et autorisations
 
 **NO-GO tant que les points 1–4 ne sont pas documentés** ; aucune absence de publication publique ne constitue à elle seule une levée du risque d'APK internes ou d'anciennes installations. Une fois G0 établi, G1–G4 (sauvegarde, migration sur copie, scénarios réels et rollback) restent obligatoires ; G5 exige ensuite une **autorisation explicite distincte** avant la moindre écriture sur `jxmefklkixzzdceeorcg`.

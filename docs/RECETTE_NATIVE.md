@@ -1,6 +1,6 @@
 # INKR V5 — recette iOS et Android sur appareil
 
-**État : bundle vérifié — interaction native non exécutée.** Cet environnement Linux ne dispose ni d'`adb`/émulateur Android ni de simulateur iOS. Cette procédure s'applique à une build de test installée sur un vrai appareil, configurée exclusivement pour le Supabase staging `lsewxsdulunuuzmszegm`. Vérifier l'URL du projet dans la configuration de la build avant de se connecter. Ne pas utiliser un compte ni une clé de production.
+**État : bundle vérifié — interaction native INKR non exécutée.** Les précédents contrôles de compilation ont été réalisés sans appareil mobile. Le 15/11, un émulateur Android API 30 a été détecté puis démarré sur le PC Windows autorisé, mais l'essai a été **interrompu avant le démarrage complet d'Android et avant toute installation d'INKR** (RAM Windows descendue à environ 0,5 Gio) ; il a été arrêté proprement. Aucun appareil Android physique ni iOS n'a été testé. Cette procédure s'applique à une build de test installée sur un véritable appareil ou un émulateur suffisamment dimensionné, configurée exclusivement pour Supabase staging `lsewxsdulunuuzmszegm`. Vérifier le projet dans la configuration de la build avant toute connexion. Ne pas utiliser un compte ni une clé de production.
 
 Après le correctif des photos cicatrisées, les exports Hermes Android et iOS du 14 novembre ont tous deux réussi avec une configuration Supabase fictive non routable (6,27 Mio chacun). Cela vérifie la compilation des bundles, pas les interactions sur appareil.
 
