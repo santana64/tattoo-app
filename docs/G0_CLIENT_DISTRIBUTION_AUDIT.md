@@ -105,3 +105,13 @@ Les vérifications suivantes doivent être réalisées dans les comptes proprié
 **NO-GO tant que les points 1–4 ne sont pas documentés** ; aucune absence de publication publique ne constitue à elle seule une levée du risque d'APK internes ou d'anciennes installations. Une fois G0 établi, G1–G4 (sauvegarde, migration sur copie, scénarios réels et rollback) restent obligatoires ; G5 exige ensuite une **autorisation explicite distincte** avant la moindre écriture sur `jxmefklkixzzdceeorcg`.
 
 **État Android** : ne pas démarrer l'AVD avec ~0,5 Gio de RAM disponible ; préférer un appareil Android connecté, ou libérer les ressources du PC et recontrôler avant lancement. La recette iOS VoiceOver exige toujours un appareil Apple ; aucun essai natif n'est déclaré réussi par cet audit.
+
+## Garde-fou documentaire de sortie — 16 novembre 2026
+
+La PR contient désormais `scripts/check-release-evidence.cjs`, `docs/RELEASE_EVIDENCE.json` et des tests d'adversité `tests/release-evidence.test.cjs`.
+
+Exécution locale depuis la racine du dépôt : `npm run release:check`. **Le code de sortie doit être non nul tant que G0–G5 sont HOLD.** Les tests du vérificateur s'exécutent automatiquement dans `npm test` ; ce n'est pas un workflow de déploiement et le contrôle documentaire n'empêche pas, à lui seul, un déploiement manuel via Vercel ou les consoles.
+
+Ce contrôle est intentionnellement insuffisant pour autoriser un lancement : il vérifie uniquement la structure d'une décision et la présence de références de preuves, pas leur véracité ni les installations réelles. Un champ `GO` écrit dans un fichier ne démontre pas la compatibilité d'un ancien APK. L'inventaire EAS demeure positif pour dix builds historiques, et **G0 reste HOLD** jusqu'à revue des consoles privées, de la distribution manuelle et d'un traitement vérifié des anciens clients. Les opérations sur le projet Supabase actif restent interdites sans l'autorisation séparée G5.
+
+Le contrôle `appVersion=1.0.0` ou `versionCode=4` est explicitement insuffisant pour reconnaître le binaire/la logique. La politique Expo `runtimeVersion: { policy: "appVersion" }` sépare les environnements natifs de mise à jour OTA, mais ne constitue ni une preuve de version applicative compatible ni un verrou d'accès du serveur. N'activer aucune migration restrictive uniquement sur cette base.
