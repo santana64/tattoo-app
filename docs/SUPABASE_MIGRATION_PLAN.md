@@ -2,7 +2,7 @@
 
 État observé en lecture seule le 12 novembre, puis recontrôlé le 15 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
 
-**État G0 détaillé (15/11/2026)** : consulter [l'inventaire vérifié des versions distribuées](G0_CLIENT_DISTRIBUTION_AUDIT.md). Les recherches publiques n'ont identifié aucun paquet mobile pour les identifiants de l'application, mais les canaux privés EAS, Play Console, TestFlight et APK ne sont pas encore audités : **G0 reste NO-GO**.
+**État G0 détaillé (15/11/2026)** : consulter [l'inventaire authentifié des versions distribuées](G0_CLIENT_DISTRIBUTION_AUDIT.md). Le projet EAS `@puccicity/inkr` contient **10 builds Android historiques (8 terminées dont 7 INTERNAL, et 2 annulées)** ; toutes indiquent `1.0.0 (4)` malgré des commits différents. Aucune build iOS, soumission EAS aux stores, mise à jour OTA, branche ou canal EAS Update n'a été trouvée. Les installations internes, dépôts manuels Play/TestFlight et APK transmis hors EAS restent non inventoriés : **G0 reste NO-GO**, aucune migration restrictive sur l'actif.
 
 ## Portes de passage P0 — critères GO/NO-GO avant migration active
 

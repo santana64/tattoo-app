@@ -42,13 +42,44 @@ Les vérifications suivantes doivent être réalisées dans les comptes proprié
 
 **Relevé du 15 novembre 2026, aucun identifiant ni secret conservé dans le dépôt.**
 
-- **EAS CLI** : installation temporaire via `npx eas-cli@latest` sur le PC autorisé ; la commande `eas whoami` retourne **`Not logged in`**. Les historiques privés `eas build:list` et `eas update:list` n'ont donc pas été consultés. Le dépôt contient `eas.json` et les identifiants de paquet, mais **aucun `extra.eas.projectId` vérifié dans `app.json`**. Il faudra d'abord s'authentifier au bon compte/projet Expo, sans écrire de jeton dans le dépôt.
+- **EAS CLI, relevé initial** : la première vérification `eas whoami` avait répondu `Not logged in`. Cette observation historique est **supplantée** par la vérification authentifiée décrite ci-dessous. Le `app.json` du dépôt ne portait pas `extra.eas.projectId` ; l'inventaire a été effectué depuis une configuration de travail isolée avec l'identifiant du projet existant, sans commit de liaison.
 - **Consoles privées** : aucune session autorisée de Google Play Console ni App Store Connect/TestFlight disponible à cet outil. Les recherches publiques antérieures ne peuvent pas remplacer l'historique des pistes de test privées.
 - **Fichiers locaux** : recherche de noms de fichiers APK/AAB/IPA dans `Downloads`, `Desktop` et `Documents`. Des APK d'un autre projet ont été identifiés, ainsi qu'une archive de sources INKR, mais **aucun paquet installable INKR vérifié dans ce périmètre**. Les autres disques, partages, installations antérieures et machines ne sont pas exclus.
 - **Recette Android tentée, non réussie** : AVD `Medium_Phone_API_30` (Android 11/API 30, Play Store, x86) découvert sur Windows ; aucun appareil physique connecté à ADB. Démarrage de l'émulateur avec fenêtre, animations et snapshots désactivés, option `-memory 1024` ; l'émulateur a **relevé la RAM virtuelle à 2048 Mio** et ADB l'a brièvement vu en `device`, sans `sys.boot_completed=1` constaté ni INKR installé. La RAM Windows est descendue vers **0,5 Gio** ; l'émulateur a été arrêté par `adb emu kill`, puis ADB n'a plus listé de périphérique. À la fin de la tentative, environ **3,39 Gio** de RAM étaient libres.
 - **Nettoyage sans fermeture d'applications** : libération non destructive de working sets de 14 processus en arrière-plan (OneDrive, Opera, Claude, Discord, lanceurs de jeux). Ce mécanisme ne supprime pas de données et la RAM ainsi récupérée peut être réutilisée immédiatement par les applications : ce n'est pas un gain durable garanti.
 
 **Décision : G0 toujours NO-GO et recette Android non validée.** Ne pas interpréter `Not logged in` comme une absence de builds, ni l'émulateur `device` comme un test natif réussi. Pour poursuivre : (1) connexion du propriétaire à EAS, (2) historique des canaux Google/Apple ou confirmation documentée de leur absence, (3) inventaire APK manuels, (4) essai sur un téléphone Android relié par USB, ou sur une machine disposant d'assez de RAM pour démarrer Android, Metro et INKR simultanément.
+
+## Vérification authentifiée EAS — 15 novembre 2026
+
+**Projet vérifié** : `@puccicity/inkr`, identifiant EAS `9e39dea3-25eb-4ff6-9a34-01c410af785c`. Connexion locale confirmée par `eas whoami`. La liste suivante provient du **projet EAS existant**, et non d'une inférence à partir des profils `eas.json`. Aucune build, mise à jour OTA, soumission ou migration n'a été déclenchée.
+
+### Historique des builds EAS
+
+| Build ID (préfixe) | Date de création UTC | Plateforme | Distribution | Profil | État |
+| --- | --- | --- | --- | --- | --- |
+| `b3350edc` | 08/08/2026 | Android | INTERNAL | preview | FINISHED |
+| `64623d5c` | 10/06/2026 | Android | INTERNAL | preview | FINISHED |
+| `331ea7b9` | 10/06/2026 | Android | INTERNAL | preview | FINISHED |
+| `c8a92f2f` | 10/06/2026 | Android | INTERNAL | preview | CANCELED |
+| `874f22db` | 10/06/2026 | Android | INTERNAL | preview | CANCELED |
+| `56ff1075` | 20/05/2026 | Android | INTERNAL | preview | FINISHED |
+| `a2a5eb4d` | 20/05/2026 | Android | INTERNAL | preview | FINISHED |
+| `eaccdc2e` | 20/05/2026 | Android | INTERNAL | preview | FINISHED |
+| `e09d6916` | 20/05/2026 | Android | INTERNAL | preview | FINISHED |
+| `07bdf0c3` | 17/05/2026 | Android | STORE | production | FINISHED |
+
+**Bilan : 10 builds Android enregistrées, 8 terminées (7 INTERNAL et 1 STORE), 2 annulées ; aucune build iOS dans l'historique retourné.** Les 10 indiquent `appVersion=1.0.0` et `appBuildVersion=4`. Toutefois, des empreintes Git différentes ont été enregistrées, notamment `c6ff36a3` (08/08), `9a8ecb00` et `c97a8914` (10/06), `97dfdb78` et `91e9796e` (20/05), ainsi que `8491ac90` pour la build STORE du 17/05. Une politique de blocage uniquement fondée sur `1.0.0 (4)` **ne permet donc pas d'identifier la présence des nouvelles capacités RPC / Storage**.
+
+### Historique de distribution et mises à jour
+
+- `eas submit:list --platform all --json` : **0 soumission** trouvée. Cela ne prouve pas l'absence de dépôt manuel d'un AAB/IPA dans une console de store.
+- `eas update:list --all --platform all --json` : **0 groupe de mises à jour OTA** dans la réponse (`currentPage=[]`).
+- `eas channel:list --json` : **0 canal EAS Update** ; `eas branch:list --json` : **0 branche EAS Update**.
+- La build `STORE` indique un **binaire destiné à un magasin**, et non une installation publique ou une publication effectivement approuvée. La build `INTERNAL` terminée indique un artefact potentiellement transmissible par lien, et non le nombre de téléchargements ou d'appareils encore actifs.
+- Les historiques privés Google Play Console, TestFlight et les APK transmis manuellement restent non vérifiés. Les résultats publics App Store / Google Play et l'absence d'erreurs Android dans `client_errors` n'écartent aucune installation privée.
+
+**Décision G0 : NO-GO confirmé avec une preuve positive d'anciens binaires Android.** Tant que le périmètre des installations n'est pas connu, ne pas activer les migrations restrictives `appointment_rpc_only`, les chemins privés de référence ni une désactivation de lecture publique sur la base des seules numérotations `1.0.0 (4)`. Vérifier la distribution réelle de chacun des binaires, tester la compatibilité des anciens parcours ou mettre en place un mécanisme de blocage / migration de clients qui ne dégrade pas la sécurité. G1–G5 et l'autorisation distincte de migration restent requis.
 
 ## Décision et autorisations
 
