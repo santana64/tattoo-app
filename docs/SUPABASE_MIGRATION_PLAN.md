@@ -4,6 +4,8 @@
 
 **État G0 détaillé (15/11/2026)** : consulter [l'inventaire authentifié des versions distribuées](G0_CLIENT_DISTRIBUTION_AUDIT.md). Le projet EAS `@puccicity/inkr` contient **10 builds Android historiques (8 terminées dont 7 INTERNAL, et 2 annulées)** ; toutes indiquent `1.0.0 (4)` malgré des commits différents. Aucune build iOS, soumission EAS aux stores, mise à jour OTA, branche ou canal EAS Update n'a été trouvée. Les installations internes, dépôts manuels Play/TestFlight et APK transmis hors EAS restent non inventoriés : **G0 reste NO-GO**, aucune migration restrictive sur l'actif.
 
+**Précision G0 — artefacts expirés :** les dix builds Android EAS ont une date d'expiration passée (dernière au 22/08/2026), et l'artefact de la dernière build retourne HTTP 404. Cela n'indique **pas** si des APK ont été installés avant expiration ou copiés ailleurs. Expo Observe retourne `[]` sur mai–novembre sans prouver zéro utilisateur. Conserver G0 en NO-GO jusqu'à un inventaire des destinataires/installations ou une stratégie de mise à jour/exclusion démontrée ; voir [audit G0](G0_CLIENT_DISTRIBUTION_AUDIT.md).
+
 ## Portes de passage P0 — critères GO/NO-GO avant migration active
 
 **Statut au 15 novembre 2026 : NO-GO.** Ce protocole formalise les preuves attendues et ne constitue **pas** une autorisation de migration, de fusion ou de déploiement. Une lecture SQL de contrôle sur `jxmefklkixzzdceeorcg` confirme **deux** rendez-vous `status='proposed'`, la policy `appointments_manage_artist` en `ALL`, les privilèges `INSERT/UPDATE/DELETE` de `authenticated` sur `appointments`, et les deux buckets `healed-photos` / `request-references` en `public=false`. Ne publier aucun identifiant de compte ou de rendez-vous issu de cette inspection.

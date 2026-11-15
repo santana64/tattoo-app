@@ -81,6 +81,25 @@ Les vérifications suivantes doivent être réalisées dans les comptes proprié
 
 **Décision G0 : NO-GO confirmé avec une preuve positive d'anciens binaires Android.** Tant que le périmètre des installations n'est pas connu, ne pas activer les migrations restrictives `appointment_rpc_only`, les chemins privés de référence ni une désactivation de lecture publique sur la base des seules numérotations `1.0.0 (4)`. Vérifier la distribution réelle de chacun des binaires, tester la compatibilité des anciens parcours ou mettre en place un mécanisme de blocage / migration de clients qui ne dégrade pas la sécurité. G1–G5 et l'autorisation distincte de migration restent requis.
 
+## Contrôle complémentaire des artefacts et de la télémétrie — 15 novembre 2026
+
+**Recherche documentaire et requêtes authentifiées en lecture seule** :
+
+- Sur les **10 builds Android** historiques, le champ Expo \`appIdentifier\` vaut **\`com.inkr.tattoo\`** pour chacune. Aucun paquet d'un autre projet ne figure dans ce lot.
+- Toutes ont une \`expirationDate\` dépassée au 15/11/2026 : **22/08/2026** pour la dernière build INTERNAL du 08/08 ; **24/06/2026** pour les builds du 10/06 ; **03/06/2026** pour les INTERNAL du 20/05 ; et **16/06/2026** pour la build STORE du 17/05. Les deux builds annulées n'ont pas produit d'artefact installable. Une requête **GET avec Range: bytes=0-0** sur l'URL de la dernière build INTERNAL retourne **HTTP 404** ; pour la build STORE du 17/05, la réponse EAS consultée ne contient plus d'URL d'artefact. **Ces observations ne prouvent ni le nombre d'anciens téléchargements ni la disparition d'APK déjà installés ou copiés.**
+- Les métriques \`eas build:view\` exposées sont \`buildWaitTime\`, \`buildQueueTime\`, \`buildDuration\` : ce sont des métriques de **compilation**, pas des compteurs d'appareils/installations.
+- \`eas observe:versions --project-id 9e39dea3-25eb-4ff6-9a34-01c410af785c --platform android --start 2026-05-01 --end 2026-11-15 --json\` retourne **\`[]\`**. Le dépôt actuel ne dépend pas de \`expo-observe\` ; l'absence de données Observe n'est donc **pas** une preuve d'absence d'utilisation des anciens APK. Une installation sans instrumentation reste invisible à cette interrogation.
+- Les commits Git annoncés par certaines builds historiques, dont \`c6ff36a3\`, \`8491ac90\`, \`9a8ecb00\`, ne sont pas résolus en objets commit/tree via l'API GitHub du dépôt courant (HTTP 422 sur demande d'arbre). On ne peut **pas** certifier le code exact embarqué dans ces binaires à partir des sources accessibles actuellement. Ne pas inférer que chaque ancienne build exécute exactement les routes de \`main\`.
+
+### Critères de clôture restants
+
+1. **Diffusion manuelle** : confirmer si les liens d'installation EAS ou les fichiers APK ont été transmis à des tiers, et si des copies ont été téléchargées sur des téléphones personnels. Cette information est **indisponible dans l'historique EAS Build** interrogé ; aucun « zéro installation » n'est démontré.
+2. **Consoles propriétaires** : vérifier l'absence ou la présence de pistes Google Play Console (production, interne, fermée, ouverte) pour \`com.inkr.tattoo\`, et l'éventuel TestFlight / App Store Connect pour \`com.inkr.tattoo\`. **0 EAS Submit** n'exclut pas une mise en ligne manuelle.
+3. **Appareils connus, avec consentement des détenteurs** : sur Android, \`adb shell pm path com.inkr.tattoo\` établit si le package est installé ; \`adb shell dumpsys package com.inkr.tattoo\` permet ensuite de vérifier \`versionCode\`. Ne collecter aucun identifiant personnel ni contenu de l'appareil. **Version 1.0.0 (4) commune** : cette observation ne suffit pas à identifier le commit et donc à prouver la compatibilité.
+4. **Transition sans confiance dans le seul numéro de version** : pour une migration restrictive, garantir que les anciennes applications ne peuvent plus exercer les flux directs devenus incompatibles ; réaliser un test des anciens APK sur une copie/installation autorisée si disponibles, ou appliquer un mécanisme de mise à jour / exclusion fiable sans rouvrir les accès RLS privés. Ne pas déclarer G0 validé simplement parce que les URLs EAS expirent.
+
+**Décision actualisée : G0 = NO-GO**, ancien parc inconnu malgré la confirmation de builds Android anciennes ; aucune mutation du Supabase actif, des comptes de store ou des builds EAS.
+
 ## Décision et autorisations
 
 **NO-GO tant que les points 1–4 ne sont pas documentés** ; aucune absence de publication publique ne constitue à elle seule une levée du risque d'APK internes ou d'anciennes installations. Une fois G0 établi, G1–G4 (sauvegarde, migration sur copie, scénarios réels et rollback) restent obligatoires ; G5 exige ensuite une **autorisation explicite distincte** avant la moindre écriture sur `jxmefklkixzzdceeorcg`.
