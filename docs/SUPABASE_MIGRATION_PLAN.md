@@ -1,6 +1,20 @@
 # INKR — réconciliation Supabase avant déploiement
 
-État observé en lecture seule le 12 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
+État observé en lecture seule le 12 novembre, puis recontrôlé le 15 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
+
+## Prévol comparatif du 15 novembre — aucune écriture sur l'actif
+
+| Contrôle | Actif `jxmefklkixzzdceeorcg` | Staging `lsewxsdulunuuzmszegm` | Décision de compatibilité |
+| --- | --- | --- | --- |
+| Historique | 9 migrations | 17 migrations | Les noms et nombres ne prouvent pas l'équivalence ; comparer les objets, puis préparer un delta revu sur une copie. |
+| Tables clés | `appointments`, `healed_photos`, `request_references`, `subscriptions`, `tattoo_requests` ont les mêmes ensembles de colonnes observés | Mêmes colonnes, plus `stripe_subscription_events` | Le journal Stripe doit être créé avant le nouveau webhook ; aucune ancienne migration ne doit être rejouée par son numéro. |
+| Rendez-vous | `appointments_manage_artist` en `ALL` ; `authenticated` possède `INSERT`, `UPDATE`, `DELETE` ; **2 rendez-vous proposés** | Policy large retirée, ces trois privilèges absents ; transitions par RPC | Le client de `main` (`5c995e1`) propose encore « Confirmer le rendez-vous » côté artiste via `UPDATE` direct. Il échouera après durcissement. Réconcilier ces deux dossiers et le parc de clients réellement distribués avant le retrait. Ne pas réouvrir le droit pour masquer le problème. |
+| Références privées | 0 ligne, 0 objet ; pas de policy `DELETE` sur la table ou le bucket ; MIME du bucket libre | Policy de suppression propriétaire, JPEG seulement, trois emplacements, 10 Mio | Le client de `main` lit `request_references.url` comme URL d'image ; la PR y enregistre un chemin privé. Un ancien client ne saura pas afficher une référence nouvelle. Exiger une version cliente compatible ou un protocole de transition qui préserve la confidentialité avant déploiement. |
+| Photos cicatrisées | 0 ligne, 0 objet ; bucket privé 20 Mio, MIME libre, aucune policy SELECT Storage | Bucket privé 10 Mio, JPEG/PNG/WebP, SELECT lié aux lignes visibles | Le client de `main` utilise `getPublicUrl` et stocke une URL publique ; il ne sait pas signer une lecture privée. Il faut déterminer les versions encore actives avant de diffuser ce parcours. |
+| RPC et privilèges | `artist_portfolio_previews` et `apply_stripe_subscription_event` absents ; `search_artists` et les trois RPC rendez-vous présents | Les deux nouveaux RPC présents ; `apply_stripe_subscription_event` exécutable par `service_role` seulement | Les signatures des RPC communs concordent, mais les empreintes de leurs définitions SQL diffèrent : comparer le corps et les grants exacts avant toute migration. |
+| Abonnements | 0 statut actif | Abonnement TEST annulé, 0 artiste Premium | Préserver les lignes historiques ; déployer le journal d'événements avant le webhook modifié. |
+
+Les fonctions `search_artists`, `propose_appointment`, `respond_to_appointment` et `complete_appointment` existent sur les deux projets avec la même signature, mais `md5(pg_get_functiondef(...))` diffère pour chacune. Cela signale un écart à examiner ; un hash différent ne dit pas à lui seul quelle différence est fonctionnelle. Les définitions exactes, policies et grants devront être exportés et revus sur une copie avant toute écriture active. Les comptages ci-dessus sont un instantané, à refaire au prévol final.
 
 ## Écarts vérifiés
 
@@ -34,7 +48,7 @@ Pour `healed-photos`, enregistrer le statut du bucket, les policies Storage, les
 
 ## Contrôles de compatibilité
 
-- Deux versions du client doivent fonctionner pendant la transition : l'ancienne peut lire les demandes et la nouvelle sait lister les fichiers privés même si une ligne de métadonnées manque.
+- Les deux versions clientes ne sont pas encore compatibles sur les références et photos privées : l'ancienne attend des URL directement affichables, la nouvelle signe des chemins privés. Inventorier les versions réellement distribuées et valider une transition sûre sur une copie avant tout changement actif.
 - Les nouvelles politiques Storage doivent laisser **SELECT** aux deux parties, **INSERT/UPDATE/DELETE** au client propriétaire et aucun de ces droits au tiers. L'upsert exige SELECT + UPDATE + INSERT.
 - Le dossier ne rend jamais un chemin privé comme URL directe. Les liens signés sont des jetons temporaires : quiconque reçoit le lien peut l'utiliser jusqu'à son expiration, même après déconnexion. Une suppression d'objet doit être vérifiée au niveau du service, y compris avec un ancien lien.
 - Tester les comptes existants, demandes sans image, flash épuisé, réponse réseau perdue après insertion, fichiers partiellement déposés et ancienne ligne `request_references.url` avant d'élargir la diffusion.
@@ -50,7 +64,7 @@ Pour `healed-photos`, enregistrer le statut du bucket, les policies Storage, les
 
 ## Projet de test créé le 13 novembre
 
-Le devis Supabase était de 0 $/mois sur l'organisation gratuite `bourrico`, qui comptait un projet actif et trois inactifs. Le projet distinct `inkr-v5-staging` (`lsewxsdulunuuzmszegm`, région `eu-west-1`) a été créé, puis les douze migrations numériques et les deux migrations horodatées initiales du dépôt y ont été appliquées dans l'ordre. Le 14 novembre, les deux migrations Stripe et rendez-vous ci-dessus y ont été ajoutées : l'historique compte maintenant **seize** entrées. Une lecture SQL a confirmé le bucket privé, le plafond 10 Mio, le MIME JPEG et les politiques Storage réservées aux rôles authentifiés. Le conseiller de sécurité signale encore deux fonctions au `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; chaque grant doit être revu selon le contrat public de la fonction avant un changement de sécurité.
+Le devis Supabase était de 0 $/mois sur l'organisation gratuite `bourrico`, qui comptait un projet actif et trois inactifs. Le projet distinct `inkr-v5-staging` (`lsewxsdulunuuzmszegm`, région `eu-west-1`) a été créé, puis les douze migrations numériques et les deux migrations horodatées initiales du dépôt y ont été appliquées dans l'ordre. Les migrations Stripe, rendez-vous et photos cicatrisées privées portent l'historique à **dix-sept** entrées au 15 novembre. Une lecture SQL a confirmé le bucket de références privé, le plafond 10 Mio, le MIME JPEG et les politiques Storage réservées aux rôles authentifiés. Le conseiller de sécurité signale encore deux fonctions au `search_path` mutable et des fonctions `SECURITY DEFINER` exécutables par `anon` ; chaque grant doit être revu selon le contrat public de la fonction avant un changement de sécurité.
 
 Les variables Vercel **Preview** des deux projets ont été orientées vers ce projet et sa clé publiable, sans modifier les valeurs Production. La seconde preview utilise une URL ciblée sur `codex/inkr-v5-completion-excellence` afin de conserver sa variable URL commune aux autres environnements. Les bundles des deux previews du commit `53178ab` ont confirmé la priorité effective de ces variables : URL du projet de test présente, URL du projet actif absente.
 
@@ -62,6 +76,6 @@ Le script opt-in `scripts/staging-private-references.cjs` a exercé l'API héber
 
 ## Limite de preuve actuelle
 
-Les migrations sont testées dans PGlite avec les rôles API simulés et appliquées sur le projet de test hébergé. Le service Storage local n'a pas pu démarrer faute d'espace Docker ; les essais HTTP hébergés à trois identités le remplacent pour les références. Le dossier de références et le rendez-vous proposé/accepté ont aussi été exercés depuis l'interface web ; cela ne remplace ni les essais sur appareils natifs ni un paiement Stripe de test.
+Les migrations sont testées dans PGlite avec les rôles API simulés et appliquées sur le projet de test hébergé. Le service Storage local n'a pas pu démarrer faute d'espace Docker ; les essais HTTP hébergés à trois identités le remplacent pour les références. Le dossier de références et le rendez-vous proposé/accepté ont aussi été exercés depuis l'interface web. Un Checkout Stripe TEST payé puis annulé a confirmé les transitions de tier en base ; son état Premium après retour visuel et les essais sur appareils natifs restent à vérifier.
 
 Les variables **Preview** Vercel ont été remplacées par l'URL et la clé publiable du projet de test. Les bundles de `53178ab` prouvent que les deux nouvelles previews utilisent ce projet ; les anciens déploiements gardent leurs variables au moment de leur propre construction.

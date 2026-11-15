@@ -157,13 +157,24 @@ export function Segmented<T extends string>({ options, value, onChange, accessib
     >
       {options.map((option, i) => {
         const selected = option.value === value;
+        const webSelectionState = role === 'radio'
+          ? { 'aria-checked': selected }
+          : { 'aria-selected': selected };
         return (
           <Pressable
             key={option.value}
             onPress={() => { if (!disabled) onChange(option.value); }}
+            {...(Platform.OS === 'web' ? {
+              onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+                if (disabled || (event.key !== ' ' && event.key !== 'Spacebar')) return;
+                event.preventDefault();
+                onChange(option.value);
+              },
+            } : {})}
+            {...(Platform.OS === 'web' ? webSelectionState : {})}
             disabled={disabled}
             accessibilityRole={role}
-            accessibilityState={{ selected, disabled }}
+            accessibilityState={{ selected, checked: role === 'radio' ? selected : undefined, disabled }}
             accessibilityLabel={option.note ? `${option.label}, ${option.note}` : option.label}
             style={(state) => [
               styles.segment,
