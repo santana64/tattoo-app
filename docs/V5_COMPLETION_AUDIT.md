@@ -1,5 +1,11 @@
 # INKR V5 — audit de reprise
 
+## Extension de preuve — 15 novembre, recette Playwright locale
+
+Un Checkout Stripe **TEST** mensuel de **19,00 EUR** a été finalisé avec Playwright + Edge sur le PC Windows autorisé (390 px), **sans TinyFish ni paiement réel**. Après l'option Link « Pay without Link », saisie de la carte officielle de test puis soumission : la session `cs_test_a0hQx8Gvb0yPg7TzTbby86h1XNQi6qCqRpFNcqdHU1Q4rsOUgr9SnO9MI1` a été confirmée par Stripe (`livemode=false`, `complete/paid`, `amount_total=1900`, EUR). Le webhook a répondu HTTP 200, la ligne staging de `subscriptions` est passée à `active` et l'artiste fictif à `premium`. L'abonnement `sub_1Uc6CTBIelrUrSJelmDhcESX` a ensuite été annulé en TEST, avec contrôle SQL `canceled` / artiste `normal`.
+
+**Limite de preuve préservée** : la redirection post-paiement a atteint `vercel.com/login` (protection de la preview), et non l'interface INKR authentifiée. Le comportement visuel « retour Stripe → Premium actif » reste non vérifié avec paiement réel TEST, même si l'UI avait déjà été exercée avec des réponses différées simulées. Ne pas modifier Deployment Protection ni le Supabase actif pour contourner cette limite. Le test sur appareil iOS/Android et la compatibilité des anciens clients restent ouverts.
+
 ## État vérifié — 15 novembre 2026
 
 - **PR brouillon et builds** : `80d6f2f` a passé la CI (204 tests, lint, TypeScript et export web) et les deux previews Vercel. Aucun déploiement Production ni fusion.
