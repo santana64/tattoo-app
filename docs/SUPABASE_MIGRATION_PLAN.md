@@ -2,6 +2,47 @@
 
 État observé en lecture seule le 12 novembre, puis recontrôlé le 15 novembre 2026 sur `jxmefklkixzzdceeorcg`. Ce projet actif n'a reçu ni migration ni donnée de test.
 
+## Portes de passage P0 — critères GO/NO-GO avant migration active
+
+**Statut au 15 novembre 2026 : NO-GO.** Ce protocole formalise les preuves attendues et ne constitue **pas** une autorisation de migration, de fusion ou de déploiement. Une lecture SQL de contrôle sur `jxmefklkixzzdceeorcg` confirme **deux** rendez-vous `status='proposed'`, la policy `appointments_manage_artist` en `ALL`, les privilèges `INSERT/UPDATE/DELETE` de `authenticated` sur `appointments`, et les deux buckets `healed-photos` / `request-references` en `public=false`. Ne publier aucun identifiant de compte ou de rendez-vous issu de cette inspection.
+
+| Porte | Preuve nécessaire | Décision |
+| --- | --- | --- |
+| **G0 — Inventaire des clients distribués** | Identifier les versions réellement installées sur Android/iOS, les canaux de mise à jour, la version web active et la possibilité vérifiée d'imposer une version minimale. Documenter les versions qui utilisent encore `appointments.update` côté artiste, `request_references.url` en URL publique et `getPublicUrl` pour `healed-photos`. | **NO-GO** tant que l'existence de clients incompatibles ne peut être exclue ou qu'un blocage/versionnement fiable n'est pas validé. |
+| **G1 — Préparation sur copie et sauvegarde** | Snapshot du schéma, grants, fonctions, policies, Storage, historique des migrations et données concernées, restaurabilité contrôlée ; delta SQL objet-par-objet rejoué sur une copie distincte. Vérification des RPC, du journal Stripe et du traitement idempotent. | **NO-GO** sans preuve de restauration et contrôle du delta. Ni `db push` aveugle ni `migration repair` d'après les noms. |
+| **G2 — Contrat fonctionnel des anciens clients** | Prouver que tout client autorisé à utiliser les parcours rendez-vous/références/photos emploie le RPC client et des URL signées privées, ou qu'un mécanisme de version minimale refuse proprement l'accès des anciens clients à ces fonctions. Vérifier l'absence de lien public de repli pour les références privées. | **NO-GO** si une version distribuée doit encore confirmer un rendez-vous par `UPDATE` direct ou tente d'afficher un chemin Storage privé comme URL. |
+| **G3 — Données existantes et sécurité** | Les **deux rendez-vous proposés** sont préservés ; proposition, acceptation par le client, refus de l'artiste et refus du tiers vérifiés sur copie avec le nouvel ensemble de grants. Idem pour lecture/signature/retrait de références et photos cicatrisées. Aucun artefact de test dans l'actif. | **NO-GO** si le nouveau schéma bloque une confirmation légitime ou expose une image privée. |
+| **G4 — Bascule et retour arrière** | Plan ordonné approuvé : version cliente compatible disponible → contrôle de compatibilité → migrations additives revues → migrations restrictives seulement une fois les clients incompatibles exclus → déploiement coordonné et contrôle RLS/Stripe/Storage. Repli applicatif testé qui **ne réouvre pas** un bucket privé ni la policy artiste trop large. | **NO-GO** sans tests, responsabilité de décision et procédure de rollback non permissive. |
+| **G5 — Autorisation distincte** | Diff SQL final, preuves G0–G4 et décision explicite du propriétaire autorisant les modifications sur `jxmefklkixzzdceeorcg`. | Aucun changement actif sans cette approbation, même si la CI et le staging sont verts. |
+
+### Prévol reproductible (lecture seule sur l'actif)
+
+```sql
+select status, count(*) as total
+from public.appointments
+group by status order by status;
+
+select policyname, cmd
+from pg_policies
+where schemaname = 'public' and tablename = 'appointments'
+order by policyname;
+
+select grantee, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public'
+  and table_name = 'appointments'
+  and grantee = 'authenticated'
+  and privilege_type in ('INSERT','UPDATE','DELETE')
+order by privilege_type;
+
+select id, public, file_size_limit
+from storage.buckets
+where id in ('healed-photos', 'request-references')
+order by id;
+```
+
+**Remarque de sécurité** : ne pas interpréter la réussite d'une requête HTTP `OPTIONS`, d'un export web ou d'une migration sur staging comme preuve de compatibilité des anciens clients. Tester des parcours authentifiés sur une copie avec données représentatives et permissions effectives. L'existence de `status='proposed'` impose un contrôle métier mais ne donne pas l'autorisation de modifier ces lignes.
+
 ## Prévol comparatif du 15 novembre — aucune écriture sur l'actif
 
 | Contrôle | Actif `jxmefklkixzzdceeorcg` | Staging `lsewxsdulunuuzmszegm` | Décision de compatibilité |
