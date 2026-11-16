@@ -19,6 +19,8 @@ const allGo = () => {
   g0.web_release_reviewed = true;
   g0.legacy_client_resolution = 'legacy-exclusion-tested';
   g0.exclusion_tested_on_copy = true;
+  g0.candidate_android_version_code = 5;
+  g0.android_signing_compatibility_verified = true;
   value.gates.G5.owner_approval = true;
   value.gates.G5.approval_reference = 'Owner approval after review of G0-G4';
   return value;
@@ -59,6 +61,26 @@ test('legacy exclusion must have been exercised on a copy', () => {
   const value = allGo();
   value.gates.G0.exclusion_tested_on_copy = false;
   assert.ok(assessEvidence(value).blockers.some((line) => line.includes('exclusion not demonstrated')));
+});
+
+test('G0 cannot pass with an Android build number below the historical v4 baseline', () => {
+  const value = allGo();
+  value.gates.G0.candidate_android_version_code = 1;
+  const result = assessEvidence(value);
+  assert.equal(result.ready, false);
+  assert.ok(result.blockers.some((line) => line.includes('versionCode must exceed')));
+  value.gates.G0.candidate_android_version_code = 4;
+  assert.ok(assessEvidence(value).blockers.some((line) => line.includes('versionCode must exceed')));
+});
+
+test('G0 compatible-upgrade path requires an evidenced signing certificate match', () => {
+  const value = allGo();
+  value.gates.G0.legacy_client_resolution = 'legacy-compatibility-tested';
+  value.gates.G0.compatibility_tested_on_copy = true;
+  value.gates.G0.android_signing_compatibility_verified = false;
+  assert.ok(assessEvidence(value).blockers.some((line) => line.includes('signing compatibility')));
+  value.gates.G0.android_signing_compatibility_verified = true;
+  assert.equal(assessEvidence(value).ready, true);
 });
 
 test('owner approval cannot be inferred from CI, evidence, or Stripe tests', () => {

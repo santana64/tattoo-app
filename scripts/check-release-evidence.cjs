@@ -51,6 +51,17 @@ function assessEvidence(manifest) {
     if (g0.historical_android_builds !== 10) {
       blockers.push('G0: reconcile the 10 historically recorded Android builds');
     }
+    if (g0.max_historical_android_version_code !== 4) {
+      blockers.push('G0: historical Android versionCode baseline is not reconciled');
+    }
+    if (!Number.isSafeInteger(g0.candidate_android_version_code) ||
+        g0.candidate_android_version_code <= g0.max_historical_android_version_code) {
+      blockers.push('G0: candidate Android versionCode must exceed every historical distributed build');
+    }
+    if (g0.legacy_client_resolution === 'legacy-compatibility-tested' &&
+        g0.android_signing_compatibility_verified !== true) {
+      blockers.push('G0: Android signing compatibility has not been demonstrated');
+    }
     for (const field of [
       'eas_reviewed', 'play_console_reviewed', 'app_store_reviewed',
       'manual_apk_distribution_reviewed', 'web_release_reviewed',
