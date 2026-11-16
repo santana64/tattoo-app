@@ -81,6 +81,23 @@ function assessEvidence(manifest) {
     }
   }
 
+  // A linked document alone cannot certify a backup, real-role QA or a
+  // rollback. Keep these release gates fail-closed until the named evidence
+  // has been independently inspected and attested.
+  const verifiedOperations = {
+    G1: ['backup_verified', 'isolated_restore_verified',
+      'production_schema_drift_checked', 'data_integrity_preserved'],
+    G2: ['authenticated_client_artist_tested', 'outsider_rls_tested',
+      'deposit_notification_flow_tested'],
+    G4: ['rollback_rehearsed', 'storage_restore_verified'],
+  };
+  for (const [id, fields] of Object.entries(verifiedOperations)) {
+    if (gates[id]?.status !== 'GO') continue;
+    for (const field of fields) {
+      if (gates[id][field] !== true) blockers.push(id + ': ' + field + ' not verified');
+    }
+  }
+
   const g5 = gates.G5;
   if (g5?.status === 'GO' &&
       (g5.owner_approval !== true ||

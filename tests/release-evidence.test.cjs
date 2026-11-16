@@ -21,6 +21,21 @@ const allGo = () => {
   g0.exclusion_tested_on_copy = true;
   g0.candidate_android_version_code = 5;
   g0.android_signing_compatibility_verified = true;
+  Object.assign(value.gates.G1, {
+    backup_verified: true,
+    isolated_restore_verified: true,
+    production_schema_drift_checked: true,
+    data_integrity_preserved: true,
+  });
+  Object.assign(value.gates.G2, {
+    authenticated_client_artist_tested: true,
+    outsider_rls_tested: true,
+    deposit_notification_flow_tested: true,
+  });
+  Object.assign(value.gates.G4, {
+    rollback_rehearsed: true,
+    storage_restore_verified: true,
+  });
   value.gates.G5.owner_approval = true;
   value.gates.G5.approval_reference = 'Owner approval after review of G0-G4';
   return value;
@@ -81,6 +96,36 @@ test('G0 compatible-upgrade path requires an evidenced signing certificate match
   assert.ok(assessEvidence(value).blockers.some((line) => line.includes('signing compatibility')));
   value.gates.G0.android_signing_compatibility_verified = true;
   assert.equal(assessEvidence(value).ready, true);
+});
+
+test('G1 requires a verified backup, isolated restore, drift review and data preservation', () => {
+  for (const field of [
+    'backup_verified', 'isolated_restore_verified',
+    'production_schema_drift_checked', 'data_integrity_preserved',
+  ]) {
+    const value = allGo();
+    value.gates.G1[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G1: ' + field)));
+  }
+});
+
+test('G2 cannot pass on PGlite-only tests without authenticated multi-role evidence', () => {
+  for (const field of [
+    'authenticated_client_artist_tested', 'outsider_rls_tested',
+    'deposit_notification_flow_tested',
+  ]) {
+    const value = allGo();
+    value.gates.G2[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G2: ' + field)));
+  }
+});
+
+test('G4 requires rollback and Storage recovery exercises', () => {
+  for (const field of ['rollback_rehearsed', 'storage_restore_verified']) {
+    const value = allGo();
+    value.gates.G4[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G4: ' + field)));
+  }
 });
 
 test('owner approval cannot be inferred from CI, evidence, or Stripe tests', () => {

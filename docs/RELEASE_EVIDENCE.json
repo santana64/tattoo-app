@@ -22,11 +22,18 @@
     },
     "G1": {
       "status": "HOLD",
-      "evidence": []
+      "evidence": [],
+      "backup_verified": false,
+      "isolated_restore_verified": false,
+      "production_schema_drift_checked": false,
+      "data_integrity_preserved": false
     },
     "G2": {
       "status": "HOLD",
-      "evidence": []
+      "evidence": [],
+      "authenticated_client_artist_tested": false,
+      "outsider_rls_tested": false,
+      "deposit_notification_flow_tested": false
     },
     "G3": {
       "status": "HOLD",
@@ -34,7 +41,9 @@
     },
     "G4": {
       "status": "HOLD",
-      "evidence": []
+      "evidence": [],
+      "rollback_rehearsed": false,
+      "storage_restore_verified": false
     },
     "G5": {
       "status": "HOLD",
