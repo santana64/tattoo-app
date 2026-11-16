@@ -34,3 +34,13 @@ L'abonnement INKR Premium via Stripe est **indépendant** de ce module.
 5. Contrôler le rendu et la sécurité des liens dans les previews associées au commit testé.
 
 **Production : HOLD.** La V5 principale possède toujours les portes G0 à G5. Ce document ne constitue pas une autorisation de fusion, de mise en production ou d'exécution SQL sur `jxmefklkixzzdceeorcg`.
+
+
+## Renforcement du 16 novembre — notifications et artistes suspendus
+
+- Le client reçoit des notifications INKR lors de la demande ou modification d'un acompte, de la déclaration de réception et de la renonciation par l'artiste. Le clic mène à la fiche du rendez-vous ; ni le lien externe ni une confirmation bancaire ne sont inclus dans la notification.
+- Une demande identique rejouée est idempotente côté notifications. Le déclencheur des rendez-vous annulés ne crée pas de deuxième alerte d'acompte.
+- Seul un rendez-vous **confirmé et encore à venir** peut afficher les actions de nouvelle demande et de paiement externe. Les parties peuvent rafraîchir manuellement les informations pour tenir compte d'une modification effectuée sur un autre appareil.
+- Les RPC refusent désormais les artistes suspendus (`deposit_account_banned`) même si leur identité correspond encore au propriétaire historique du rendez-vous.
+- Migrations : `20261116102000_deposit_notifications.sql`, puis `20261116111500_deposit_banned_artist_guard.sql`, à appliquer **dans cet ordre** après la migration initiale.
+- Les tests automatisés incluent les notifications non dupliquées, l'absence de fuite du lien et le refus d'écriture aux artistes suspendus. Cela ne remplace ni la recette en navigateur authentifié ni les appareils iOS/Android.
