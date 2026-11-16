@@ -4,6 +4,22 @@ export type DepositRequest = Tables<'appointment_deposit_requests'>;
 export type DepositMethod = 'manual' | 'external';
 export type FinalDepositStatus = 'declared_received' | 'waived';
 
+/**
+ * Matches a pending deposit request against the current form, including the
+ * `null` URL used by manual deposits. Avoids submitting an unchanged request.
+ */
+export function isUnchangedDepositRequest(
+  row: Pick<DepositRequest, 'status' | 'amount_cents' | 'method' | 'external_url'> | null,
+  amountCents: number | null,
+  method: DepositMethod,
+  externalUrl: string | null,
+): boolean {
+  return row?.status === 'requested'
+    && row.amount_cents === amountCents
+    && row.method === method
+    && (row.external_url ?? null) === (method === 'external' ? externalUrl : null);
+}
+
 export const APPROVED_DEPOSIT_HOSTS = [
   'buy.stripe.com', 'paypal.me', 'www.paypal.com',
   'pay.sumup.com', 'my.sumup.com', 'revolut.me',
