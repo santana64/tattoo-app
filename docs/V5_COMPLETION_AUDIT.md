@@ -103,3 +103,11 @@ Les observations datées et les blocages depuis résolus sont conservés dans [`
 ## Validation restante avant de qualifier la V5 de complète
 
 Le parcours client/artiste, les références privées à trois identités et le cycle Stripe TEST sont vérifiés sur staging. Restent : transition visuelle Premium après paiement et reconnexion, états d’erreur et permissions de toutes les routes, zoom navigateur 200 % et clavier complets, VoiceOver/TalkBack sur appareils, performance mesurée et essais avec tatoueurs. Aucune route n’est déclarée complète sur la seule preuve du rendu automatisé.
+
+## Vérification sécurité supplémentaire — 16 novembre 2026
+
+- Le conseiller Supabase sur `inkr-v5-staging` signalait 16 fonctions `SECURITY DEFINER` de type `trigger` directement exécutables par `anon`. La migration `20261116132000_revoke_public_trigger_execute.sql` retire le droit `EXECUTE` direct de `PUBLIC`, `anon` et `authenticated` sur les déclencheurs privilégiés, sans changer leurs associations ni leurs corps SQL. Après application, 0 des 19 fonctions concernées ne dispose encore de ce droit pour ces rôles. Les 5 fonctions privilégiées anonymes restantes sont des fonctions distinctes à analyser selon leur contrat public.
+- La migration `20261116132500_pin_legacy_helper_search_path.sql` fixe `search_path=pg_catalog` sur `guard_request_update()` et `search_normalize(text)`. Les deux alertes `function_search_path_mutable` ont disparu sur le staging.
+- Deux tests PGlite `security-trigger-grants.test.cjs` et `security-search-path.test.cjs` couvrent les autorisations et la continuité de comportement. CI GitHub au commit `9b33fa8` : succès ; deux previews Vercel : succès.
+- Les avis Supabase sur d'autres fonctions publiques et politiques RLS nécessitent une revue distincte ; disparition de ces deux types d'alerte ne vaut pas audit sécurité complet.
+- **Production toujours HOLD** : aucune migration de l'actif et aucune fusion. G0–G5 et recettes iOS/Android restent indépendamment bloquants.
