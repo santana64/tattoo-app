@@ -93,8 +93,8 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     await db.exec(migration);
     await db.exec([
       'create table public.notifications (user_id uuid not null, type text not null, title text not null, body text, data jsonb);',
-      "create function public.notify_user(p_user_id uuid, p_type text, p_title text, p_body text, p_data jsonb) returns void language plpgsql security definer set search_path = '' as $ begin insert into public.notifications (user_id,type,title,body,data) values (p_user_id,p_type,p_title,p_body,p_data); end; $;",
-    ].join('\\n'));
+      "create function public.notify_user(p_user_id uuid, p_type text, p_title text, p_body text, p_data jsonb) returns void language plpgsql security definer set search_path = '' as $$ begin insert into public.notifications (user_id,type,title,body,data) values (p_user_id,p_type,p_title,p_body,p_data); end; $$;",
+    ].join('\n'));
     const notifyMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116102000_deposit_notifications.sql'), 'utf8');
     await db.exec(notifyMigration);
     for (const id of [client, artistUser, outsider]) {
