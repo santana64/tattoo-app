@@ -101,6 +101,10 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     await db.exec(notifyMigration);
     const banMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116111500_deposit_banned_artist_guard.sql'), 'utf8');
     await db.exec(banMigration);
+    const indexMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116131500_deposit_client_fk_index.sql'), 'utf8');
+    await db.exec(indexMigration);
+    const clientIndex = await one("select indexname from pg_indexes where schemaname = 'public' and tablename = 'appointment_deposit_requests' and indexname = 'appointment_deposit_requests_client_idx'");
+    assert.equal(clientIndex?.indexname, 'appointment_deposit_requests_client_idx');
     for (const id of [client, artistUser, outsider]) {
       await db.query('insert into public.profiles(id) values ($1)', [id]);
     }
