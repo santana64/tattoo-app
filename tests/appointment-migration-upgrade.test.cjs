@@ -83,8 +83,10 @@ test('migration preserves two existing proposals, closes direct writes and retai
       "alter table public.tattoo_requests add constraint tattoo_requests_availability_hint_check check (availability_hint in ('this_month','next_3_months','next_6_months','flexible'));",
       "alter table public.tattoo_requests alter column artist_id drop not null;",
       "alter table public.reviews alter column client_id drop not null;",
-      "create table public.message_templates (id uuid primary key default gen_random_uuid(), artist_id uuid not null references public.artists(id), title text not null, body text not null, category text, sort_order integer not null default 0, is_active boolean not null default true, created_at timestamptz not null default now(), updated_at timestamptz not null default now());",
     ].join('\n'));
+    await db.exec(fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'production-only-tables.sql'), 'utf8',
+    ));
 
     const beforeGrants = await one(
       "select has_table_privilege('authenticated','public.appointments','UPDATE') as may_update"
@@ -148,6 +150,32 @@ test('migration preserves two existing proposals, closes direct writes and retai
       gallery_layout: 'editorial', hero_variant: 'compact', cta_variant: 'contact', tagline: 'QA only',
     });
     assert.equal((await one("select count(*)::int as n from public.message_templates")).n, 7);
+    const legacyTables = [
+      'artist_reviews', 'deposits', 'flash_bookings', 'healed_photo_reminders',
+      'message_templates', 'notification_preferences', 'open_slots',
+    ];
+    const survivingTables = (await sql(
+      "select tablename from pg_tables where schemaname='public' and tablename=any($1::text[]) order by tablename",
+      [legacyTables],
+    )).map((r) => r.tablename);
+    assert.deepEqual(survivingTables, [...legacyTables].sort());
+    const historicalSchema = await one(`
+      select
+        (select count(*)::int from information_schema.columns
+         where table_schema='public' and table_name=any($1::text[])) as columns,
+        (select count(*)::int from pg_constraint
+         where conrelid in (select oid from pg_class where relnamespace='public'::regnamespace
+           and relname=any($1::text[]))) as constraints,
+        (select count(*)::int from pg_policies
+         where schemaname='public' and tablename=any($1::text[])) as policies,
+        (select count(*)::int from pg_indexes
+         where schemaname='public' and tablename=any($1::text[])
+           and indexname not in (select conname from pg_constraint)) as extra_indexes
+    `, [legacyTables]);
+    assert.ok(historicalSchema.columns >= 80, 'historical columns must survive');
+    assert.ok(historicalSchema.constraints >= 37, 'historical constraints must survive');
+    assert.ok(historicalSchema.policies >= 22, 'historical RLS policies must survive');
+    assert.ok(historicalSchema.extra_indexes >= 9, 'historical indexes must survive');
     for (const proposal of proposals) {
       assert.equal((await one(
         'select availability_hint from public.tattoo_requests where id=$1', [proposal.request],

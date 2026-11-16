@@ -97,3 +97,13 @@ Sur les **8 builds Android historiques terminées** (toutes `versionCode=4`), le
 ### Décision maintenue
 
 Ces preuves justifient la poursuite des tests et évitent une régression involontaire, mais ne constituent **pas** une autorisation de migration du projet actif. Les contrôles G0–G5 restent `HOLD`. Aucune sauvegarde de production n'est déclarée vérifiée ; aucune publication ni migration SQL n'a été appliquée à `jxmefklkixzzdceeorcg`.
+
+### Banc de test du schéma historique élargi
+
+Le fichier `tests/fixtures/production-only-tables.sql` a été construit à partir des métadonnées `pg_catalog` réelles du projet actif. Il contient, **sans aucune donnée utilisateur**, les définitions des sept tables héritées absentes du staging : **80 colonnes, 37 contraintes, 9 index supplémentaires et 22 policies RLS**. Il les crée uniquement dans PGlite pour le test ; il n'est ni un script destiné à la production, ni une sauvegarde.
+
+Le test `tests/appointment-migration-upgrade.test.cjs` reprend désormais ce fixture, les huit colonnes historiques propres aux autres tables, les contraintes ciblées, et sept modèles de messages synthétiques. Il exécute la suite des migrations V5/V5.1 puis vérifie la conservation des tables, de leurs colonnes, contraintes, index, politiques, des modèles de messages et des deux propositions de séance. **PASS sur PGlite**.
+
+**Limites résiduelles :** les **8 triggers historiques** de ces sept tables, leurs fonctions, les permissions SQL héritées, les autres schémas Supabase (Auth/Storage) et les objets/binaries privés ne sont pas restaurés par ce fixture. Les tables anciennes vides peuvent tout de même contenir une logique de triggers sensible aux migrations : seule une restauration fidèle hors production permet de la valider. Ne pas utiliser ce résultat pour forcer les gates G0 ou G1 à GO.
+
+L'accès web automatisé aux consoles de distribution n'était pas exploitable pendant cette session ; l'absence de courriels correspondant au package `com.inkr.tattoo` n'établit pas l'absence de publications ni d'installations. Aucune conclusion de distribution n'en est déduite.
