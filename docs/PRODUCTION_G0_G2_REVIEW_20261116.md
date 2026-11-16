@@ -67,3 +67,33 @@ Test exécuté le 16 novembre 2026 : **PASS**. Le test de migration des deux pro
 5. Revoir les preuves et obtenir une approbation de publication **distincte** (G5). Sans cela, aucun merge ni mutation de la production.
 
 **État documentaire : tous les gates G0–G5 demeurent HOLD.**
+
+## Complément — inventaire exhaustif du schéma existant
+
+Relevé SQL **en lecture seule** sur les deux projets le 16 novembre 2026 :
+
+- Production : **36 tables, 372 colonnes** dans le schéma `public`.
+- Staging : **31 tables, 301 colonnes** dans le même schéma.
+- **7 tables présentes uniquement en production** : `artist_reviews`, `deposits`, `flash_bookings`, `healed_photo_reminders`, `message_templates`, `notification_preferences`, `open_slots`.
+- **2 tables présentes uniquement en staging** : `appointment_deposit_requests`, `stripe_subscription_events`.
+- Paramètres historiques supplémentaires en production : `artists.gallery_layout`, `hero_variant`, `cta_variant`, `tagline`, `pinned_post_id`, `section_order`, ainsi que `profiles.deletion_requested_at` et `tattoo_requests.availability_hint`.
+- `tattoo_requests.artist_id` et `reviews.client_id` sont **nullable en production** mais non nullable en staging ; plusieurs colonnes UUID ont des fonctions de valeur par défaut différentes (`gen_random_uuid()` contre `uuid_generate_v4()`).
+- Les vérifications SQL ciblées ont également recensé les contraintes historiques `chk_gallery_layout`, `chk_hero_variant`, `chk_cta_variant`, une FK d'œuvre épinglée et un index sur `profiles.deletion_requested_at`. La policy `appointments_manage_artist` est encore présente en production et absente sur staging.
+
+### Volumétrie sans extraction de données nominatives
+
+Production au relevé : **4 demandes de tatouage**, **2 rendez-vous proposés**, **7 modèles de message**. Les anciennes tables `deposits`, `flash_bookings`, `artist_reviews`, `healed_photo_reminders`, `notification_preferences` et `open_slots` contiennent chacune **0 ligne**. Aucune des demandes actuellement recensées n'a `artist_id IS NULL` et aucun avis recensé n'a `client_id IS NULL`. **Zéro écriture** dans le projet de production pendant cette vérification.
+
+### Test de reprise renforcé
+
+Le test `tests/appointment-migration-upgrade.test.cjs` simule désormais les colonnes et contraintes anciennes de personnalisation, la nullabilité historique, et **7 modèles de messages synthétiques**. Il rejoue ensuite **toutes** les migrations V5/V5.1 postérieures au verrouillage des rendez-vous, et vérifie leur conservation, ainsi que celle de deux rendez-vous proposés. Résultat : **PASS** sur PGlite.
+
+Cette simulation couvre une partie vérifiable de la dérive, **pas les 36 tables/372 colonnes avec leurs données réelles, extensions, secrets Auth et objets Storage**. Le passage G1 exige encore un vrai export de sauvegarde, une restauration **isolée** et un contrôle de l'ensemble des schémas et des services associés. Une branche Supabase standard ne copie pas la production : la documentation Supabase précise que les branches de prévisualisation reçoivent les migrations et non les données de production. Aucune branche facturable n'a été créée.
+
+### Historique des artefacts EAS
+
+Sur les **8 builds Android historiques terminées** (toutes `versionCode=4`), les trois plus récentes possédant une URL d'artefact renvoient **HTTP 404** ; les cinq autres ne présentent **aucune URL d'artefact** dans la réponse EAS actuelle. Aucun ancien APK n'a donc pu être récupéré depuis EAS. Les éventuels APK manuellement distribués et l'historique des consoles Google Play / App Store restent à examiner. **Ne jamais marquer G0 comme terminé à partir de l'absence de téléchargement.**
+
+### Décision maintenue
+
+Ces preuves justifient la poursuite des tests et évitent une régression involontaire, mais ne constituent **pas** une autorisation de migration du projet actif. Les contrôles G0–G5 restent `HOLD`. Aucune sauvegarde de production n'est déclarée vérifiée ; aucune publication ni migration SQL n'a été appliquée à `jxmefklkixzzdceeorcg`.
