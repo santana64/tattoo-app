@@ -119,13 +119,13 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
       assert.equal(row.status, 'requested');
       // An unchanged replay must not send another notification.
       await one("select (public.set_appointment_deposit_request($1,5000,'external','https://paypal.me/artist')).status as status", [appt]);
-      const notices = (await db.query('select type,data from public.notifications order by type')).rows;
-      assert.equal(notices.length, 1, 'new deposit creates one client notification');
-      assert.equal(notices[0].type, 'deposit_requested');
-      assert.equal(notices[0].data.appointment_id, appt);
-      assert.equal(JSON.stringify(notices[0]).includes('paypal.me'), false, 'never copy payment URLs to notifications');
     });
 
+    const notices = (await db.query('select type,data from public.notifications order by type')).rows;
+    assert.equal(notices.length, 1, 'new deposit creates one client notification');
+    assert.equal(notices[0].type, 'deposit_requested');
+    assert.equal(notices[0].data.appointment_id, appt);
+    assert.equal(JSON.stringify(notices[0]).includes('paypal.me'), false, 'never copy payment URLs to notifications');
     await as(outsider, async () => {
       assert.equal((await db.query('select * from public.appointment_deposit_requests')).rows.length, 0);
     });
@@ -137,12 +137,12 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     await as(artistUser, async () => {
       const row = await one("select (public.finalize_appointment_deposit_request($1,'declared_received')).status as status", [appt]);
       assert.equal(row.status, 'declared_received');
-      const notices = (await db.query("select type,body from public.notifications where type='deposit_declared_received'")).rows;
-      assert.equal(notices.length, 1);
-      assert.match(notices[0].body, /pas vérifié/);
       await assert.rejects(db.query("select public.set_appointment_deposit_request($1,3000,'manual',null)", [appt]), /deposit_already_finalized/);
       await one("select (public.set_appointment_deposit_request($1,2000,'external','https://buy.stripe.com/test_123')).status as status", [appt2]);
     });
+    const notices = (await db.query("select type,body from public.notifications where type='deposit_declared_received'")).rows;
+    assert.equal(notices.length, 1);
+    assert.match(notices[0].body, /pas vérifié/);
     await db.query("update public.appointments set status='canceled' where id=$1", [appt2]);
     const cancelled = await one('select status,external_url from public.appointment_deposit_requests where appointment_id=$1', [appt2]);
     assert.equal(cancelled.status, 'cancelled');
