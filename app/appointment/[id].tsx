@@ -489,7 +489,7 @@ export default function AppointmentScreen() {
   ) : null;
 
   const depositSection = (
-    <DepositSection appointmentId={appointment.id} appointmentStatus={appointment.status} isArtist={!!isArtist} />
+    <DepositSection appointmentId={appointment.id} appointmentStatus={appointment.status} upcoming={upcoming} isArtist={!!isArtist} />
   );
 
   const healed = (
