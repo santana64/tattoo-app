@@ -91,6 +91,12 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     ].join('\n'));
     const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116081339_optional_external_deposits.sql'), 'utf8');
     await db.exec(migration);
+    await db.exec([
+      'create table public.notifications (user_id uuid not null, type text not null, title text not null, body text, data jsonb);',
+      "create function public.notify_user(p_user_id uuid, p_type text, p_title text, p_body text, p_data jsonb) returns void language plpgsql security definer set search_path = '' as $ begin insert into public.notifications (user_id,type,title,body,data) values (p_user_id,p_type,p_title,p_body,p_data); end; $;",
+    ].join('\\n'));
+    const notifyMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116102000_deposit_notifications.sql'), 'utf8');
+    await db.exec(notifyMigration);
     for (const id of [client, artistUser, outsider]) {
       await db.query('insert into public.profiles(id) values ($1)', [id]);
     }
@@ -111,6 +117,13 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
       await assert.rejects(db.query("select public.set_appointment_deposit_request($1,5000,'external','http://paypal.me/p')", [appt]), /deposit_invalid_payment_link/);
       const row = await one("select (public.set_appointment_deposit_request($1,5000,'external','https://paypal.me/artist')).status as status", [appt]);
       assert.equal(row.status, 'requested');
+      // An unchanged replay must not send another notification.
+      await one("select (public.set_appointment_deposit_request($1,5000,'external','https://paypal.me/artist')).status as status", [appt]);
+      const notices = (await db.query('select type,data from public.notifications order by type')).rows;
+      assert.equal(notices.length, 1, 'new deposit creates one client notification');
+      assert.equal(notices[0].type, 'deposit_requested');
+      assert.equal(notices[0].data.appointment_id, appt);
+      assert.equal(JSON.stringify(notices[0]).includes('paypal.me'), false, 'never copy payment URLs to notifications');
     });
 
     await as(outsider, async () => {
@@ -124,6 +137,9 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     await as(artistUser, async () => {
       const row = await one("select (public.finalize_appointment_deposit_request($1,'declared_received')).status as status", [appt]);
       assert.equal(row.status, 'declared_received');
+      const notices = (await db.query("select type,body from public.notifications where type='deposit_declared_received'")).rows;
+      assert.equal(notices.length, 1);
+      assert.match(notices[0].body, /pas vérifié/);
       await assert.rejects(db.query("select public.set_appointment_deposit_request($1,3000,'manual',null)", [appt]), /deposit_already_finalized/);
       await one("select (public.set_appointment_deposit_request($1,2000,'external','https://buy.stripe.com/test_123')).status as status", [appt2]);
     });
@@ -131,6 +147,8 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     const cancelled = await one('select status,external_url from public.appointment_deposit_requests where appointment_id=$1', [appt2]);
     assert.equal(cancelled.status, 'cancelled');
     assert.equal(cancelled.external_url, null);
+    assert.equal((await db.query("select count(*)::int as n from public.notifications")).rows[0].n, 3,
+      'cancellation does not send duplicate deposit alerts');
   } finally {
     await db.close();
   }
