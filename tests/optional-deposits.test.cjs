@@ -77,12 +77,14 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
   const artist = '44444444-4444-4444-8444-444444444444';
   const appt = '55555555-5555-4555-8555-555555555555';
   const appt2 = '66666666-6666-4666-8666-666666666666';
+  const appt3 = '77777777-7777-4777-8777-777777777777';
   try {
     await db.exec([
       'create role anon nologin;', 'create role authenticated nologin;',
       'create schema auth;',
       "create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;",
-      'create table public.profiles (id uuid primary key);',
+      'create table public.profiles (id uuid primary key, is_banned boolean not null default false);',
+      "create function public.is_banned() returns boolean language sql stable security definer set search_path = public as $$ select coalesce((select is_banned from public.profiles where id = auth.uid()), false); $$;", 
       'create table public.artists (id uuid primary key, profile_id uuid not null references public.profiles(id));',
       'create table public.appointments (id uuid primary key, artist_id uuid references public.artists(id), client_id uuid references public.profiles(id), status text not null, starts_at timestamptz not null);',
       'grant usage on schema public, auth to authenticated, anon;',
@@ -97,11 +99,13 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     ].join('\n'));
     const notifyMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116102000_deposit_notifications.sql'), 'utf8');
     await db.exec(notifyMigration);
+    const banMigration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116111500_deposit_banned_artist_guard.sql'), 'utf8');
+    await db.exec(banMigration);
     for (const id of [client, artistUser, outsider]) {
       await db.query('insert into public.profiles(id) values ($1)', [id]);
     }
     await db.query('insert into public.artists(id, profile_id) values ($1, $2)', [artist, artistUser]);
-    for (const id of [appt, appt2]) {
+    for (const id of [appt, appt2, appt3]) {
       await db.query("insert into public.appointments(id, artist_id, client_id, status, starts_at) values ($1,$2,$3,'confirmed',now()+interval '7 days')", [id, artist, client]);
     }
 
@@ -149,6 +153,11 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
     assert.equal(cancelled.external_url, null);
     assert.equal((await db.query("select count(*)::int as n from public.notifications")).rows[0].n, 3,
       'cancellation does not send duplicate deposit alerts');
+    await db.query('update public.profiles set is_banned = true where id=$1', [artistUser]);
+    await as(artistUser, async () => {
+      await assert.rejects(db.query("select public.set_appointment_deposit_request($1,5000,'manual',null)", [appt3]), /deposit_account_banned/);
+      await assert.rejects(db.query("select public.finalize_appointment_deposit_request($1,'waived')", [appt]), /deposit_account_banned/);
+    });
   } finally {
     await db.close();
   }
