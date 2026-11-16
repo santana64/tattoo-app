@@ -24,6 +24,26 @@ test('deposit amount parsing is exact and bounded, not floating-point rounding',
   }
 });
 
+test('unchanged manual and external deposits are recognized without spurious resubmission', () => {
+  const d = loadDeposits();
+  const manual = {
+    status: 'requested', amount_cents: 5000, method: 'manual', external_url: null,
+  };
+  assert.equal(d.isUnchangedDepositRequest(manual, 5000, 'manual', null), true);
+  assert.equal(d.isUnchangedDepositRequest(manual, 5200, 'manual', null), false);
+  assert.equal(d.isUnchangedDepositRequest(manual, 5000, 'external', 'https://paypal.me/artist'), false);
+  assert.equal(d.isUnchangedDepositRequest(null, 5000, 'manual', null), false);
+  assert.equal(d.isUnchangedDepositRequest({ ...manual, status: 'waived' }, 5000, 'manual', null), false);
+
+  const external = {
+    status: 'requested', amount_cents: 5000, method: 'external',
+    external_url: 'https://paypal.me/artist',
+  };
+  assert.equal(d.isUnchangedDepositRequest(external, 5000, 'external', 'https://paypal.me/artist'), true);
+  assert.equal(d.isUnchangedDepositRequest(external, 5000, 'external', 'https://paypal.me/other'), false);
+  assert.equal(d.isUnchangedDepositRequest(external, 5000, 'manual', null), false);
+});
+
 test('external deposit links reject spoofed providers and insecure protocols', () => {
   const d = loadDeposits();
   assert.equal(d.approvedExternalDepositUrl('https://paypal.me/artist'), 'https://paypal.me/artist');
