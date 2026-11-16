@@ -14,10 +14,11 @@ import {
 type Props = {
   appointmentId: string;
   appointmentStatus: 'proposed' | 'confirmed' | 'completed' | 'canceled';
+  upcoming: boolean;
   isArtist: boolean;
 };
 
-export function DepositSection({ appointmentId, appointmentStatus, isArtist }: Props) {
+export function DepositSection({ appointmentId, appointmentStatus, upcoming, isArtist }: Props) {
   const [row, setRow] = useState<DepositRequest | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export function DepositSection({ appointmentId, appointmentStatus, isArtist }: P
     return () => { active = false; };
   }, [appointmentId, appointmentStatus, attempt]);
 
-  const open = appointmentStatus === 'confirmed';
+  const open = appointmentStatus === 'confirmed' && upcoming;
   const canConfigure = isArtist && open && (!row || row.status === 'requested');
   if (loadState === 'loading') {
     return open && isArtist
@@ -66,7 +67,7 @@ export function DepositSection({ appointmentId, appointmentStatus, isArtist }: P
       </View>
     );
   }
-  if (!row && !canConfigure) return null;
+  if (!row && !canConfigure && !open) return null;
 
   const amountCents = eurosToCents(amount);
   const safeLink = approvedExternalDepositUrl(link.trim());
@@ -97,7 +98,7 @@ export function DepositSection({ appointmentId, appointmentStatus, isArtist }: P
     setRow(result.data);
   };
 
-  const payUrl = row?.status === 'requested' && appointmentStatus === 'confirmed' && row.external_url
+  const payUrl = row?.status === 'requested' && open && row.external_url
     ? approvedExternalDepositUrl(row.external_url)
     : null;
   const openPayment = async () => {
@@ -116,6 +117,9 @@ export function DepositSection({ appointmentId, appointmentStatus, isArtist }: P
         Facultatif. INKR ne prélève, ne détient et ne vérifie aucun acompte. Les conditions de paiement et de remboursement sont définies directement avec le tatoueur.
       </TText>
 
+      {!row && open && !isArtist && (
+        <TText variant="caption" color="secondary">Aucun acompte demandé pour ce rendez-vous.</TText>
+      )}
       {row && (
         <View style={styles.summary} accessibilityLiveRegion="polite">
           <TText variant="displayS">{formatDeposit(row.amount_cents)}</TText>
@@ -171,6 +175,8 @@ export function DepositSection({ appointmentId, appointmentStatus, isArtist }: P
           )}
         </View>
       )}
+      <TButton title="Actualiser l’acompte" variant="ghost" size="sm" fullWidth={false}
+        disabled={busy} onPress={() => setAttempt((n) => n + 1)} />
       {!!error && <TText variant="caption" color="error" accessibilityRole="alert">{error}</TText>}
     </View>
   );
