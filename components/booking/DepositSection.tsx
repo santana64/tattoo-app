@@ -7,7 +7,7 @@ import { TInput } from '@/components/ui/TInput';
 import { Kicker } from '@/components/v5';
 import {
   approvedExternalDepositUrl, eurosToCents, fetchDeposit,
-  finalizeDeposit, formatDeposit, requestDeposit,
+  finalizeDeposit, formatDeposit, isUnchangedDepositRequest, requestDeposit,
   type DepositMethod, type DepositRequest, type FinalDepositStatus,
 } from '@/lib/deposits';
 
@@ -76,9 +76,9 @@ export function DepositSection({ appointmentId, appointmentStatus, upcoming, isA
     : method === 'external' && !safeLink
       ? 'Utilisez un lien HTTPS Stripe, PayPal, SumUp ou Revolut.'
       : null;
-  const unchanged = row?.status === 'requested'
-    && row.amount_cents === amountCents && row.method === method
-    && (row.external_url ?? '') === (method === 'external' ? safeLink : null);
+  const unchanged = isUnchangedDepositRequest(
+    row, amountCents, method, method === 'external' ? safeLink : null,
+  );
 
   const save = async () => {
     if (busy || validation || !amountCents || !canConfigure) return;
