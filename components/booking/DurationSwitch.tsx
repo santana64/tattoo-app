@@ -41,6 +41,7 @@ export function DurationSwitch({ durations, value, onChange, disabled, style }: 
             accessibilityRole="radio"
             accessibilityLabel={`Séance de ${label}`}
             accessibilityState={{ selected, checked: selected, disabled }}
+            aria-checked={Platform.OS === 'web' ? selected : undefined}
             hitSlop={4}
             style={(state) => {
               const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };

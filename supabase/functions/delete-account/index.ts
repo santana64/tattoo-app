@@ -4,9 +4,9 @@
 // Order matters:
 //   1. cancel the Stripe subscription — if that fails we stop, so nobody
 //      keeps being billed for an account that no longer exists;
-//   2. delete the auth user — the database cascades to the profile, artist
-//      page, posts, requests, messages, appointments and reviews;
-//   3. remove the uploaded files (best effort; failures are logged).
+//   2. remove and verify uploaded files while the account can still retry;
+//   3. delete the auth user — the database cascades to the profile, artist
+//      page, posts, requests, messages, appointments and reviews.
 //
 // Deploy: supabase functions deploy delete-account
 // Secrets: STRIPE_SECRET_KEY (optional), ALLOWED_ORIGINS
@@ -58,15 +58,14 @@ async function listFiles(admin: SupabaseClient, bucket: string, prefix: string):
 }
 
 async function removeFolder(admin: SupabaseClient, bucket: string, prefix: string): Promise<void> {
-  try {
-    const files = await listFiles(admin, bucket, prefix);
-    for (let i = 0; i < files.length; i += REMOVE_BATCH) {
-      const { error } = await admin.storage.from(bucket).remove(files.slice(i, i + REMOVE_BATCH));
-      if (error) throw error;
-    }
-  } catch (err) {
-    console.error(`delete-account: could not clean ${bucket}/${prefix}`, err);
+  const files = await listFiles(admin, bucket, prefix);
+  for (let i = 0; i < files.length; i += REMOVE_BATCH) {
+    const { error } = await admin.storage.from(bucket).remove(files.slice(i, i + REMOVE_BATCH));
+    if (error) throw error;
   }
+  // Storage can report success while RLS or another error left every object
+  // untouched. Never delete the Auth user until absence is observed.
+  if ((await listFiles(admin, bucket, prefix)).length) throw new Error(`storage_cleanup_failed:${bucket}`);
 }
 
 serve(async (req) => {
@@ -104,19 +103,25 @@ serve(async (req) => {
       if (!canceled) return json(req, { error: 'subscription_cancel_failed' }, 502);
     }
 
-    const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
-    if (deleteError) throw new Error(`user deletion failed: ${deleteError.message}`);
-
     const cleanups: Promise<void>[] = [
       removeFolder(admin, 'avatars', user.id),
       removeFolder(admin, 'covers', user.id),
       removeFolder(admin, 'verification-docs', user.id),
+      removeFolder(admin, 'healed-photos', user.id),
     ];
-    if (artist) cleanups.push(removeFolder(admin, 'posts-media', artist.id));
+    if (artist) {
+      // Cover uploads use the artist id; the user id is retained above for
+      // older objects written before that path convention.
+      cleanups.push(removeFolder(admin, 'covers', artist.id));
+      cleanups.push(removeFolder(admin, 'posts-media', artist.id));
+    }
     for (const request of requests ?? []) {
       cleanups.push(removeFolder(admin, 'request-references', request.id));
     }
     await Promise.all(cleanups);
+
+    const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
+    if (deleteError) throw new Error(`user deletion failed: ${deleteError.message}`);
 
     return json(req, { deleted: true });
   } catch (err) {

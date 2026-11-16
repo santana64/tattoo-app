@@ -43,6 +43,6 @@ export function authErrorMessage(error: Pick<AuthError, 'message'> & { code?: st
 export function enabledOAuthProviders(): Set<'google' | 'apple'> {
   const raw = process.env.EXPO_PUBLIC_AUTH_PROVIDERS ?? '';
   return new Set(
-    raw.split(',').map((p) => p.trim().toLowerCase()).filter((p): p is 'google' | 'apple' => p === 'google' || p === 'apple'),
+    raw.split(',').map((p: string) => p.trim().toLowerCase()).filter((p: string): p is 'google' | 'apple' => p === 'google' || p === 'apple'),
   );
 }

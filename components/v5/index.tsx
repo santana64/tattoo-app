@@ -110,6 +110,7 @@ interface MastheadProps {
   title: string;
   emphasis?: string;
   breakEmphasis?: boolean;
+  titleSize?: 'page' | 'section';
   description?: string;
   /** Rendered at the right on wide screens, under the description on phones. */
   action?: React.ReactNode;
@@ -117,13 +118,13 @@ interface MastheadProps {
 }
 
 /** Page header: kicker, serif title, a short description at the right, closed by an ink rule. */
-export function Masthead({ kicker, title, emphasis, breakEmphasis, description, action, style }: MastheadProps) {
+export function Masthead({ kicker, title, emphasis, breakEmphasis, titleSize = 'page', description, action, style }: MastheadProps) {
   const { isWide } = useContentDimensions();
   return (
     <View style={[styles.masthead, isWide ? styles.mastheadWide : styles.mastheadNarrow, style]}>
       <View style={styles.mastheadMain}>
         {kicker ? <Kicker style={{ marginBottom: isWide ? 16 : 12 }}>{kicker}</Kicker> : null}
-        <EditorialTitle emphasis={emphasis} breakEmphasis={breakEmphasis}>{title}</EditorialTitle>
+        <EditorialTitle size={titleSize} emphasis={emphasis} breakEmphasis={breakEmphasis}>{title}</EditorialTitle>
       </View>
       {(description || action) ? (
         <View style={isWide ? styles.mastheadAside : styles.mastheadBelow}>
@@ -404,8 +405,13 @@ export function Toggle({ value, onChange, label, disabled = false }: {
       accessibilityRole="switch"
       accessibilityLabel={label}
       accessibilityState={{ checked: value, disabled }}
+      aria-checked={Platform.OS === 'web' ? value : undefined}
       hitSlop={8}
-      style={[styles.toggle, webPointer, value && styles.toggleOn, disabled && { opacity: 0.45 }]}
+      style={(state) => [
+        styles.toggle, webPointer, value && styles.toggleOn,
+        (state as Hover).focused && styles.controlFocus,
+        disabled && { opacity: 0.45 },
+      ]}
     >
       <View style={[styles.knob, value && styles.knobOn]} />
     </Pressable>
@@ -422,11 +428,13 @@ export function Choice({ title, hint, selected, onPress, style }: {
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
+      aria-checked={Platform.OS === 'web' ? selected : undefined}
       accessibilityLabel={hint ? `${title}, ${hint}` : title}
       style={(state) => [
         styles.choice,
         webPointer,
         ((state as Hover).hovered || selected) && styles.choiceActive,
+        (state as Hover).focused && styles.controlFocus,
         style,
       ]}
     >
@@ -534,6 +542,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.line, backgroundColor: 'transparent',
   },
   choiceActive: { borderColor: Colors.flame, backgroundColor: Colors.flameSoft },
+  controlFocus: { borderWidth: 2, borderColor: Colors.flame },
   choiceMark: { position: 'absolute', top: 0, right: 0, width: 10, height: 10, backgroundColor: Colors.flame },
 
   mark: { position: 'absolute', top: 12, left: 12, backgroundColor: Colors.paper, paddingHorizontal: 7, paddingVertical: 4, maxWidth: '80%' },

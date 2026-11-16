@@ -86,8 +86,8 @@ export async function blockDays(artistId: string, from: Date, to: Date, label?: 
 }
 
 export async function unblockPeriod(id: string): Promise<string | null> {
-  const { error } = await supabase.from('artist_availability').delete().eq('id', id);
-  return error ? 'Suppression impossible. Réessayez.' : null;
+  const { data, error } = await supabase.from('artist_availability').delete().eq('id', id).select('id').maybeSingle();
+  return error || !data ? 'Suppression impossible. Réessayez.' : null;
 }
 
 // ── Free slots ───────────────────────────────────────────────────────────────
@@ -219,10 +219,16 @@ export async function fetchFollowedArtistIds(userId: string): Promise<string[]> 
 }
 
 export async function setFollow(userId: string, artistId: string, follow: boolean): Promise<boolean> {
-  const { error } = follow
-    ? await supabase.from('artist_follows').upsert({ follower_id: userId, artist_id: artistId }, { onConflict: 'follower_id,artist_id', ignoreDuplicates: true })
-    : await supabase.from('artist_follows').delete().eq('follower_id', userId).eq('artist_id', artistId);
-  return !error;
+  if (follow) {
+    const { error } = await supabase.from('artist_follows').upsert(
+      { follower_id: userId, artist_id: artistId },
+      { onConflict: 'follower_id,artist_id', ignoreDuplicates: true },
+    );
+    return !error;
+  }
+  const { data, error } = await supabase.from('artist_follows').delete()
+    .eq('follower_id', userId).eq('artist_id', artistId).select('artist_id');
+  return !error && data?.length === 1;
 }
 
 export async function isOnWaitlist(userId: string, artistId: string): Promise<boolean> {
@@ -292,9 +298,11 @@ export async function createFlash(artistId: string, input: FlashInput): Promise<
   return { id: data.id, error: null };
 }
 
-export async function deleteFlash(id: string): Promise<boolean> {
-  const { error } = await supabase.from('flash_designs').delete().eq('id', id);
-  return !error;
+/** Hide a flash without clearing the foreign key on requests already sent for it. */
+export async function archiveFlash(id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('flash_designs')
+    .update({ is_published: false }).eq('id', id).eq('is_published', true).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 // ── Guest spots ──────────────────────────────────────────────────────────────
@@ -359,8 +367,8 @@ export async function createGuestSpot(artistId: string, input: GuestSpotInput): 
 }
 
 export async function deleteGuestSpot(id: string): Promise<boolean> {
-  const { error } = await supabase.from('guest_spots').delete().eq('id', id);
-  return !error;
+  const { data, error } = await supabase.from('guest_spots').delete().eq('id', id).select('id').maybeSingle();
+  return !error && !!data;
 }
 
 // ── Series ───────────────────────────────────────────────────────────────────

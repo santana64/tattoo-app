@@ -8,16 +8,6 @@ import Stripe from 'https://esm.sh/stripe@13.10.0?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { bearerToken, corsHeaders, isAllowedReturnUrl, json } from '../_shared/http.ts';
 
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
-  apiVersion: '2023-10-16',
-  httpClient: Stripe.createFetchHttpClient(),
-});
-
-const PRICES: Record<string, string> = {
-  monthly: Deno.env.get('STRIPE_PRICE_MONTHLY') ?? '',
-  yearly: Deno.env.get('STRIPE_PRICE_YEARLY') ?? '',
-};
-
 // Stripe only accepts https return URLs. Without one from an allowed web
 // origin, the session returns through the payment-return function, which
 // forwards to the app's inkr:// deep link.
@@ -50,8 +40,17 @@ serve(async (req) => {
     }
 
     const period = typeof body.period === 'string' ? body.period : 'monthly';
-    const priceId = Object.hasOwn(PRICES, period) ? PRICES[period] : '';
-    if (!priceId) return json(req, { error: 'invalid_period' }, 400);
+    if (period !== 'monthly' && period !== 'yearly') return json(req, { error: 'invalid_period' }, 400);
+    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
+    const priceId = Deno.env.get(period === 'monthly' ? 'STRIPE_PRICE_MONTHLY' : 'STRIPE_PRICE_YEARLY');
+    if (!stripeKey || !priceId) return json(req, { error: 'checkout_unavailable' }, 503);
+    if (Deno.env.get('SUPABASE_URL') === 'https://lsewxsdulunuuzmszegm.supabase.co' && !stripeKey.startsWith('sk_test_')) {
+      return json(req, { error: 'checkout_unavailable' }, 503);
+    }
+    const stripe = new Stripe(stripeKey, {
+      apiVersion: '2023-10-16',
+      httpClient: Stripe.createFetchHttpClient(),
+    });
 
     // Return URLs come from the client: only the app itself is accepted, so a
     // crafted request cannot turn Stripe's redirect into an open redirect.
@@ -82,14 +81,17 @@ serve(async (req) => {
         email: profile?.email ?? user.email,
         name: profile?.display_name,
         metadata: { supabase_user_id: user.id, artist_id: artist.id },
-      });
+      }, { idempotencyKey: `inkr-customer-${artist.id}` });
       customerId = customer.id;
 
-      const { error: saveError } = await supabase
+      const { data: saved, error: saveError } = await supabase
         .from('artists')
         .update({ stripe_customer_id: customerId })
-        .eq('id', artist.id);
-      if (saveError) throw new Error(`customer id not saved: ${saveError.message}`);
+        .eq('id', artist.id)
+        .is('stripe_customer_id', null)
+        .select('id')
+        .maybeSingle();
+      if (saveError || !saved) throw new Error('customer id not saved');
     }
 
     const session = await stripe.checkout.sessions.create({

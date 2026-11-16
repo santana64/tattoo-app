@@ -68,8 +68,8 @@ serve(async (req) => {
   let event: Stripe.Event;
   try {
     event = await stripe.webhooks.constructEventAsync(body, sig, webhookSecret);
-  } catch (error) {
-    return new Response(`Webhook Error: ${error instanceof Error ? error.message : 'invalid signature'}`, { status: 400 });
+  } catch {
+    return json({ error: 'invalid_signature' }, 400);
   }
 
   const getArtistByCustomer = async (customerId: string) => {
@@ -80,8 +80,28 @@ serve(async (req) => {
       .maybeSingle();
     if (error) {
       console.error('stripe-webhook artist lookup failed', { customerId, message: error.message });
+      throw error;
     }
     return data;
+  };
+
+  const applySubscription = async (sub: Stripe.Subscription, deleted: boolean) => {
+    const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
+    const artist = await getArtistByCustomer(customerId);
+    if (!artist) return;
+    const { error } = await supabase.rpc('apply_stripe_subscription_event', {
+      p_event_id: event.id,
+      p_event_created_at: new Date(event.created * 1000).toISOString(),
+      p_artist_id: artist.id,
+      p_subscription_id: sub.id,
+      p_status: sub.status,
+      p_price_id: sub.items.data[0]?.price.id ?? null,
+      p_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+      p_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+      p_cancel_at_period_end: sub.cancel_at_period_end,
+      p_deleted: deleted,
+    });
+    if (error) throw error;
   };
 
   try {
@@ -89,63 +109,13 @@ serve(async (req) => {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription;
-        const artist = await getArtistByCustomer(sub.customer as string);
-        if (!artist) break;
-
-        const priceId = sub.items.data[0]?.price.id ?? null;
-        const tier = (sub.status === 'active' || sub.status === 'trialing') ? 'premium' : 'normal';
-
-        const { error: artistUpdateError } = await supabase.from('artists').update({
-          tier,
-          stripe_subscription_id: sub.id,
-          stripe_subscription_status: sub.status,
-        }).eq('id', artist.id);
-        if (artistUpdateError) throw artistUpdateError;
-
-        const { error: subscriptionError } = await supabase.from('subscriptions').upsert({
-          artist_id: artist.id,
-          stripe_subscription_id: sub.id,
-          stripe_price_id: priceId,
-          tier,
-          status: sub.status,
-          current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-          cancel_at_period_end: sub.cancel_at_period_end,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'artist_id' });
-        if (subscriptionError) throw subscriptionError;
-
-        const { error: notificationError } = await supabase.from('notifications').insert({
-          user_id: artist.profile_id,
-          type: 'subscription_renewed',
-          title: `Abonnement ${tier === 'premium' ? 'Premium' : 'Standard'} actif`,
-          body: `Ton abonnement INKR ${tier === 'premium' ? 'Premium' : 'Standard'} est bien actif.`,
-        });
-        if (notificationError) {
-          console.error('stripe-webhook subscription notification failed', {
-            userId: artist.profile_id,
-            message: notificationError.message,
-          });
-        }
+        await applySubscription(sub, false);
         break;
       }
 
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
-        const artist = await getArtistByCustomer(sub.customer as string);
-        if (!artist) break;
-
-        const { error: artistUpdateError } = await supabase.from('artists').update({
-          tier: 'normal',
-          stripe_subscription_status: 'canceled',
-        }).eq('id', artist.id);
-        if (artistUpdateError) throw artistUpdateError;
-
-        const { error: subscriptionError } = await supabase.from('subscriptions').update({
-          status: 'canceled',
-          updated_at: new Date().toISOString(),
-        }).eq('artist_id', artist.id);
-        if (subscriptionError) throw subscriptionError;
+        await applySubscription(sub, true);
         break;
       }
 

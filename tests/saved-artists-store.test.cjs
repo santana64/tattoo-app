@@ -47,6 +47,15 @@ test('a persisted removal updates favorites and an anonymous action is rejected'
   assert.equal(await store.getState().toggle('', 'artist'), false);
 });
 
+test('a removal affecting zero rows keeps the artist saved', async () => {
+  const store = loadStore(clientWith({
+    read: async () => ({ data: [{ artist_id: 'artist' }], error: null }),
+    write: async () => ({ data: [], error: null }),
+  }));
+  assert.equal(await store.getState().toggle('user', 'artist'), false);
+  assert.equal(store.getState().savedArtistIds.has('artist'), true);
+});
+
 test('duplicate clicks wait for persistence and send only one mutation', async () => {
   let release, calls = 0;
   const response = new Promise(resolve => { release = resolve; });

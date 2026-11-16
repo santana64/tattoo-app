@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
+import { AppState, ScrollView, StyleSheet, View, Pressable, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import { TText } from '@/components/ui/TText';
 import { TAvatar } from '@/components/ui/TAvatar';
 import { TButton } from '@/components/ui/TButton';
 import { THeader } from '@/components/ui/THeader';
+import { Toast } from '@/components/ui/TToast';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DetailRow, InkPanel, Kicker, Masthead, PageWrap } from '@/components/v5';
@@ -28,6 +29,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 // Decline reason keys are persisted values; this taxonomy (not fixture data) maps them to labels.
 import { DECLINE_REASONS } from '@/constants/tattoo';
+import { attachReference, pickImage, removeReference, signedRequestReferences, type SignedRequestReference } from '@/lib/storage';
 
 const ASIDE_W = 380;
 const BAR_MAX = 760;
@@ -130,6 +132,7 @@ export default function RequestDetailScreen() {
   const { user } = useAuthStore();
   const { fetchRequest, updateStatus } = useRequestStore();
   const [request, setRequest] = useState<TattooRequest | null>(null);
+  const [requestViewerId, setRequestViewerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -138,16 +141,49 @@ export default function RequestDetailScreen() {
   const savingRef = useRef(false);
   const [showDecline, setShowDecline] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
+  const [signedReferences, setSignedReferences] = useState<SignedRequestReference[]>([]);
+  const [referencesError, setReferencesError] = useState(false);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [referenceActionError, setReferenceActionError] = useState<string | null>(null);
+  const [referenceBusy, setReferenceBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setRequest(null); setLoading(true); setError(null);
+    setRequest(null); setRequestViewerId(null); setLoading(true); setError(null);
     if (!user) { setLoading(false); return; }
-    fetchRequest(id, user.id).then((data) => { if (active) setRequest(data); })
+    fetchRequest(id, user.id).then((data) => {
+      if (active) { setRequest(data); setRequestViewerId(user.id); }
+    })
       .catch(() => { if (active) setError('Impossible de charger la demande.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [id, user, attempt, fetchRequest]);
+
+  useEffect(() => {
+    let active = true;
+    setSignedReferences([]);
+    setReferencesError(false);
+    setReferencesLoading(true);
+    if (!request?.id) return;
+    const refresh = () => signedRequestReferences(request.id)
+      .then((items) => { if (active) { setSignedReferences(items); setReferencesError(false); setReferencesLoading(false); } })
+      .catch(() => { if (active) { setReferencesError(true); setReferencesLoading(false); } });
+    void refresh();
+    // Renew before the one-minute private link expires.
+    const interval = setInterval(() => { void refresh(); }, 45 * 1000);
+    // Backgrounded apps can pause timers longer than the URL lifetime.
+    const appState = Platform.OS === 'web' ? null : AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refresh();
+    });
+    const onWindowFocus = () => { void refresh(); };
+    if (Platform.OS === 'web') window.addEventListener('focus', onWindowFocus);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      appState?.remove();
+      if (Platform.OS === 'web') window.removeEventListener('focus', onWindowFocus);
+    };
+  }, [request?.id, attempt]);
 
   const changeStatus = async (status: RequestStatus) => {
     if (!request || savingRef.current) return;
@@ -169,7 +205,7 @@ export default function RequestDetailScreen() {
   const handleClarification = () => { void changeStatus('clarification_needed'); };
 
   // ── Loading / unavailable ──
-  if (!request) {
+  if (!request || requestViewerId !== user?.id) {
     return (
       <View style={styles.container}>
         <THeader showBack title="Demande" />
@@ -215,7 +251,42 @@ export default function RequestDetailScreen() {
       : `${counterpart || 'L’artiste'} vous répondra dans la conversation. Prêt à aller plus loin ? Transformez votre question en projet.`
     : nextStepCopy(request, viewAs, counterpart);
   const styles_ = request.stylePreference?.split(',').map((s) => styleName(s.trim())).filter(Boolean).join(', ');
-  const references = request.references ?? [];
+  const references: { path: string | null; url: string }[] = [
+    ...(request.references ?? []).filter((url) => /^https:\/\//.test(url)).map((url) => ({ path: null, url })),
+    ...signedReferences,
+  ];
+  const usedReferenceSlots = signedReferences.map((item) => Number(item.path.match(/ref_([0-2])\.jpg$/)?.[1])).filter(Number.isInteger);
+  const freeReferenceSlots = [0, 1, 2].filter((index) => !usedReferenceSlots.includes(index));
+
+  const handleAddReferences = async () => {
+    if (referenceBusy || referencesLoading || referencesError || isArtist || !freeReferenceSlots.length) return;
+    setReferenceBusy(true); setReferenceActionError(null);
+    try {
+      const picked = await pickImage({ multiple: true });
+      for (const [i, uri] of (picked ?? []).slice(0, freeReferenceSlots.length).entries()) {
+        await attachReference(uri, request.id, freeReferenceSlots[i]);
+      }
+    } catch {
+      setReferenceActionError('Certaines images n’ont pas été ajoutées. Réessayez.');
+    } finally {
+      setReferenceBusy(false);
+      setAttempt((value) => value + 1);
+    }
+  };
+
+  const handleRemoveReference = async (path: string) => {
+    if (referenceBusy || isArtist) return;
+    setReferenceBusy(true); setReferenceActionError(null);
+    try {
+      await removeReference(request.id, path);
+      Toast.info('Référence retirée. Un lien déjà ouvert peut rester accessible pendant une minute.');
+    } catch {
+      setReferenceActionError('Impossible de retirer cette image pour le moment.');
+    } finally {
+      setReferenceBusy(false);
+      setAttempt((value) => value + 1);
+    }
+  };
   const submitted = formatLong(request.submittedAt);
   const awaitingAnswer = !inquiry && (request.status === 'submitted' || request.status === 'clarification_needed');
   const wishedSlots = upcomingPreferredSlots(request.preferredSlots);
@@ -330,13 +401,30 @@ export default function RequestDetailScreen() {
         </Section>
       )}
 
-      {references.length > 0 && (
+      {(references.length > 0 || (!isArtist && !inquiry)) && (
         <Section title="Références">
           <View style={styles.refGrid}>
-            {references.map((uri, i) => (
-              <RevealImage key={uri} uri={uri} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+            {references.map((item, i) => (
+              <View key={item.path ?? item.url} style={{ gap: Spacing.xs }}>
+                <RevealImage uri={item.url} style={styles.refTile} accessibilityLabel={`Image de référence ${i + 1}`} />
+                {!isArtist && item.path && (
+                  <Pressable disabled={referenceBusy} accessibilityRole="button" accessibilityLabel={`Retirer la référence ${i + 1}`} onPress={() => { if (item.path) void handleRemoveReference(item.path); }}>
+                    <TText variant="caption" color="error">Retirer</TText>
+                  </Pressable>
+                )}
+              </View>
             ))}
           </View>
+          {!isArtist && !inquiry && !referencesLoading && !referencesError && freeReferenceSlots.length > 0 && (
+            <TButton title="Ajouter une référence" variant="secondary" loading={referenceBusy} onPress={handleAddReferences} />
+          )}
+          {!!referenceActionError && <TText variant="caption" color="error" accessibilityRole="alert">{referenceActionError}</TText>}
+        </Section>
+      )}
+      {referencesError && (
+        <Section title="Références">
+          <TText variant="bodySmall" color="secondary">Impossible de charger les images pour le moment.</TText>
+          <TButton title="Réessayer" variant="secondary" onPress={() => setAttempt((value) => value + 1)} />
         </Section>
       )}
 
@@ -466,6 +554,7 @@ export default function RequestDetailScreen() {
                 onPress={() => setSelectedReason(key)}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: selected, selected }}
+                aria-checked={Platform.OS === 'web' ? selected : undefined}
                 style={(state) => [
                   styles.reasonRow,
                   ((state as { hovered?: boolean }).hovered || state.pressed) && { backgroundColor: Colors.wash },

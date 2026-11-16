@@ -16,6 +16,7 @@ import { THeader } from '@/components/ui/THeader';
 import { TImagePicker } from '@/components/ui/TImagePicker';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ArtistRouteLoading } from '@/components/ArtistRouteLoading';
 import { Toast } from '@/components/ui/TToast';
 import { Kicker, Masthead, PageWrap, Rule } from '@/components/v5';
 import { CartelPreview, Panel, StepControl } from '@/components/v5/studio';
@@ -87,7 +88,9 @@ function DayStepper({ label, value, min, max, onChange }: {
 
 export default function NewGuestSpotScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+
+  if (isLoading) return <ArtistRouteLoading title="Annoncer un guest" />;
 
   if (!user || user.role !== 'artist' || !user.artistId) {
     return (

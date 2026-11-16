@@ -682,7 +682,7 @@ export default function ArtistProfileScreen() {
             <FlashRail artistId={artist.id} kicker="Flashs" title="Des dessins à adopter" gutter={gutter} />
           </Block>
           <Block id="guests" gutter={gutter} onPresence={onPresence} onOffset={onOffset}>
-            <GuestSpotRail artistId={artist.id} gutter={gutter} />
+            <GuestSpotRail artistId={artist.id} ownerActions={isOwnPage} gutter={gutter} />
           </Block>
 
           {/* ─── Videos ─── */}

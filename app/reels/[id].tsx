@@ -137,11 +137,17 @@ export default function ReelsScreen() {
     if (pendingLike) return;
     const wasLiked = liked.has(reel.id);
     setPendingLike(reel.id);
-    const { error } = wasLiked
-      ? await supabase.from('post_likes').delete().eq('post_id', reel.id).eq('user_id', userId)
-      : await supabase.from('post_likes').insert({ post_id: reel.id, user_id: userId });
+    let confirmed = false;
+    if (wasLiked) {
+      const { data, error } = await supabase.from('post_likes').delete()
+        .eq('post_id', reel.id).eq('user_id', userId).select('post_id');
+      confirmed = !error && data?.length === 1;
+    } else {
+      const { error } = await supabase.from('post_likes').insert({ post_id: reel.id, user_id: userId });
+      confirmed = !error;
+    }
     setPendingLike(null);
-    if (error) {
+    if (!confirmed) {
       Toast.error('Le j’aime n’a pas été enregistré. Réessayez.');
       return;
     }

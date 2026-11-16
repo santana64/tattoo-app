@@ -23,7 +23,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { supabase, type Tables } from '@/lib/supabase';
 import { isUuid } from '@/lib/catalog';
 import { toDescription } from '@/lib/site';
-import { deleteFlash, fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
+import { archiveFlash, fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 
 const SIDE_W = 440;
 
@@ -136,7 +136,7 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
   const isOwner = !!user?.artistId && user.artistId === flash.artist_id;
   const left = flashCopiesLeft(flash);
   const soldOut = left === 0;
-  const availability = flashAvailability(flash);
+  const availability = flash.is_published ? flashAvailability(flash) : 'Retiré';
   const blaze = artist?.blaze ?? 'un artiste Inkr';
   const style = styleName(flash.style);
   const facts: { label: string; value: string }[] = [
@@ -164,21 +164,21 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
   const handleDelete = async () => {
     if (deleting) return;
     setDeleting(true);
-    const ok = await deleteFlash(flash.id);
+    const ok = await archiveFlash(flash.id);
     setDeleting(false);
-    if (!ok) { Toast.error('Suppression impossible. Réessayez.'); return; }
+    if (!ok) { Toast.error('Retrait impossible. Réessayez.'); return; }
     setConfirmOpen(false);
-    Toast.success('Flash supprimé');
-    if (router.canGoBack()) router.back();
-    else router.replace({ pathname: '/artist/[id]', params: { id: flash.artist_id } });
+    Toast.success('Flash retiré de la galerie');
+    router.replace({ pathname: '/artist/[id]', params: { id: flash.artist_id } });
   };
 
   /** The one action of the screen, drawn for the ground it sits on. */
   const action = (onInk: boolean) => (isOwner ? (
     <TButton
-      title="Supprimer le flash"
+      title={flash.is_published ? 'Retirer le flash' : 'Flash retiré'}
       variant={onInk ? 'inverse' : 'destructive'}
       onPress={() => setConfirmOpen(true)}
+      disabled={!flash.is_published}
       icon={<Ionicons name="trash-outline" size={16} color={onInk ? Colors.onInk : Colors.error} />}
     />
   ) : (
@@ -313,15 +313,15 @@ function FlashContent({ flash, artist }: { flash: FlashDesign; artist: FlashArti
         </Animated.View>
       )}
 
-      {/* Owner: a deliberate second gesture before deleting */}
-      <BottomSheet visible={confirmOpen} onClose={() => setConfirmOpen(false)} accessibilityLabel="Confirmer la suppression du flash">
-        <TText variant="displayS">Supprimer ce flash ?</TText>
+      {/* Owner: a deliberate second gesture before withdrawing a published flash. */}
+      <BottomSheet visible={confirmOpen} onClose={() => setConfirmOpen(false)} accessibilityLabel="Confirmer le retrait du flash">
+        <TText variant="displayS">Retirer ce flash ?</TText>
         <TText variant="bodySmall" color="secondary" style={styles.sheetBody}>
-          « {flash.title} » disparaîtra de votre profil. Les demandes déjà reçues pour ce flash restent dans vos projets.
+          « {flash.title} » disparaîtra de votre profil. Les demandes déjà reçues restent liées à ce flash dans vos projets.
         </TText>
         <View style={styles.sheetActions}>
           <TButton
-            title="Supprimer définitivement"
+            title="Retirer de la galerie"
             variant="destructive"
             loading={deleting}
             disabled={deleting}

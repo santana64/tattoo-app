@@ -17,9 +17,17 @@ const site = loadTs('lib/site.ts');
 const retry = loadTs('hooks/use-auto-retry.ts', (name) =>
   name === 'react-native' ? { Platform: { OS: 'web' } } : require(name));
 const {
-  CAPS, artistMeta, postMeta, flashMeta, seriesMeta, buildSitemap, fetchPublicPages, inlineScriptHashes, selectRows,
+  CAPS, artistMeta, postMeta, flashMeta, seriesMeta, buildSitemap, fetchPublicPages, inlineScriptHashes, selectRows, assertBundleEnvironment,
   renderArtistPage, renderPostPage, renderFlashPage, renderSeriesPage,
 } = require('../scripts/postexport-web.js');
+
+test('web export refuses a bundle cached for another Supabase project or key', () => {
+  const expected = { url: 'https://project-a.supabase.co', key: 'public-key-a' };
+  assert.doesNotThrow(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","public-key-a")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-b.supabase.co","public-key-b")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","old-key")', expected));
+  assert.throws(() => assertBundleEnvironment('createClient("https://project-a.supabase.co","public-key-a");https://project-b.supabase.co', expected));
+});
 
 test('public pages are indexable, personal ones are not', () => {
   for (const segments of [['(tabs)'], ['(tabs)', 'index'], ['(tabs)', 'explore'], ['(auth)', 'welcome'], ['artist', '[id]'], ['post', '[id]'], ['series', '[id]'], ['legal', 'terms']]) {
@@ -81,7 +89,7 @@ test('the CSP in vercel.json allows the inline script Expo emits', () => {
   // The two providers a reel may be embedded from, and the optional sign-in captcha.
   assert.equal(directive('frame-src'), 'frame-src https://www.tiktok.com https://www.instagram.com https://challenges.cloudflare.com');
   // Supabase, and the city lookup.
-  assert.equal(directive('connect-src'), "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://photon.komoot.io");
+  assert.equal(directive('connect-src'), "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://photon.komoot.io");
   // Scripts: our own files, Expo's inline bootstrap by hash, the captcha loader. Nothing broader.
   assert.equal(directive('script-src'), `script-src 'self' ${hash} https://challenges.cloudflare.com`);
 });

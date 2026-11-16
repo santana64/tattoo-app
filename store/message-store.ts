@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { randomUUID } from 'expo-crypto';
+
+let privateMessageGeneration = 0;
 
 export interface Message {
   id: string;
@@ -24,9 +27,11 @@ interface MessageState {
   fetchMessages: (requestId: string) => Promise<void>;
   subscribeToRequest: (requestId: string) => void;
   unsubscribeFromRequest: () => void;
-  sendMessage: (requestId: string, senderId: string, content: string, type?: Message['messageType']) => Promise<void>;
+  sendMessage: (requestId: string, senderId: string, content: string, type?: Message['messageType'], retryId?: string) => Promise<boolean>;
+  retryMessage: (requestId: string, messageId: string) => Promise<boolean>;
   markAsRead: (requestId: string, userId: string) => Promise<void>;
   getUnreadCount: (userId: string) => Promise<number>;
+  resetPrivateMessages: () => void;
 }
 
 function mapMessage(raw: any): Message {
@@ -47,17 +52,31 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   isLoading: false,
   activeChannel: null,
 
+  resetPrivateMessages: () => {
+    privateMessageGeneration++;
+    get().unsubscribeFromRequest();
+    set({ messagesByRequest: {}, isLoading: false, activeChannel: null });
+  },
+
   fetchMessages: async (requestId) => {
+    const generation = privateMessageGeneration;
     set({ isLoading: true });
     const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('request_id', requestId)
       .order('created_at', { ascending: true });
+    if (generation !== privateMessageGeneration) return;
     if (!error) {
       set((s) => ({
         isLoading: false,
-        messagesByRequest: { ...s.messagesByRequest, [requestId]: (data ?? []).map(mapMessage) },
+        messagesByRequest: { ...s.messagesByRequest, [requestId]: (() => {
+          const server = (data ?? []).map(mapMessage);
+          const serverIds = new Set(server.map((m) => m.id));
+          const unresolved = (s.messagesByRequest[requestId] ?? []).filter((m) =>
+            (m.pending || m.failed) && !serverIds.has(m.id));
+          return [...server, ...unresolved].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        })() },
       }));
     } else {
       set({ isLoading: false });
@@ -65,6 +84,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   subscribeToRequest: (requestId) => {
+    const generation = privateMessageGeneration;
     // Unsubscribe from previous channel
     get().unsubscribeFromRequest();
     const channel = supabase
@@ -73,6 +93,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `request_id=eq.${requestId}` },
         (payload) => {
+          if (generation !== privateMessageGeneration) return;
           const newMsg = mapMessage(payload.new);
           set((s) => {
             const existing = s.messagesByRequest[requestId] ?? [];
@@ -99,8 +120,17 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  sendMessage: async (requestId, senderId, content, type = 'text') => {
-    const optimisticId = `optimistic-${Date.now()}`;
+  sendMessage: async (requestId, senderId, content, type = 'text', retryId) => {
+    const generation = privateMessageGeneration;
+    const optimisticId = retryId ?? randomUUID();
+    if (retryId) {
+      const failed = get().messagesByRequest[requestId]?.find((m) => m.id === retryId);
+      if (!failed?.failed || failed.senderId !== senderId || failed.content !== content || failed.messageType !== type) return false;
+      set((s) => ({ messagesByRequest: {
+        ...s.messagesByRequest,
+        [requestId]: (s.messagesByRequest[requestId] ?? []).map((m) => m.id === retryId ? { ...m, pending: true, failed: false } : m),
+      } }));
+    }
     const optimistic: Message = {
       id: optimisticId,
       requestId,
@@ -112,36 +142,54 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       createdAt: new Date().toISOString(),
       pending: true,
     };
-    // Optimistic insert
-    set((s) => ({
+    if (!retryId) set((s) => ({
       messagesByRequest: {
         ...s.messagesByRequest,
         [requestId]: [...(s.messagesByRequest[requestId] ?? []), optimistic],
       },
     }));
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({ request_id: requestId, sender_id: senderId, content, message_type: type })
-      .select()
-      .single();
-    // Replace optimistic with real
+    let confirmed: Message | null = null;
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ id: optimisticId, request_id: requestId, sender_id: senderId, content, message_type: type })
+        .select()
+        .single();
+      if (!error && data) confirmed = mapMessage(data);
+    } catch { /* A lost response is checked by the stable id below. */ }
+    if (!confirmed) {
+      try {
+        const { data } = await supabase.from('messages').select('*').eq('id', optimisticId).maybeSingle();
+        if (data?.request_id === requestId && data.sender_id === senderId
+          && data.content === content && data.message_type === type) confirmed = mapMessage(data);
+      } catch { /* Keep the failed bubble retryable with the same id. */ }
+    }
+    if (generation !== privateMessageGeneration) return false;
     set((s) => ({
       messagesByRequest: {
         ...s.messagesByRequest,
         [requestId]: (s.messagesByRequest[requestId] ?? []).map((m) =>
           m.id === optimisticId
-            ? error ? { ...m, pending: false, failed: true } : mapMessage(data)
+            ? confirmed ?? { ...m, pending: false, failed: true }
             : m
         ),
       },
     }));
+    return !!confirmed;
+  },
+
+  retryMessage: async (requestId, messageId) => {
+    const message = get().messagesByRequest[requestId]?.find((m) => m.id === messageId);
+    if (!message?.failed || !message.senderId) return false;
+    return get().sendMessage(requestId, message.senderId, message.content, message.messageType, messageId);
   },
 
   markAsRead: async (requestId, userId) => {
+    const generation = privateMessageGeneration;
     // Recipients cannot UPDATE messages directly: the database function checks
     // that the caller is a party to the request and only flags the other side's messages.
     const { error } = await supabase.rpc('mark_messages_read', { p_request_id: requestId });
-    if (error) return;
+    if (error || generation !== privateMessageGeneration) return;
     set((s) => ({
       messagesByRequest: {
         ...s.messagesByRequest,

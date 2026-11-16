@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -53,6 +53,7 @@ function PublicRow({ value, onToggle, disabled, hint }: {
       accessibilityLabel="Afficher sur le profil de l’artiste"
       accessibilityHint={hint}
       accessibilityState={{ checked: value, disabled }}
+      aria-checked={Platform.OS === 'web' ? value : undefined}
       style={[styles.toggleRow, disabled && { opacity: 0.6 }]}
     >
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -76,7 +77,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
@@ -85,11 +86,17 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
   useEffect(() => {
     if (!completed) return;
     let active = true;
+    setPhoto(null);
     setState('loading');
-    fetchAppointmentHealedPhoto(appointmentId)
-      .then((p) => { if (active) { setPhoto(p); setState('ready'); } })
-      .catch(() => { if (active) setState('error'); });
-    return () => { active = false; };
+    const refresh = () => {
+      fetchAppointmentHealedPhoto(appointmentId)
+        .then((p) => { if (active) { setPhoto(p); setState('ready'); } })
+        .catch(() => { if (active) setState('error'); });
+    };
+    refresh();
+    const timer = setInterval(refresh, 45_000);
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') refresh(); });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [appointmentId, completed, attempt]);
 
   const send = useCallback(async () => {
@@ -100,18 +107,15 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
     setSending(true);
     setProgress(0);
     try {
-      const { url } = await uploadHealedPhoto(imageUri, userId, setProgress);
-      const error = await sendHealedPhoto(appointmentId, url, note, isPublic);
+      const { path } = await uploadHealedPhoto(imageUri, userId, setProgress);
+      const error = await sendHealedPhoto(appointmentId, path, note, isPublic);
       if (error) { setFormError(error); return; }
       Toast.success('Photo envoyée');
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const saved = await fetchAppointmentHealedPhoto(appointmentId).catch(() => null);
-      setPhoto(saved ?? {
-        id: '', appointment_id: appointmentId, artist_id: null, client_id: userId,
-        photo_url: url, note: note.trim() || null, is_public: isPublic, created_at: new Date().toISOString(),
-      });
       setImageUri(null);
       setNote('');
+      setState('loading');
+      setAttempt((n) => n + 1);
     } catch {
       setFormError('Envoi de la photo impossible. Vérifiez votre connexion puis réessayez.');
     } finally {
@@ -162,7 +166,7 @@ export function HealedPhotoCard({ appointmentId, role, completed }: HealedPhotoC
           {isClient ? 'Votre photo cicatrisée' : 'Photo cicatrisée envoyée par votre client'}
         </TText>
         <RevealImage
-          uri={photo.photo_url}
+          uri={photo.display_url}
           style={styles.photo}
           contentFit="cover"
           accessibilityLabel={photo.note ? `Tatouage cicatrisé : ${photo.note}` : 'Tatouage cicatrisé'}

@@ -6,18 +6,85 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-function load(file) {
+function load(file, supabase = {}) {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', file), 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 },
   }).outputText;
   const mod = { exports: {} };
-  const stubRequire = (name) => (name === './supabase' ? { supabase: {} } : require(name));
+  const stubRequire = (name) => (name === './supabase' ? { supabase } : require(name));
   new Function('require', 'module', 'exports', compiled)(stubRequire, mod, mod.exports);
   return mod.exports;
 }
 const care = load('care.ts');
 const ics = load('ics.ts');
+
+test('healed photos resolve only own-bucket paths and receive short signed URLs', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://project-a.supabase.co';
+  try {
+    const path = '11111111-2222-3333-4444-555555555555/1794598245921.jpg';
+    const legacy = `https://project-a.supabase.co/storage/v1/object/public/healed-photos/${path}`;
+    const mock = { storage: { from(bucket) {
+      assert.equal(bucket, 'healed-photos');
+      return { createSignedUrl: async (requested, seconds) => {
+        assert.equal(requested, path);
+        assert.equal(seconds, 60);
+        return { data: { signedUrl: 'https://signed.example/photo' }, error: null };
+      } };
+    } } };
+    const c = load('care.ts', mock);
+    assert.equal(c.healedPhotoPath(path), path);
+    assert.equal(c.healedPhotoPath(legacy), path);
+    assert.equal(c.healedPhotoPath(legacy.replace('project-a', 'project-b')), null);
+    assert.equal(c.healedPhotoPath('https://outside.example/photo.jpg'), null);
+    assert.equal(c.healedPhotoPath('../other.jpg'), null);
+    const signed = await c.signHealedPhoto({ id: 'photo-1', photo_url: legacy });
+    assert.equal(signed.photo_url, legacy);
+    assert.equal(signed.display_url, 'https://signed.example/photo');
+  } finally {
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_URL;
+    else process.env.EXPO_PUBLIC_SUPABASE_URL = oldUrl;
+  }
+});
+
+test('clearing error logs requires a row confirmed by the server', async () => {
+  const withResponse = (response) => load('care.ts', {
+    from(table) {
+      assert.equal(table, 'client_errors');
+      return { delete() {
+        return { lt(column, value) {
+          assert.equal(column, 'created_at');
+          assert.ok(!Number.isNaN(Date.parse(value)));
+          return { select: async (columns) => {
+            assert.equal(columns, 'id');
+            return response;
+          } };
+        } };
+      } };
+    },
+  });
+  assert.equal(await withResponse({ data: [], error: null }).clearClientErrors(), false);
+  assert.equal(await withResponse({ data: [{ id: 'error-1' }], error: null }).clearClientErrors(), true);
+});
+
+test('healed photo visibility requires a confirmed changed row', async () => {
+  const withResponse = (response) => load('care.ts', {
+    from(table) {
+      assert.equal(table, 'healed_photos');
+      return { update(values) {
+        assert.deepEqual(values, { is_public: true });
+        return { eq(column, id) {
+          assert.equal(column, 'id');
+          assert.equal(id, 'photo-1');
+          return { select: () => ({ maybeSingle: async () => response }) };
+        } };
+      } };
+    },
+  });
+  assert.equal(await withResponse({ data: null, error: null }).setHealedPhotoPublic('photo-1', true), false);
+  assert.equal(await withResponse({ data: { id: 'photo-1' }, error: null }).setHealedPhotoPublic('photo-1', true), true);
+});
 
 test('booking settings mirror the database limits', () => {
   const ok = { sessionDurations: [120, 240], cancelNoticeHours: 48 };

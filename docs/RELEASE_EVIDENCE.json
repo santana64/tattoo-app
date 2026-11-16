@@ -1,0 +1,43 @@
+{
+  "_note": "ÉTAT BLOQUÉ PAR DÉFAUT. Ce document est une checklist documentaire, pas une preuve automatique de sécurité. Toute modification GO exige des preuves vérifiables et l'autorisation propriétaire séparée; ne jamais modifier Supabase production sur cette base seule.",
+  "schema_version": 1,
+  "environment": "production",
+  "supabase_project_ref": "jxmefklkixzzdceeorcg",
+  "gates": {
+    "G0": {
+      "status": "HOLD",
+      "evidence": [],
+      "historical_android_builds": 10,
+      "eas_reviewed": true,
+      "play_console_reviewed": false,
+      "app_store_reviewed": false,
+      "manual_apk_distribution_reviewed": false,
+      "web_release_reviewed": false,
+      "legacy_client_resolution": "unknown",
+      "exclusion_tested_on_copy": false,
+      "compatibility_tested_on_copy": false
+    },
+    "G1": {
+      "status": "HOLD",
+      "evidence": []
+    },
+    "G2": {
+      "status": "HOLD",
+      "evidence": []
+    },
+    "G3": {
+      "status": "HOLD",
+      "evidence": []
+    },
+    "G4": {
+      "status": "HOLD",
+      "evidence": []
+    },
+    "G5": {
+      "status": "HOLD",
+      "evidence": [],
+      "owner_approval": false,
+      "approval_reference": ""
+    }
+  }
+}

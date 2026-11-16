@@ -17,6 +17,7 @@ export function TChip({ label, selected = false, onPress, style }: TChipProps) {
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      aria-pressed={Platform.OS === 'web' ? selected : undefined}
       style={(state) => {
         const { pressed, hovered, focused } = state as { pressed: boolean; hovered?: boolean; focused?: boolean };
         return [

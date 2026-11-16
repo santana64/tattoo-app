@@ -96,6 +96,26 @@ function supabaseEnv() {
   return url && key ? { url: url.replace(/\/+$/, ''), key } : null;
 }
 
+/** Expo can reuse an inlined EXPO_PUBLIC_* value from a previous Metro export. */
+function assertBundleEnvironment(bundle, env) {
+  const target = env.url.replace(/\/+$/, '');
+  if (!bundle.includes(target) || !bundle.includes(env.key)) {
+    throw new Error('Web bundle does not contain the configured Supabase URL and publishable key. Clear the Metro cache and rebuild.');
+  }
+  const projects = bundle.match(/https:\/\/[a-z0-9-]+\.supabase\.co/gi) ?? [];
+  if (projects.some((url) => url !== target)) {
+    throw new Error('Web bundle contains a different Supabase project URL. Clear the Metro cache and rebuild.');
+  }
+}
+
+function checkBundleEnvironment() {
+  const env = supabaseEnv();
+  if (!env) return;
+  const folder = path.join(DIST, '_expo', 'static', 'js', 'web');
+  const files = fs.readdirSync(folder).filter((name) => name.endsWith('.js'));
+  assertBundleEnvironment(files.map((name) => fs.readFileSync(path.join(folder, name), 'utf8')).join('\n'), env);
+}
+
 /** One public REST read. Never fails the build: returns [] on any problem. */
 async function fetchRows(resource, query, label) {
   const env = supabaseEnv();
@@ -348,6 +368,7 @@ function writeRobots(base) {
 
 async function main() {
   if (!fs.existsSync(DIST)) throw new Error('dist/ not found: run `expo export -p web` first.');
+  checkBundleEnvironment();
   copyDynamicShells();
   checkContentSecurityPolicy();
   const base = siteUrl();
@@ -376,5 +397,6 @@ module.exports = {
   CAPS,
   artistMeta, postMeta, flashMeta, seriesMeta,
   buildSitemap, fetchPublicPages, inlineScriptHashes, selectRows,
+  assertBundleEnvironment,
   renderArtistPage, renderPostPage, renderFlashPage, renderSeriesPage,
 };

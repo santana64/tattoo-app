@@ -18,6 +18,7 @@ import { TInput } from '@/components/ui/TInput';
 import { TProgressBar } from '@/components/ui/TProgressBar';
 import { THeader } from '@/components/ui/THeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ArtistRouteLoading } from '@/components/ArtistRouteLoading';
 import { TChip } from '@/components/ui/TChip';
 import { RevealImage } from '@/components/motion';
 import { Kicker, Masthead, PageWrap, Rule, SettingRow, Toggle } from '@/components/v5';
@@ -59,7 +60,9 @@ const MEDIA_KINDS: { value: MediaKind; label: string; icon: keyof typeof Ionicon
 export default function CreateScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+
+  if (isLoading) return <ArtistRouteLoading title="Nouvelle réalisation" />;
 
   // Only artists can post
   if (!user || user.role !== 'artist') {
@@ -204,7 +207,7 @@ function CreateForm({ user, router, insets }: {
       if (error) throw error;
       Toast.success(kind === 'photo' ? 'Réalisation publiée' : 'Vidéo publiée');
       void useFeedStore.getState().refresh(user.id);
-      router.back();
+      router.replace('/(tabs)/profile');
     } catch (e: any) {
       const detail = String(e?.message ?? e);
       console.warn('[create] publish failed:', detail, e);

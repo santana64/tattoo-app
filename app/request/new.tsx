@@ -29,6 +29,9 @@ import { SlotPicker, formatChosenSlot } from '@/components/booking/SlotPicker';
 import { fetchFlash, flashCopiesLeft, type FlashDesign } from '@/lib/studio';
 import { durationLabel, fetchBookingSettings, type BookingSettings } from '@/lib/care';
 import { cancellationNotice } from '@/components/booking/booking-copy';
+import { attachReference, pickImage } from '@/lib/storage';
+import { randomUUID } from 'expo-crypto';
+import { clearPendingRequest, loadPendingRequest, savePendingRequest } from '@/lib/pending-request';
 
 const FORM_MAX = 640;
 const haptic = (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -240,7 +243,7 @@ export default function NewRequestScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isWide, width, gutter } = useContentDimensions();
-  const { submitRequest } = useRequestStore();
+  const { submitRequest, fetchRequest } = useRequestStore();
   const { user } = useAuthStore();
 
   const { artist, loading, error, retry } = useArtist(artistId);
@@ -248,6 +251,14 @@ export default function NewRequestScreen() {
   const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [stableRequestId, setStableRequestId] = useState<string | null>(null);
+  const [restoringPending, setRestoringPending] = useState(true);
+  const [restoreError, setRestoreError] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [recoveredRequest, setRecoveredRequest] = useState(false);
+  const [referenceUris, setReferenceUris] = useState<string[]>([]);
+  const [pickingReferences, setPickingReferences] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const [step, setStep] = useState(0);
@@ -267,6 +278,29 @@ export default function NewRequestScreen() {
   // The artist's session lengths and cancellation notice; the form works without them.
   const [booking, setBooking] = useState<BookingSettings | null>(null);
   const [bookingLoaded, setBookingLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!artist?.id || !user?.id) { setRestoringPending(false); return; }
+    const scope = { userId: user.id, artistId: artist.id, flashId };
+    setStableRequestId(null);
+    setPendingRequestId(null);
+    setRecoveredRequest(false);
+    setRestoreError(false);
+    setRestoringPending(true);
+    loadPendingRequest(scope)
+      .then(async (id) => {
+        if (!active || !id) return;
+        setStableRequestId(id);
+        const existing = await fetchRequest(id, user.id);
+        if (active && existing) { setPendingRequestId(id); setRecoveredRequest(true); }
+      })
+      .catch(() => {
+        if (active) setRestoreError(true);
+      })
+      .finally(() => { if (active) setRestoringPending(false); });
+    return () => { active = false; };
+  }, [artist?.id, user?.id, flashId, fetchRequest, restoreAttempt]);
 
   useEffect(() => {
     if (!artistId) { setBookingLoaded(true); return; }
@@ -376,7 +410,7 @@ export default function NewRequestScreen() {
   }, [router]);
 
   const handleSubmit = async () => {
-    if (submittingRef.current || !artist || artist.bookingStatus !== 'open') return;
+    if (submittingRef.current || !artist || (!pendingRequestId && artist.bookingStatus !== 'open')) return;
     if (!user?.id) { setSubmitError('Connectez-vous pour envoyer votre demande.'); return; }
     if (!projectType || !bodyZone || description.trim().length < 10 || !budgetMin.trim() || !budgetMax.trim() || !Number.isFinite(Number(budgetMin)) || !Number.isFinite(Number(budgetMax)) || Number(budgetMin) < 0 || Number(budgetMax) < Number(budgetMin)) {
       setSubmitError('Complétez le projet, une description de 10 caractères et un budget cohérent.'); return;
@@ -405,18 +439,47 @@ export default function NewRequestScreen() {
       flashDesignId: attachedFlash?.id ?? null,
     };
 
-    const { id: requestId, error: sendError } = await submitRequest(payload, user.id);
-    submittingRef.current = false; setSubmitting(false);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(sendError ? Haptics.NotificationFeedbackType.Error : Haptics.NotificationFeedbackType.Success);
+    let requestId = pendingRequestId;
+    try {
+      if (!requestId) {
+        const stableId = stableRequestId ?? randomUUID();
+        await savePendingRequest({ userId: user.id, artistId: artist.id, flashId }, stableId);
+        setStableRequestId(stableId);
+        const result = await submitRequest(payload, user.id, stableId);
+        if (result.error === FLASH_UNAVAILABLE) {
+          setFlash(null); setFlashState('unavailable');
+        }
+        if (result.error || !result.id) throw new Error(result.error ?? 'Envoi impossible. Votre formulaire est conservé.');
+        requestId = result.id;
+        // Remember the committed request before uploading, so retries never create a second one.
+        setPendingRequestId(requestId);
+      }
+      for (let i = 0; i < referenceUris.length; i++) {
+        await attachReference(referenceUris[i], requestId, i);
+      }
+      setSentId(requestId);
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      setSubmitError(requestId
+        ? 'La demande est créée, mais certaines images n’ont pas été ajoutées. Réessayez ou ouvrez le dossier.'
+        : error instanceof Error ? error.message : 'Envoi impossible. Votre formulaire est conservé.');
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      submittingRef.current = false; setSubmitting(false);
     }
-    if (sendError === FLASH_UNAVAILABLE) {
-      // Sold out meanwhile: drop the flash so a retry sends the project on its own.
-      setFlash(null); setFlashState('unavailable');
+  };
+
+  const chooseReferences = async () => {
+    if (pickingReferences || referenceUris.length >= 3) return;
+    setPickingReferences(true);
+    try {
+      const chosen = await pickImage({ multiple: true });
+      if (chosen?.length) setReferenceUris((previous) => [...previous, ...chosen].slice(0, 3));
+    } catch {
+      setSubmitError('Impossible d’ouvrir vos images. Réessayez.');
+    } finally {
+      setPickingReferences(false);
     }
-    if (sendError || !requestId) { setSubmitError(sendError ?? 'Envoi impossible. Votre formulaire est conservé.'); return; }
-    // Same destination as before; the success state sits in between and leads there.
-    setSentId(requestId);
   };
 
   const toggleStylePref = (slug: string) => {
@@ -424,7 +487,20 @@ export default function NewRequestScreen() {
   };
 
   // ── Unavailable states ──
-  if (!artist && loading) return <FormSkeleton top={insets.top} />;
+  if ((!artist && loading) || (artist && user && restoringPending)) return <FormSkeleton top={insets.top} />;
+  if (restoreError) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Envoi à vérifier"
+          description="Impossible de savoir si votre dernière demande est déjà arrivée. Reconnectez-vous, puis vérifiez avant de recommencer."
+          ctaLabel="Réessayer la vérification"
+          onCta={() => setRestoreAttempt((value) => value + 1)}
+        />
+      </View>
+    );
+  }
   if (sentId && artist) {
     const sizeSent = SIZE_OPTIONS.find((o) => o.key === sizeCategory)?.label;
     const typeSent = PROJECT_TYPES.find((p) => p.key === projectType)?.label;
@@ -438,6 +514,24 @@ export default function NewRequestScreen() {
         onOpen={() => openRequest(sentId)}
         onExplore={() => router.replace('/(tabs)/explore')}
       />
+    );
+  }
+  if (pendingRequestId && artist) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top + Spacing.xl, paddingHorizontal: gutter, gap: Spacing.md }]}>
+        <Kicker tone="flame">Demande enregistrée</Kicker>
+        <EditorialTitle>{recoveredRequest ? 'Votre projet est là.' : 'Images en attente.'}</EditorialTitle>
+        <TText variant="body" color="secondary">{recoveredRequest
+          ? 'Votre demande a déjà été envoyée. Ouvrez le dossier pour consulter ou compléter ses images privées.'
+          : 'Votre demande existe déjà. Certaines images restent à ajouter ; réessayez sans créer de nouvelle demande.'}</TText>
+        {!!submitError && <TText variant="bodySmall" color="error" accessibilityRole="alert">{submitError}</TText>}
+        {!recoveredRequest && referenceUris.length > 0 && <TButton title="Réessayer les images" loading={submitting} onPress={handleSubmit} />}
+        <TButton title="Ouvrir le dossier" variant="secondary" onPress={() => openRequest(pendingRequestId)} />
+        <TButton title="Commencer un autre projet" variant="secondary" onPress={async () => {
+          if (user) await clearPendingRequest({ userId: user.id, artistId: artist.id, flashId });
+          router.replace('/(tabs)/explore');
+        }} />
+      </View>
     );
   }
   if (!artist || artist.bookingStatus !== 'open') {
@@ -548,6 +642,7 @@ export default function NewRequestScreen() {
                       onPress={() => { haptic(); setSizeCategory(opt.key); }}
                       accessibilityRole="radio"
                       accessibilityState={{ checked: selected, selected }}
+                      aria-checked={Platform.OS === 'web' ? selected : undefined}
                       accessibilityLabel={`Taille ${opt.label}, ${opt.sub}`}
                       style={(state) => [styles.sizeCell, ((state as Hover).hovered || selected) && styles.sizeCellActive]}
                     >
@@ -633,6 +728,7 @@ export default function NewRequestScreen() {
               onPress={() => { haptic(); setIsFlexible(!isFlexible); }}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: isFlexible }}
+              aria-checked={Platform.OS === 'web' ? isFlexible : undefined}
               style={(state) => [styles.toggleRow, (state as Hover).hovered && { backgroundColor: Colors.wash }]}
             >
               <View style={[styles.checkbox, isFlexible && styles.checkboxOn]}>
@@ -677,14 +773,28 @@ export default function NewRequestScreen() {
               </View>
             </View>
 
-            {/* Attachments are not wired yet (uploads are disabled server-side): say so plainly. */}
-            <View style={styles.notice} accessible accessibilityLabel="Images de référence : pas encore disponibles. Décrivez vos références dans le texte.">
+            <View style={styles.notice}>
               <Ionicons name="images-outline" size={18} color={Colors.textTertiary} />
               <View style={{ flex: 1 }}>
                 <TText variant="bodySmall" weight="medium" color="secondary">Images de référence</TText>
                 <TText variant="caption" color="tertiary" style={{ marginTop: 1 }}>
-                  Pas encore disponible. Décrivez vos références dans le texte.
+                  Jusqu’à trois images. Seuls vous et l’artiste pourrez les consulter.
                 </TText>
+                <Pressable onPress={chooseReferences} disabled={pickingReferences || referenceUris.length >= 3} accessibilityRole="button" accessibilityLabel="Ajouter des images de référence" style={{ marginTop: Spacing.sm }}>
+                  <TText variant="bodySmall" style={{ color: Colors.flame }}>{pickingReferences ? 'Ouverture…' : 'Ajouter des images +'}</TText>
+                </Pressable>
+                {referenceUris.length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.md }}>
+                    {referenceUris.map((uri, index) => (
+                      <View key={`${uri}-${index}`} style={{ gap: 4 }}>
+                        <RevealImage uri={uri} style={{ width: 88, height: 88 }} accessibilityLabel={`Référence ${index + 1}`} />
+                        <Pressable onPress={() => setReferenceUris((previous) => previous.filter((_, i) => i !== index))} accessibilityRole="button" accessibilityLabel={`Retirer la référence ${index + 1}`}>
+                          <TText variant="caption" color="error">Retirer</TText>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -711,6 +821,7 @@ export default function NewRequestScreen() {
               <DetailRow label="Couleur" value={colorLabel || '—'} />
               <DetailRow label="Approche" value={isFlexible ? 'Ouvert aux suggestions' : 'Projet précis'} last />
               <TText variant="body" color="secondary" style={styles.recapProse}>{description.trim()}</TText>
+              {referenceUris.length > 0 && <DetailRow label="Images" value={`${referenceUris.length} référence${referenceUris.length > 1 ? 's' : ''}`} />}
             </RecapSection>
             <RecapSection index={4} title="Vos créneaux" onEdit={() => { setSubmitError(null); goToStep(2); }}>
               {preferredSlots.length > 0 ? (

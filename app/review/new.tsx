@@ -49,6 +49,7 @@ function StarRating({ rating, onChange }: { rating: number; onChange: (r: number
             onPress={() => onChange(star)}
             accessibilityRole="radio"
             accessibilityState={{ checked: rating === star, selected: rating === star }}
+            aria-checked={Platform.OS === 'web' ? rating === star : undefined}
             accessibilityLabel={`${star} étoile${star > 1 ? 's' : ''} sur 5, ${RATING_LABELS[star].toLowerCase()}`}
             hitSlop={4}
             style={(state) => [styles.star, ((state as Hover).hovered || state.pressed) && styles.starHover]}
@@ -196,6 +197,7 @@ export default function ReviewScreen() {
                   onPress={() => toggleTag(tag)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: active }}
+                  aria-checked={Platform.OS === 'web' ? active : undefined}
                   hitSlop={4}
                   style={(state) => [styles.chip, ((state as Hover).hovered || state.pressed) && !active && styles.chipHover, active && styles.chipActive]}
                 >

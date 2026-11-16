@@ -28,14 +28,12 @@ import { Colors, Spacing, FontSize, Fonts } from '@/constants/theme';
 import { TText } from '@/components/ui/TText';
 import { TSkeleton } from '@/components/ui/TSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Toast } from '@/components/ui/TToast';
 import { IconButton, Kicker, TextLink } from '@/components/v5';
 import { RevealImage, EASE_OUT, EASE_IN_OUT } from '@/components/motion';
 import { INQUIRY_LABEL, RequestStatusLine, formatBudget, projectTypeLabel } from '@/components/RequestCard';
 import { useMessageStore, Message } from '@/store/message-store';
 import { useRequestStore, type TattooRequest } from '@/store/request-store';
 import { useAuthStore } from '@/store/auth-store';
-import { pickImage, uploadFile } from '@/lib/storage';
 import { AppointmentPanel } from '@/components/AppointmentPanel';
 
 const THREAD_MAX = 760;
@@ -95,7 +93,7 @@ function DaySeparator({ label }: { label: string }) {
   );
 }
 
-function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; maxWidth: number; animate: boolean }) {
+function Bubble({ row, isMe, maxWidth, animate, onRetry }: { row: Row; isMe: boolean; maxWidth: number; animate: boolean; onRetry: () => void }) {
   const { msg, firstInGroup, lastInGroup } = row;
   const d = parseISO(msg.createdAt);
   const time = isValid(d) ? format(d, 'HH:mm') : '';
@@ -129,10 +127,10 @@ function Bubble({ row, isMe, maxWidth, animate }: { row: Row; isMe: boolean; max
       {(lastInGroup || msg.pending || msg.failed) && (
         <View style={[styles.meta, isMe ? { justifyContent: 'flex-end' } : null]}>
           {msg.failed ? (
-            <View style={styles.metaFailed} accessibilityRole="alert">
+            <Pressable style={styles.metaFailed} accessibilityRole="button" accessibilityLabel="Message non envoyé. Réessayer" onPress={onRetry}>
               <Ionicons name="alert-circle-outline" size={12} color={Colors.error} />
-              <TText variant="micro" style={{ color: Colors.error }}>Non envoyé</TText>
-            </View>
+              <TText variant="micro" style={{ color: Colors.error }}>Non envoyé · Réessayer</TText>
+            </Pressable>
           ) : msg.pending ? (
             <TText variant="micro" color="tertiary">Envoi…</TText>
           ) : (
@@ -166,25 +164,32 @@ export default function ConversationScreen() {
   const { user } = useAuthStore();
   const {
     fetchMessages, subscribeToRequest, unsubscribeFromRequest,
-    sendMessage, markAsRead, messagesByRequest,
+    sendMessage, retryMessage, markAsRead, messagesByRequest,
   } = useMessageStore();
-  const { getRequest, fetchRequest } = useRequestStore();
+  const { fetchRequest } = useRequestStore();
 
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [focused, setFocused] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [baseline, setBaseline] = useState<Set<string> | null>(null);
-  const [fetchedRequest, setFetchedRequest] = useState<TattooRequest | null>(null);
+  const [fetchedRequest, setFetchedRequest] = useState<{ viewerId: string; value: TattooRequest } | null>(null);
+  const [requestLoading, setRequestLoading] = useState(true);
+  const [requestError, setRequestError] = useState(false);
+  const [requestAttempt, setRequestAttempt] = useState(0);
   const flatListRef = useRef<FlatList<Row>>(null);
 
   const messages = useMemo(() => messagesByRequest[id] ?? [], [messagesByRequest, id]);
   const rows = useMemo(() => buildRows(messages), [messages]);
-  const request = getRequest(id) ?? fetchedRequest;
+  const request = fetchedRequest && fetchedRequest.viewerId === user?.id && fetchedRequest.value.id === id
+    ? fetchedRequest.value : null;
 
   useEffect(() => {
-    if (!id) return;
+    setText(''); setFetchedRequest(null); setLoaded(false); setBaseline(null);
+  }, [id, user?.id]);
+
+  useEffect(() => {
+    if (!request?.id || !user?.id) return;
     let active = true;
     fetchMessages(id).finally(() => { if (active) setLoaded(true); });
     subscribeToRequest(id);
@@ -193,15 +198,19 @@ export default function ConversationScreen() {
       active = false;
       unsubscribeFromRequest();
     };
-  }, [id, user?.id, fetchMessages, subscribeToRequest, unsubscribeFromRequest, markAsRead]);
+  }, [id, request?.id, user?.id, fetchMessages, subscribeToRequest, unsubscribeFromRequest, markAsRead]);
 
-  // Context for the header when the thread is opened directly (deep link, notification).
+  // Authorize the dossier before loading messages, subscribing, or showing the composer.
   useEffect(() => {
-    if (!id || !user?.id || getRequest(id)) return;
+    setFetchedRequest(null); setRequestError(false); setRequestLoading(true);
+    if (!id || !user?.id) { setRequestLoading(false); return; }
     let active = true;
-    fetchRequest(id, user.id).then((r) => { if (active) setFetchedRequest(r); }).catch(() => {});
+    fetchRequest(id, user.id)
+      .then((r) => { if (active && r) setFetchedRequest({ viewerId: user.id, value: r }); })
+      .catch(() => { if (active) setRequestError(true); })
+      .finally(() => { if (active) setRequestLoading(false); });
     return () => { active = false; };
-  }, [id, user?.id, getRequest, fetchRequest]);
+  }, [id, user?.id, fetchRequest, requestAttempt]);
 
   // History never animates: remember what was already there when the thread opened.
   useEffect(() => {
@@ -215,7 +224,7 @@ export default function ConversationScreen() {
   }, [messages.length, reduced]);
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || !user?.id || isSending) return;
+    if (!request || !text.trim() || !user?.id || isSending) return;
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const content = text.trim();
     setText('');
@@ -223,21 +232,7 @@ export default function ConversationScreen() {
     await sendMessage(id, user.id, content);
     setIsSending(false);
     flatListRef.current?.scrollToEnd({ animated: true });
-  }, [text, user?.id, id, isSending, sendMessage]);
-
-  const handleImageSend = async () => {
-    const uris = await pickImage();
-    if (!uris?.[0] || !user?.id) return;
-    setIsUploading(true);
-    try {
-      const { url } = await uploadFile(uris[0], 'posts-media', `conv/${id}/${Date.now()}.jpg`);
-      await sendMessage(id, user.id, url, 'image');
-    } catch {
-      Toast.error('Image non envoyée. Vérifiez votre connexion puis réessayez.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
+  }, [text, user?.id, id, isSending, sendMessage, request]);
 
   // Web: Enter sends, Shift+Enter adds a line.
   const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -263,19 +258,43 @@ export default function ConversationScreen() {
       : [projectTypeLabel(request.projectType), request.bodyZone, request.sizeCategory?.toUpperCase(), formatBudget(request)].filter(Boolean).join(' · ');
   const detailsLabel = inquiry ? 'Voir la question' : 'Voir la demande';
   const bubbleMax = Math.min(width * 0.78, 520);
-  const canSend = !!text.trim() && !isSending;
+  const canSend = !!request && !!text.trim() && !isSending;
 
   const renderRow = useCallback(({ item }: { item: Row }) => {
     const isMe = item.msg.senderId === user?.id;
     const animate = !!baseline && !baseline.has(item.msg.id)
-      && (item.msg.id.startsWith('optimistic-') || !isMe);
+      && (item.msg.pending || !isMe);
     return (
       <View>
         {item.dayLabel && <DaySeparator label={item.dayLabel} />}
-        <Bubble row={item} isMe={isMe} maxWidth={bubbleMax} animate={animate} />
+        <Bubble row={item} isMe={isMe} maxWidth={bubbleMax} animate={animate}
+          onRetry={() => { if (isMe) void retryMessage(id, item.msg.id); }} />
       </View>
     );
-  }, [user?.id, baseline, bubbleMax]);
+  }, [user?.id, baseline, bubbleMax, retryMessage, id]);
+
+  if (!request) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingHorizontal: gutter }]}>
+          <IconButton icon="arrow-back" label="Retour" onPress={goBack} />
+        </View>
+        {requestLoading ? <ThreadSkeleton /> : (
+          <EmptyState
+            icon={user ? 'lock-closed-outline' : 'person-outline'}
+            title={requestError ? 'Conversation indisponible' : user ? 'Conversation introuvable' : 'Connectez-vous'}
+            description={requestError
+              ? 'Le chargement a échoué. Vérifiez votre connexion puis réessayez.'
+              : 'Cette conversation est réservée au client et à l’artiste concernés.'}
+            ctaLabel={requestError ? 'Réessayer' : user ? 'Mes demandes' : 'Se connecter'}
+            onCta={requestError
+              ? () => setRequestAttempt((n) => n + 1)
+              : () => router.replace(user ? '/(tabs)/inbox' : '/(auth)/sign-in')}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -359,19 +378,6 @@ export default function ConversationScreen() {
       {/* ── Composer: a ruled bar, square controls ── */}
       <View style={[styles.composer, { paddingBottom: insets.bottom + 10, paddingHorizontal: gutter }]}>
         <View style={styles.composerInner}>
-          <Pressable
-            onPress={handleImageSend}
-            disabled={isUploading}
-            accessibilityRole="button"
-            accessibilityLabel="Envoyer une image"
-            accessibilityState={{ disabled: isUploading, busy: isUploading }}
-            style={(state) => [styles.squareBtn, styles.attachBtn, ((state as Hover).hovered || state.pressed) && !isUploading && styles.attachActive]}
-          >
-            {isUploading
-              ? <ActivityIndicator size="small" color={Colors.textSecondary} />
-              : <Ionicons name="image-outline" size={20} color={Colors.ink} />}
-          </Pressable>
-
           <View style={[styles.inputWrap, focused && styles.inputWrapFocused]}>
             <TextInput
               style={styles.input}
@@ -480,8 +486,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     ...webPointer,
   },
-  attachBtn: { borderColor: Colors.line, backgroundColor: 'transparent' },
-  attachActive: { backgroundColor: Colors.wash, borderColor: Colors.ink },
   inputWrap: {
     flex: 1, minHeight: 46, justifyContent: 'center',
     backgroundColor: Colors.white,

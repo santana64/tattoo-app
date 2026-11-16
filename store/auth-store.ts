@@ -4,8 +4,23 @@ import { supabase, Tables } from '@/lib/supabase';
 import { fetchIsAdmin } from '@/lib/moderation';
 import { Platform } from 'react-native';
 import { authErrorMessage } from '@/lib/auth-errors';
+import { useRequestStore } from '@/store/request-store';
+import { useMessageStore } from '@/store/message-store';
+import { useNotificationStore } from '@/store/notification-store';
+import { useSavedArtistsStore } from '@/store/saved-artists-store';
+import { useFollowStore } from '@/store/follow-store';
+import { useFeedStore } from '@/store/feed-store';
 
 let profileLoadVersion = 0;
+
+function clearPrivateSession() {
+  useRequestStore.getState().resetPrivateRequests();
+  useMessageStore.getState().resetPrivateMessages();
+  useNotificationStore.getState().resetPrivateNotifications();
+  useSavedArtistsStore.getState().reset();
+  useFollowStore.getState().reset();
+  useFeedStore.getState().resetPersonalFeed();
+}
 
 function authCallbackUrl() {
   return Platform.OS === 'web' && typeof window !== 'undefined'
@@ -87,7 +102,7 @@ interface AuthState {
   setRole: (role: UserRole) => Promise<void>;
   /** Permanently deletes the account server-side, then clears the local session. */
   deleteAccount: () => Promise<{ error: string | null }>;
-  completeOnboarding: () => Promise<void>;
+  completeOnboarding: () => Promise<{ error: string | null }>;
   updateProfile: (updates: Partial<Pick<AppUser, 'displayName' | 'city' | 'stylePreferences' | 'avatarUrl'>>) => Promise<{ error: string | null }>;
   /** Creates the artist row if needed, then saves the public artist fields. */
   saveArtist: (updates: ArtistUpdates) => Promise<{ error: string | null }>;
@@ -143,6 +158,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // inside this callback: it holds the auth lock until the callback returns.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
+      const previousUserId = get().session?.user.id;
+      if (previousUserId && previousUserId !== session?.user.id) clearPrivateSession();
       clearTimeout(pending);
       profileLoadVersion++;
       if (!session) {
@@ -250,6 +267,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    clearPrivateSession();
     profileLoadVersion++;
     set({ session: null, user: null, isAuthenticated: false, error: null });
   },
@@ -260,17 +278,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Becoming an artist reopens onboarding so the artist steps can run (and pass routing).
     const becomesArtist = role === 'artist' && get().user?.role !== 'artist';
     const changes = becomesArtist ? { role, onboarding_completed: false } : { role };
-    const { error } = await supabase.from('profiles').update(changes).eq('id', session.user.id);
-    if (error) {
-      console.warn('[auth] role update failed', error.code, error.message);
-      throw new Error(writeErrorMessage(error) ?? 'Enregistrement impossible.');
+    const { data, error } = await supabase.from('profiles').update(changes)
+      .eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) {
+      if (error) console.warn('[auth] role update failed', error.code, error.message);
+      throw new Error(error ? writeErrorMessage(error) ?? 'Enregistrement impossible.' : 'Rôle non enregistré. Réessayez.');
     }
+    if (get().session?.user.id !== session.user.id) throw new Error('La session a changé. Rechargez votre profil.');
     set((s) => ({ user: s.user ? { ...s.user, role, ...(becomesArtist ? { onboardingCompleted: false } : {}) } : null }));
   },
 
   deleteAccount: async () => {
-    if (!get().session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const targetUserId = get().session?.user.id;
+    if (!targetUserId) return { error: 'Session expirée. Reconnectez-vous.' };
     const { data, error } = await supabase.functions.invoke('delete-account', { method: 'POST' });
+    // The server may have removed the old account while a different person signed in.
+    // Never sign out, clear caches or redirect the account that is now active.
+    if (get().session?.user.id !== targetUserId) {
+      return { error: 'La session a changé pendant la suppression. Vérifiez le statut de votre ancien compte avant de réessayer.' };
+    }
     if (error || !data?.deleted) {
       let code: string | undefined;
       try {
@@ -280,11 +306,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return {
         error: code === 'subscription_cancel_failed'
           ? 'Votre abonnement Premium n’a pas pu être résilié. Votre compte n’a pas été supprimé : réessayez ou contactez le support.'
-          : 'La suppression a échoué. Votre compte est intact : vérifiez votre connexion puis réessayez.',
+          : 'La suppression n’a pas pu être confirmée. Vérifiez si votre ancien compte est encore accessible avant de réessayer.',
       };
     }
-    // The user no longer exists server-side: only the local session is left to clear.
+    // Only clear the local session if it still belongs to the deleted account.
     await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    if (get().session?.user.id && get().session?.user.id !== targetUserId) {
+      return { error: 'La session a changé pendant la suppression. Vérifiez le statut de votre ancien compte avant de réessayer.' };
+    }
+    clearPrivateSession();
     profileLoadVersion++;
     set({ session: null, user: null, isAuthenticated: false, error: null });
     return { error: null };
@@ -292,9 +322,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   completeOnboarding: async () => {
     const { session } = get();
-    if (!session) return;
-    await supabase.from('profiles').update({ onboarding_completed: true }).eq('id', session.user.id);
+    if (!session) return { error: 'Session expirée. Reconnectez-vous.' };
+    const { data, error } = await supabase.from('profiles')
+      .update({ onboarding_completed: true }).eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) return { error: error ? writeErrorMessage(error) : 'Profil non enregistré. Réessayez.' };
+    if (get().session?.user.id !== session.user.id) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({ user: s.user ? { ...s.user, onboardingCompleted: true } : null }));
+    return { error: null };
   },
 
   updateProfile: async (updates) => {
@@ -305,11 +339,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (updates.city !== undefined) dbUpdates.city = updates.city;
     if (updates.stylePreferences) dbUpdates.style_prefs = updates.stylePreferences;
     if (updates.avatarUrl) dbUpdates.avatar_url = updates.avatarUrl;
-    const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', session.user.id);
-    if (error) {
-      console.warn('[auth] profile update failed', error.code, error.message);
-      return { error: writeErrorMessage(error) };
+    const { data, error } = await supabase.from('profiles')
+      .update(dbUpdates).eq('id', session.user.id).select('id').maybeSingle();
+    if (error || !data) {
+      if (error) console.warn('[auth] profile update failed', error.code, error.message);
+      return { error: error ? writeErrorMessage(error) : 'Modification non enregistrée. Réessayez.' };
     }
+    if (get().session?.user.id !== session.user.id) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({ user: s.user ? { ...s.user, ...updates } : null }));
     return { error: null };
   },
@@ -353,12 +389,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (updates.coverUrl !== undefined) row.cover_url = updates.coverUrl;
 
     if (Object.keys(row).length) {
-      const { error } = await supabase.from('artists').update(row).eq('id', artistId).eq('profile_id', profileId);
-      if (error) {
-        console.warn('[auth] artist update failed', error.code, error.message);
-        return { error: writeErrorMessage(error) };
+      const { data, error } = await supabase.from('artists').update(row)
+        .eq('id', artistId).eq('profile_id', profileId).select('id').maybeSingle();
+      if (error || !data) {
+        if (error) console.warn('[auth] artist update failed', error.code, error.message);
+        return { error: error ? writeErrorMessage(error) : 'Modification non enregistrée. Réessayez.' };
       }
     }
+    if (get().session?.user.id !== profileId) return { error: 'La session a changé. Rechargez votre profil.' };
     set((s) => ({
       user: s.user ? {
         ...s.user,

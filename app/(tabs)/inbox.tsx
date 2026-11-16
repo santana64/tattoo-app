@@ -269,6 +269,12 @@ export default function InboxScreen() {
           </ScrollView>
         )}
       </View>
+      {!!user && !!error && filtered.length > 0 && (
+        <View accessibilityRole="alert" style={{ paddingBottom: Spacing.sm }}>
+          <TText variant="bodySmall" color="error">Actualisation impossible. Les demandes affichées peuvent dater.</TText>
+          <TButton title="Réessayer" variant="secondary" size="md" fullWidth={false} onPress={retry} />
+        </View>
+      )}
       {isWide && !!user && !showSkeleton && filtered.length > 0 && <RequestLedgerHead viewAs={viewAs} />}
       <Rule tone="ink" />
     </View>
