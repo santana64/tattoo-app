@@ -47,6 +47,11 @@ Build EAS : https://expo.dev/accounts/puccicity/projects/inkr/builds/578577e4-62
 **Artefact :** https://expo.dev/accounts/puccicity/projects/inkr/builds/578577e4-6261-41a8-a472-e35d2f254ac4
 
 
+
+### Numérotation Android et remplacement d'anciennes builds
+
+**Attention :** cet APK de recette utilise `versionCode=1`, alors que l'audit EAS des builds Android historiques recense `appBuildVersion=4` pour les anciens binaires. Une installation par-dessus un APK portant `versionCode=4` n'est donc pas assimilable à une mise à jour Android classique et peut échouer avec `INSTALL_FAILED_VERSION_DOWNGRADE`. Il faut confirmer le numéro de version distant et le porter au-delà de celui des binaires distribués pour une future build de mise à jour, sans considérer ce correctif comme une preuve de compatibilité des anciens parcours. Aucune modification du versionnement de production n'a été faite lors de cette recette.
+
 ## Critères non levés
 
 - Inscription et authentification avec un compte de recette autorisé, récupération d'accès et sessions persistantes.
