@@ -140,9 +140,9 @@ test('SQL enforces per-artist ownership, RLS, link allowlist and cancellation', 
       await assert.rejects(db.query("select public.set_appointment_deposit_request($1,3000,'manual',null)", [appt]), /deposit_already_finalized/);
       await one("select (public.set_appointment_deposit_request($1,2000,'external','https://buy.stripe.com/test_123')).status as status", [appt2]);
     });
-    const notices = (await db.query("select type,body from public.notifications where type='deposit_declared_received'")).rows;
-    assert.equal(notices.length, 1);
-    assert.match(notices[0].body, /pas vérifié/);
+    const receiptNotices = (await db.query("select type,body from public.notifications where type='deposit_declared_received'")).rows;
+    assert.equal(receiptNotices.length, 1);
+    assert.match(receiptNotices[0].body, /pas vérifié/);
     await db.query("update public.appointments set status='canceled' where id=$1", [appt2]);
     const cancelled = await one('select status,external_url from public.appointment_deposit_requests where appointment_id=$1', [appt2]);
     assert.equal(cancelled.status, 'cancelled');
