@@ -41,6 +41,7 @@ export function approvedExternalDepositUrl(value: string): string | null {
 const ERROR_MESSAGES: Record<string, string> = {
   deposit_appointment_not_found: 'Ce rendez-vous est introuvable.',
   deposit_not_artist: 'Seul le tatoueur de ce rendez-vous peut gérer cet acompte.',
+  deposit_account_banned: 'Ce compte artiste est suspendu et ne peut pas gérer les acomptes.',
   deposit_appointment_not_open: 'L’acompte peut être demandé uniquement avant une séance confirmée à venir.',
   deposit_invalid_details: 'Indiquez un acompte compris entre 1 et 10 000 €.',
   deposit_manual_has_link: 'Un acompte manuel ne doit pas contenir de lien.',
