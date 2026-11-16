@@ -44,3 +44,4 @@ L'abonnement INKR Premium via Stripe est **indépendant** de ce module.
 - Les RPC refusent désormais les artistes suspendus (`deposit_account_banned`) même si leur identité correspond encore au propriétaire historique du rendez-vous.
 - Migrations : `20261116102000_deposit_notifications.sql`, puis `20261116111500_deposit_banned_artist_guard.sql`, à appliquer **dans cet ordre** après la migration initiale.
 - Les tests automatisés incluent les notifications non dupliquées, l'absence de fuite du lien et le refus d'écriture aux artistes suspendus. Cela ne remplace ni la recette en navigateur authentifié ni les appareils iOS/Android.
+- L'index additif `20261116131500_deposit_client_fk_index.sql` couvre la clé étrangère `client_id` des acomptes ; vérification automatique de sa présence dans PGlite. Il ne change ni les droits, ni les statuts des paiements.
