@@ -22,15 +22,23 @@
     },
     "G1": {
       "status": "HOLD",
-      "evidence": [],
+      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md"],
+      "sql_backup_verified": true,
+      "sql_local_restore_verified": true,
+      "historical_public_counts_verified": true,
+      "historical_public_content_fingerprints_verified": true,
+      "auth_storage_metadata_counts_verified": true,
+      "migration_replay_22_files_verified": true,
+      "storage_object_bytes_backed_up": false,
       "backup_verified": false,
       "isolated_restore_verified": false,
-      "production_schema_drift_checked": false,
+      "production_schema_drift_checked": true,
       "data_integrity_preserved": false
     },
     "G2": {
       "status": "HOLD",
-      "evidence": [],
+      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md"],
+      "simulated_local_client_rpc_verified": true,
       "authenticated_client_artist_tested": false,
       "outsider_rls_tested": false,
       "deposit_notification_flow_tested": false
@@ -41,7 +49,8 @@
     },
     "G4": {
       "status": "HOLD",
-      "evidence": [],
+      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md"],
+      "local_sql_transaction_rollback_verified": true,
       "rollback_rehearsed": false,
       "storage_restore_verified": false
     },
