@@ -48,6 +48,7 @@
       "staging_anonymous_http_rls_verified": true,
       "staging_auth_readonly_harness_ready": true,
       "staging_real_client_artist_auth_executed": false,
+      "staging_simulated_client_artist_rls_read_verified": true,
       "authenticated_client_artist_tested": false,
       "outsider_rls_tested": false,
       "deposit_notification_flow_tested": false

@@ -29,3 +29,18 @@ Sources de remédiation : https://supabase.com/docs/guides/database/database-lin
 Le script `scripts/staging-auth-readonly-audit.cjs` peut établir **deux vraies sessions Auth sur staging** à partir de comptes de test existants (client et tatoueur), vérifie les rôles, lit les données autorisées et teste la non-divulgation d'un rendez-vous tiers s'il en existe un. Il reste strictement en lecture seule et refuse la production. Les identifiants doivent être entrés dans la fenêtre privée `INKR - Recette authentifiee STAGING` sur le PC, sans les envoyer dans le chat. Tant que les comptes ne sont pas fournis et le script réellement exécuté, **G2 reste HOLD**.
 
 **Autres blocages préexistants :** G0 (signature des APK historiques et parc réellement distribué), G1/G4 (copie de sauvegarde chiffrée et récupérable sur un support indépendant, restauration complète dans les services managés), G3 (appareils, iOS, permissions, erreurs réseau et accessibilité), G5 (approbation de mise en production). Les trois objets Storage ont déjà une sauvegarde chiffrée et une restauration **sur disque local** vérifiée. Le rejeu SQL et le rollback PostgreSQL ont été testés sur les clones privés. Aucun de ces résultats ne justifie de lever automatiquement les gates.
+
+## Complément — audit RLS par sessions PostgreSQL simulées, sans comptes de connexion
+
+Comme le propriétaire ne dispose pas encore de deux comptes de recette avec mots de passe, un contrôle **en lecture seule** a été exécuté directement sur le projet Supabase **staging** (pas sur la production). Chaque scénario utilise une transaction `BEGIN READ ONLY`, des variables JWT **simulées** avec `set_config(..., true)`, le rôle SQL `authenticated`, puis `ROLLBACK`. Aucun utilisateur Auth n'est créé et aucune valeur privée ou identifiant individuel n'est enregistré dans ce rapport.
+
+| Identité SQL simulée | Rendez-vous visibles | Demandes visibles | Notifications visibles | Acomptes visibles |
+| --- | ---: | ---: | ---: | ---: |
+| Client réellement associé aux données staging | 1 | 9 | 14 | 0 |
+| Artiste réellement associé aux données staging | 1 | 9 | 28 | 0 |
+| Autre profil client staging, sans relation à ces données | 0 | 0 | 0 | 0 |
+| UUID synthétique inexistant | 0 | 0 | 0 | 0 |
+
+Contrôle croisé en lecture seule avec droits administrateur : le rendez-vous staging, les neuf demandes et leurs références de propriété concernent bien **un même client et un même artiste** ; les neuf demandes visibles par ces deux participants n'indiquent donc pas de fuite RLS. Le rôle SQL appliqué était `authenticated`, et `auth.uid()` était défini pour chaque scénario.
+
+**Résultat : PASS pour les contrôles SELECT/RLS avec JWT simulés, sans comptes de connexion.** Ce résultat ne valide **pas** un mot de passe, une session signée par GoTrue, l'interface native/web, les permissions INSERT/UPDATE, la messagerie en temps réel, la réception push ou les callbacks d'acompte. La fenêtre locale `INKR - Recette authentifiee STAGING` n'est pas obligatoire pour ces contrôles. Pour un essai de connexion réel, deux comptes de test doivent être créés par le parcours normal de l'application et confirmés avec des adresses maîtrisées. **G2 reste HOLD.**
