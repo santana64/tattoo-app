@@ -39,3 +39,13 @@ Le test de création de demande sous la session SQL simulée du client a réussi
 - La distribution des anciens APK et la validation du retour arrière complet.
 
 **Décision : G2 reste HOLD** jusqu’aux tests de session et parcours applicatif réels. Cette preuve ne doit pas être transformée en validation de production.
+
+## Blocage de la connexion HTTP authentifiée — limitation de l'envoi d'e-mail
+
+Une demande de lien de connexion par l'API officielle Supabase Auth (`POST /auth/v1/otp`, `create_user=false`) pour **le client de recette déjà confirmé** a renvoyé **HTTP 429**, `over_email_send_rate_limit`. Aucune nouvelle session authentifiée n'a été obtenue par ce nouvel appel. Ce refus est distinct d'une erreur de permissions SQL ou de l'application INKR.
+
+Selon la [documentation Supabase sur l'envoi SMTP](https://supabase.com/docs/guides/auth/auth-smtp), le serveur d'e-mails intégré est fortement limité et n'est pas destiné aux usages de production. Le délai exact de rétablissement n'a **pas** été déterminé ; ne pas relancer des demandes rapprochées pour essayer de contourner cette limite.
+
+**Reprise du test :** après rétablissement de l'envoi, effectuer une unique connexion par lien e-mail depuis le parcours normal de l'application, vérifier le JWT signé avec `getUser()`, les restrictions PostgREST et l'absence d'accès à un rendez-vous tiers. L'approche officielle pour tester de nombreux cycles d'auth sans les limites du serveur d'e-mails hébergé est la pile locale Supabase avec Mailpit ; cette voie nécessite le service Auth local complet et ne remplace pas une recette contre l'hébergement staging.
+
+**Conséquence : G2 demeure HOLD.** Les comptes confirmés, la conversion du rôle artiste et les transactions SQL de contrôle restent valides. Pas de modification de la production ni de la configuration SMTP.
