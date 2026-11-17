@@ -1,0 +1,216 @@
+{
+  "snapshot_date": "2026-11-17",
+  "production_project_ref": "jxmefklkixzzdceeorcg",
+  "staging_project_ref": "lsewxsdulunuuzmszegm",
+  "production_existing_migrations": [
+    {
+      "version": "001",
+      "name": "initial"
+    },
+    {
+      "version": "002",
+      "name": "deposits"
+    },
+    {
+      "version": "003",
+      "name": "request_qualification"
+    },
+    {
+      "version": "004",
+      "name": "availability"
+    },
+    {
+      "version": "005",
+      "name": "account_deletion"
+    },
+    {
+      "version": "006",
+      "name": "artist_customization"
+    },
+    {
+      "version": "007",
+      "name": "beta_readiness"
+    },
+    {
+      "version": "008",
+      "name": "new_features"
+    },
+    {
+      "version": "009",
+      "name": "stories"
+    }
+  ],
+  "staging_existing_migrations_count": 23,
+  "local_migration_files_count": 23,
+  "production_clone_replayed_files": 22,
+  "source_to_staging_map": [
+    {
+      "stage_version": "20261113141203",
+      "stage_name": "inkr_001_initial",
+      "source_file": "001_initial.sql",
+      "source_sha256": "d2edc624e931985673118af083a062946cbc53df7adabdba28e433982d1bed04",
+      "bytes": 22653
+    },
+    {
+      "stage_version": "20261113141228",
+      "stage_name": "inkr_002_storage_policies",
+      "source_file": "002_storage_policies.sql",
+      "source_sha256": "106c435121f6148ccce6e4cb85bfbf14e2aa08587906562c1aadf0a13e4129eb",
+      "bytes": 2684
+    },
+    {
+      "stage_version": "20261113141233",
+      "stage_name": "inkr_003_appointment_booking",
+      "source_file": "003_appointment_booking.sql",
+      "source_sha256": "adf5a9787c4586b8e2fa410e52a3eb9a2dc13326836c1bd77b89f4cd3db868af",
+      "bytes": 6280
+    },
+    {
+      "stage_version": "20261113141252",
+      "stage_name": "inkr_004_request_update_guard",
+      "source_file": "004_request_update_guard.sql",
+      "source_sha256": "389422d79d6b7eeba76e45822aca65edba9116146841fd026485bbf136745cb4",
+      "bytes": 2397
+    },
+    {
+      "stage_version": "20261113141312",
+      "stage_name": "inkr_005_p0_security",
+      "source_file": "005_p0_security.sql",
+      "source_sha256": "cdf0278738bfdcb140e0b4b4044b1aed9f7ab03a32a7471de8ad74302507e7a9",
+      "bytes": 13194
+    },
+    {
+      "stage_version": "20261113141320",
+      "stage_name": "inkr_006_notifications_and_reviews",
+      "source_file": "006_notifications_and_reviews.sql",
+      "source_sha256": "63542f893d547cf015eae51406a66db06c9d680e411754551bff838274a49dbc",
+      "bytes": 9833
+    },
+    {
+      "stage_version": "20261113141403",
+      "stage_name": "inkr_007_push_delivery",
+      "source_file": "007_push_delivery.sql",
+      "source_sha256": "7ddc80013e70e0b93d12b8fd8289ca427b21249faf82d8568d6faf6e117d875d",
+      "bytes": 2810
+    },
+    {
+      "stage_version": "20261113141409",
+      "stage_name": "inkr_008_artist_search",
+      "source_file": "008_artist_search.sql",
+      "source_sha256": "37d45e3caf48c27bff1a1c3288f0fc4c30184a3a338e3bea63c8d9797b38fd18",
+      "bytes": 5038
+    },
+    {
+      "stage_version": "20261113141416",
+      "stage_name": "inkr_009_moderation",
+      "source_file": "009_moderation.sql",
+      "source_sha256": "f813ac575d853b57577c277669b7de938023aaca7b464c0f684d3a5a6107cb8a",
+      "bytes": 12221
+    },
+    {
+      "stage_version": "20261113141421",
+      "stage_name": "inkr_010_reels",
+      "source_file": "010_reels.sql",
+      "source_sha256": "13d1f19b90f98d9ddbb56605b3df687807aef6854399ffb01da7e5c8c9916f6b",
+      "bytes": 2492
+    },
+    {
+      "stage_version": "20261113141428",
+      "stage_name": "inkr_011_studio",
+      "source_file": "011_studio.sql",
+      "source_sha256": "1d056569fa00cf83a78c52e0aa864c7806a031a88d61df13a293a4bc52161397",
+      "bytes": 25881
+    },
+    {
+      "stage_version": "20261113141501",
+      "stage_name": "inkr_012_booking_care",
+      "source_file": "012_booking_care.sql",
+      "source_sha256": "b96a28d83e3e7d469af5905c0ef8e0adfa8fe0d4d37381ad174614240c8f6728",
+      "bytes": 36499
+    },
+    {
+      "stage_version": "20261113141512",
+      "stage_name": "inkr_20261112193526_balanced_artist_previews",
+      "source_file": "20261112193526_balanced_artist_previews.sql",
+      "source_sha256": "344d6d07a6de5278acf88eb5b568247b7dfbe33c7215d55b3fbdcfa7e3c66458",
+      "bytes": 1270
+    },
+    {
+      "stage_version": "20261113141534",
+      "stage_name": "inkr_20261112213805_private_request_reference_lifecycle",
+      "source_file": "20261112213805_private_request_reference_lifecycle.sql",
+      "source_sha256": "32a078cf507dc716329d56df5275d2848010541059e67b908636337f5bea92d7",
+      "bytes": 3062
+    },
+    {
+      "stage_version": "20261114164008",
+      "stage_name": "stripe_subscription_event_order",
+      "source_file": "20261114163800_stripe_subscription_event_order.sql",
+      "source_sha256": "b015cd86aa044131fda59437763febddb0920736b185d1d5366b53562cfcf552",
+      "bytes": 4722
+    },
+    {
+      "stage_version": "20261114170424",
+      "stage_name": "appointment_rpc_only",
+      "source_file": "20261114164541_appointment_rpc_only.sql",
+      "source_sha256": "169f078baa92db3b9e35b9c967d8f13d8bc3b9d691a7676a133f93c86f6ec9ab",
+      "bytes": 413
+    },
+    {
+      "stage_version": "20261114215219",
+      "stage_name": "private_healed_photos",
+      "source_file": "20261114183000_private_healed_photos.sql",
+      "source_sha256": "035f399e5e3d920eb0e83a5809ccde3ef6bf22c9ec30069b73052451f69a6d51",
+      "bytes": 1915
+    },
+    {
+      "stage_version": "20261116083105",
+      "stage_name": "optional_external_deposits",
+      "source_file": "20261116081339_optional_external_deposits.sql",
+      "source_sha256": "3fb748a97565f162a0dee38ab22b918456009151fe2f46f9329625b186e3d9f1",
+      "bytes": 8440
+    },
+    {
+      "stage_version": "20261116105152",
+      "stage_name": "deposit_notifications",
+      "source_file": "20261116102000_deposit_notifications.sql",
+      "source_sha256": "01325a8ea7bf2597c13f3ddc07dfb1cc417af17242c2462c813e781f78dee19d",
+      "bytes": 2103
+    },
+    {
+      "stage_version": "20261116110248",
+      "stage_name": "deposit_banned_artist_guard",
+      "source_file": "20261116111500_deposit_banned_artist_guard.sql",
+      "source_sha256": "93bedcb3b1db03b455fd756120ee6ae4e50f6f56e29bfe71df6a3ecec4a3d6f6",
+      "bytes": 5253
+    },
+    {
+      "stage_version": "20261116111536",
+      "stage_name": "deposit_client_fk_index",
+      "source_file": "20261116131500_deposit_client_fk_index.sql",
+      "source_sha256": "9e7885ed7e99db2d6ee07fc18b8f83e7bad7f5df9a44a1f7a75a21da712aa52f",
+      "bytes": 351
+    },
+    {
+      "stage_version": "20261116112026",
+      "stage_name": "revoke_public_trigger_execute",
+      "source_file": "20261116132000_revoke_public_trigger_execute.sql",
+      "source_sha256": "34c14f755535e640f359adb9a53b6ff155acc3df83a4cd2c2f6d94c2981123a5",
+      "bytes": 769
+    },
+    {
+      "stage_version": "20261116112132",
+      "stage_name": "pin_legacy_helper_search_path",
+      "source_file": "20261116132500_pin_legacy_helper_search_path.sql",
+      "source_sha256": "1c6d750e150d7f09ec011ead46df6b64704055d05659467c0253df95d35b241d",
+      "bytes": 359
+    }
+  ],
+  "production_deployment_authorized": false,
+  "production_history_repaired": false,
+  "notes": [
+    "Production has a different historical 001-009 ledger than staging; no repair performed",
+    "Initial migration 001_initial.sql MUST NOT be applied to populated production",
+    "Do not run supabase db push or migration repair on production without separate approval and exact history reconciliation"
+  ]
+}
