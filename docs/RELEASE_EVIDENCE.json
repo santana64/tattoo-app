@@ -46,6 +46,8 @@
       "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md", "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md"],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
+      "staging_auth_readonly_harness_ready": true,
+      "staging_real_client_artist_auth_executed": false,
       "authenticated_client_artist_tested": false,
       "outsider_rls_tested": false,
       "deposit_notification_flow_tested": false

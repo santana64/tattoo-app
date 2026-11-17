@@ -61,3 +61,11 @@ Staging security advisors also flag several `SECURITY DEFINER` functions callabl
 **Release decision: HOLD.** No mutation to the production database, Supabase Storage objects, EAS remote version, store releases or protected release branches.
 
 **Sources:** Supabase migration repair and backup/restore documentation; Expo EAS remote version-management documentation. Exact local audit evidence remains off GitHub.
+
+### Prepared real-account QA entrypoint
+
+A new read-only harness, `scripts/staging-auth-readonly-audit.cjs`, is pinned to the staging Supabase project and will not accept the production URL. It requires two **existing, expressly authorized** test accounts (one client and one tattooist). Credentials are accepted only through local environment variables and are not included in the source, tool logs, reports or Git. The staging **publishable** key is stored separately in the private local `INKR-QA\secrets` folder.
+
+Once valid credentials are supplied, the harness will authenticate through the real Supabase Auth API and check profile roles, RLS-filtered appointments, requests, optional deposits and notifications, and cross-account denial when a nonparticipant appointment is available. It does **not** create, cancel or modify production or staging appointments. Until credentials are provided, it returns `HOLD` (exit code 2); this behavior is covered by `tests/staging-auth-audit-guard.test.cjs`.
+
+**No live signed-in user test has been claimed or marked as completed.**
