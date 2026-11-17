@@ -48,162 +48,162 @@
       "stage_version": "20261113141203",
       "stage_name": "inkr_001_initial",
       "source_file": "001_initial.sql",
-      "source_sha256": "d2edc624e931985673118af083a062946cbc53df7adabdba28e433982d1bed04",
-      "bytes": 22653
+      "source_sha256": "b4aa77e93bc0fb46165ef56d1e12dfa5a10af2479cb286a2cc2d1a49875b294d",
+      "bytes": 22158
     },
     {
       "stage_version": "20261113141228",
       "stage_name": "inkr_002_storage_policies",
       "source_file": "002_storage_policies.sql",
-      "source_sha256": "106c435121f6148ccce6e4cb85bfbf14e2aa08587906562c1aadf0a13e4129eb",
-      "bytes": 2684
+      "source_sha256": "aef209eb9175c72de022946ad3ef400d6471ed81f9138f168fe2a659f1ac569d",
+      "bytes": 2616
     },
     {
       "stage_version": "20261113141233",
       "stage_name": "inkr_003_appointment_booking",
       "source_file": "003_appointment_booking.sql",
-      "source_sha256": "adf5a9787c4586b8e2fa410e52a3eb9a2dc13326836c1bd77b89f4cd3db868af",
-      "bytes": 6280
+      "source_sha256": "284b4b4996ac8049684496418abd6c21d083ca2588a25e58cafdc30768316e5f",
+      "bytes": 6137
     },
     {
       "stage_version": "20261113141252",
       "stage_name": "inkr_004_request_update_guard",
       "source_file": "004_request_update_guard.sql",
-      "source_sha256": "389422d79d6b7eeba76e45822aca65edba9116146841fd026485bbf136745cb4",
-      "bytes": 2397
+      "source_sha256": "50e1d694f7f8a0b7a9c6989e71130ed4703f677b7bd6ec18f8cf6d8b9fb54239",
+      "bytes": 2344
     },
     {
       "stage_version": "20261113141312",
       "stage_name": "inkr_005_p0_security",
       "source_file": "005_p0_security.sql",
-      "source_sha256": "cdf0278738bfdcb140e0b4b4044b1aed9f7ab03a32a7471de8ad74302507e7a9",
-      "bytes": 13194
+      "source_sha256": "2dd1062c3c06450d1937e7826723fe3c0da12b7c826093c9032dd71b9409edaa",
+      "bytes": 12889
     },
     {
       "stage_version": "20261113141320",
       "stage_name": "inkr_006_notifications_and_reviews",
       "source_file": "006_notifications_and_reviews.sql",
-      "source_sha256": "63542f893d547cf015eae51406a66db06c9d680e411754551bff838274a49dbc",
-      "bytes": 9833
+      "source_sha256": "c47922b775072d852920b30e70ac77362fbafd4e879c452ebfd9f3a5f4e70e2d",
+      "bytes": 9598
     },
     {
       "stage_version": "20261113141403",
       "stage_name": "inkr_007_push_delivery",
       "source_file": "007_push_delivery.sql",
-      "source_sha256": "7ddc80013e70e0b93d12b8fd8289ca427b21249faf82d8568d6faf6e117d875d",
-      "bytes": 2810
+      "source_sha256": "42dfcb31d145d90c4b00ec9c40111028f8b880304739412008ce8dcc94e93f7d",
+      "bytes": 2738
     },
     {
       "stage_version": "20261113141409",
       "stage_name": "inkr_008_artist_search",
       "source_file": "008_artist_search.sql",
-      "source_sha256": "37d45e3caf48c27bff1a1c3288f0fc4c30184a3a338e3bea63c8d9797b38fd18",
-      "bytes": 5038
+      "source_sha256": "031c7767bf233f53acda686f65c67773af96fa1e9ccbfcfc557296c464eb4cdf",
+      "bytes": 4909
     },
     {
       "stage_version": "20261113141416",
       "stage_name": "inkr_009_moderation",
       "source_file": "009_moderation.sql",
-      "source_sha256": "f813ac575d853b57577c277669b7de938023aaca7b464c0f684d3a5a6107cb8a",
-      "bytes": 12221
+      "source_sha256": "56ae87db1af0f5f36b0ccd62527ba9611f3a360eb4b5ab99a7f36b46f86adf07",
+      "bytes": 11933
     },
     {
       "stage_version": "20261113141421",
       "stage_name": "inkr_010_reels",
       "source_file": "010_reels.sql",
-      "source_sha256": "13d1f19b90f98d9ddbb56605b3df687807aef6854399ffb01da7e5c8c9916f6b",
-      "bytes": 2492
+      "source_sha256": "83c4369463ba0b258f13863bd752981bca1271c1a0b2aa02f13cfe0d35ee191e",
+      "bytes": 2439
     },
     {
       "stage_version": "20261113141428",
       "stage_name": "inkr_011_studio",
       "source_file": "011_studio.sql",
-      "source_sha256": "1d056569fa00cf83a78c52e0aa864c7806a031a88d61df13a293a4bc52161397",
-      "bytes": 25881
+      "source_sha256": "f3edf4d1e88f77797d3f53f878e858140b14321baa487b84dd26d49006e6630c",
+      "bytes": 25376
     },
     {
       "stage_version": "20261113141501",
       "stage_name": "inkr_012_booking_care",
       "source_file": "012_booking_care.sql",
-      "source_sha256": "b96a28d83e3e7d469af5905c0ef8e0adfa8fe0d4d37381ad174614240c8f6728",
-      "bytes": 36499
+      "source_sha256": "a00d0b62bcacfb49370d5073efb2a83808afe9a2f4bf64331af8d33adb5532b2",
+      "bytes": 35756
     },
     {
       "stage_version": "20261113141512",
       "stage_name": "inkr_20261112193526_balanced_artist_previews",
       "source_file": "20261112193526_balanced_artist_previews.sql",
-      "source_sha256": "344d6d07a6de5278acf88eb5b568247b7dfbe33c7215d55b3fbdcfa7e3c66458",
-      "bytes": 1270
+      "source_sha256": "05423a69fa8a9e63a08f4c862777fd6a0c8ff51f1bee9fe8ece141893e85eff0",
+      "bytes": 1241
     },
     {
       "stage_version": "20261113141534",
       "stage_name": "inkr_20261112213805_private_request_reference_lifecycle",
       "source_file": "20261112213805_private_request_reference_lifecycle.sql",
-      "source_sha256": "32a078cf507dc716329d56df5275d2848010541059e67b908636337f5bea92d7",
-      "bytes": 3062
+      "source_sha256": "1a5b66d9977f5276aa7e5f5c9be49305bb260d983c5dbe5a68919108ee5b351b",
+      "bytes": 2969
     },
     {
       "stage_version": "20261114164008",
       "stage_name": "stripe_subscription_event_order",
       "source_file": "20261114163800_stripe_subscription_event_order.sql",
-      "source_sha256": "b015cd86aa044131fda59437763febddb0920736b185d1d5366b53562cfcf552",
-      "bytes": 4722
+      "source_sha256": "587a1dbd28ba963ca39561d3893e320f9520ffa0d0c83e1490bcd297410ed7cf",
+      "bytes": 4611
     },
     {
       "stage_version": "20261114170424",
       "stage_name": "appointment_rpc_only",
       "source_file": "20261114164541_appointment_rpc_only.sql",
-      "source_sha256": "169f078baa92db3b9e35b9c967d8f13d8bc3b9d691a7676a133f93c86f6ec9ab",
-      "bytes": 413
+      "source_sha256": "44c0fc0c42c6905892fec00ec101f93def806cf3dfe0de467acf858091adf572",
+      "bytes": 407
     },
     {
       "stage_version": "20261114215219",
       "stage_name": "private_healed_photos",
       "source_file": "20261114183000_private_healed_photos.sql",
-      "source_sha256": "035f399e5e3d920eb0e83a5809ccde3ef6bf22c9ec30069b73052451f69a6d51",
-      "bytes": 1915
+      "source_sha256": "7125fe37fcd643e80347284a737edb65184a1bd670902b4e0203f39d2f126be6",
+      "bytes": 1872
     },
     {
       "stage_version": "20261116083105",
       "stage_name": "optional_external_deposits",
       "source_file": "20261116081339_optional_external_deposits.sql",
-      "source_sha256": "3fb748a97565f162a0dee38ab22b918456009151fe2f46f9329625b186e3d9f1",
-      "bytes": 8440
+      "source_sha256": "8887d19b6624af2969bcee9eb70d9cad6ddadbe5431ae3e8f8eef8b204f1c116",
+      "bytes": 8248
     },
     {
       "stage_version": "20261116105152",
       "stage_name": "deposit_notifications",
       "source_file": "20261116102000_deposit_notifications.sql",
-      "source_sha256": "01325a8ea7bf2597c13f3ddc07dfb1cc417af17242c2462c813e781f78dee19d",
-      "bytes": 2103
+      "source_sha256": "000c731b768d95cdc5a1dc9aaee8776b030de06d3be9a279b22b2da237c07d81",
+      "bytes": 2060
     },
     {
       "stage_version": "20261116110248",
       "stage_name": "deposit_banned_artist_guard",
       "source_file": "20261116111500_deposit_banned_artist_guard.sql",
-      "source_sha256": "93bedcb3b1db03b455fd756120ee6ae4e50f6f56e29bfe71df6a3ecec4a3d6f6",
-      "bytes": 5253
+      "source_sha256": "eb28de172719642da781ed25351eef7aa889b7a884e54a99281527342eb2abc1",
+      "bytes": 5125
     },
     {
       "stage_version": "20261116111536",
       "stage_name": "deposit_client_fk_index",
       "source_file": "20261116131500_deposit_client_fk_index.sql",
-      "source_sha256": "9e7885ed7e99db2d6ee07fc18b8f83e7bad7f5df9a44a1f7a75a21da712aa52f",
-      "bytes": 351
+      "source_sha256": "d294387a42e548e54cfd07815d982031cd310b2838748d4f3281f8168b6ce3c1",
+      "bytes": 346
     },
     {
       "stage_version": "20261116112026",
       "stage_name": "revoke_public_trigger_execute",
       "source_file": "20261116132000_revoke_public_trigger_execute.sql",
-      "source_sha256": "34c14f755535e640f359adb9a53b6ff155acc3df83a4cd2c2f6d94c2981123a5",
-      "bytes": 769
+      "source_sha256": "fd927f457c44965f04c95664a09c437dc09efa54f2a1320fd7271b2e87df78b9",
+      "bytes": 746
     },
     {
       "stage_version": "20261116112132",
       "stage_name": "pin_legacy_helper_search_path",
       "source_file": "20261116132500_pin_legacy_helper_search_path.sql",
-      "source_sha256": "1c6d750e150d7f09ec011ead46df6b64704055d05659467c0253df95d35b241d",
-      "bytes": 359
+      "source_sha256": "2a79c9b9de7b4578d3aded15cac96f5b72b0bdadce9c4aee48e05f64f33ea5b0",
+      "bytes": 354
     }
   ],
   "production_deployment_authorized": false,
@@ -212,5 +212,6 @@
     "Production has a different historical 001-009 ledger than staging; no repair performed",
     "Initial migration 001_initial.sql MUST NOT be applied to populated production",
     "Do not run supabase db push or migration repair on production without separate approval and exact history reconciliation"
-  ]
+  ],
+  "hash_normalization": "canonical LF (CRLF converted to LF prior to SHA-256 and byte count)"
 }

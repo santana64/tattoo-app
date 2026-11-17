@@ -25,10 +25,16 @@ test('stage migration ledger maps one-to-one to audited local files', () => {
     assert.ok(!seen.has(entry.stage_version), 'duplicate staging migration version');
     seen.add(entry.stage_version);
     assert.match(entry.source_sha256, /^[a-f0-9]{64}$/);
-    const body = fs.readFileSync(path.join(migrations, entry.source_file));
-    assert.equal(crypto.createHash('sha256').update(body).digest('hex'), entry.source_sha256,
+    // Compare canonical LF bytes: Git checkouts can be CRLF on Windows but
+    // are LF on GitHub Actions Linux. This audit fingerprints SQL semantics,
+    // not the platform-dependent checkout representation.
+    const canonical = Buffer.from(
+      fs.readFileSync(path.join(migrations, entry.source_file), 'utf8').replace(/\r\n/g, '\n'),
+      'utf8',
+    );
+    assert.equal(crypto.createHash('sha256').update(canonical).digest('hex'), entry.source_sha256,
       'SQL content changed since staging/source audit: ' + entry.source_file);
-    assert.equal(body.length, entry.bytes);
+    assert.equal(canonical.length, entry.bytes);
   }
   assert.equal(manifest.source_to_staging_map[0].source_file, '001_initial.sql');
 });
