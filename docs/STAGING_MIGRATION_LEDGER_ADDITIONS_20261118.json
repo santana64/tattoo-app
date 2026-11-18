@@ -1,0 +1,15 @@
+{
+  "snapshot_date": "2026-11-18",
+  "staging_project_ref": "lsewxsdulunuuzmszegm",
+  "production_deployment_authorized": false,
+  "note": "Staging-only, reviewed additive security migration after the immutable 2026-11-17 production-ledger snapshot. Production release remains on HOLD.",
+  "migrations": [
+    {
+      "stage_version": "20261118075629",
+      "stage_name": "secure_post_reaction_visibility",
+      "source_file": "20261118075629_secure_post_reaction_visibility.sql",
+      "source_sha256": "f87092c92aafa565fd43e8bd6a263dc4846f0c9570ee30dd3960cd038785bc17",
+      "bytes": 1445
+    }
+  ]
+}
