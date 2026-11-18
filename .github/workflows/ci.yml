@@ -34,3 +34,12 @@ jobs:
         env:
           EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+      # Compile real native entrypoints too: web export cannot detect missing
+      # React Native storage modules or platform-resolution regressions.
+      - name: Export Android and iOS bundles
+        run: |
+          npx expo export --platform android --output-dir dist-android --clear
+          npx expo export --platform ios --output-dir dist-ios --clear
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
