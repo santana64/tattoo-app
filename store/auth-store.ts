@@ -257,11 +257,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signInWithGoogle: async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const native = Platform.OS !== 'web';
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: authCallbackUrl() },
+      options: {
+        redirectTo: authCallbackUrl(),
+        // React Native has no browser URL assignment: launch the returned URL
+        // explicitly and let Expo Router exchange the PKCE code on deep link.
+        ...(native ? { skipBrowserRedirect: true } : {}),
+      },
     });
-    return { error: authErrorMessage(error) };
+    if (error) return { error: authErrorMessage(error) };
+    if (!native) return { error: null };
+    if (!data?.url) return { error: 'La connexion Google n’a pas fourni de lien sécurisé. Réessayez.' };
+    try {
+      const { openURL } = await import('expo-linking');
+      await openURL(data.url);
+      return { error: null };
+    } catch {
+      return { error: 'Impossible d’ouvrir la connexion Google sur cet appareil.' };
+    }
   },
 
   signOut: async () => {
