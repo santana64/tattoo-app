@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const manifest = require('../docs/PRODUCTION_MIGRATION_LEDGER_SNAPSHOT_20261117.json');
+const delta = require('../docs/STAGING_MIGRATION_LEDGER_ADDITIONS_20261118.json');
 const migrations = path.join(root, 'supabase', 'migrations');
 
 test('stage migration ledger maps one-to-one to audited local files', () => {
@@ -16,11 +17,16 @@ test('stage migration ledger maps one-to-one to audited local files', () => {
   assert.equal(manifest.local_migration_files_count, 23);
   assert.equal(manifest.production_clone_replayed_files, 22);
   assert.equal(manifest.source_to_staging_map.length, 23);
+  assert.equal(delta.staging_project_ref, manifest.staging_project_ref);
+  assert.equal(delta.production_deployment_authorized, false);
+  assert.equal(delta.migrations.length, 1);
+  assert.equal(delta.migrations[0].stage_version, '20261118075629');
+  const entries = [...manifest.source_to_staging_map, ...delta.migrations];
   const actualFiles = fs.readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort();
-  const mappedFiles = manifest.source_to_staging_map.map((entry) => entry.source_file).sort();
+  const mappedFiles = entries.map((entry) => entry.source_file).sort();
   assert.deepEqual(mappedFiles, actualFiles, 'every local migration must be mapped once');
   const seen = new Set();
-  for (const entry of manifest.source_to_staging_map) {
+  for (const entry of entries) {
     assert.match(entry.stage_version, /^\d{14}$/);
     assert.ok(!seen.has(entry.stage_version), 'duplicate staging migration version');
     seen.add(entry.stage_version);
