@@ -24,7 +24,7 @@ concurrency:
 jobs:
   native-smoke:
     # Intentionally runs on a hosted runner, not the owner's low-RAM PC.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CI: "1"
@@ -40,7 +40,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Legacy SDK package 'tools' was removed; request only supported packages.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - name: Install locked dependencies
         run: npm ci
       - name: Generate native Android application
