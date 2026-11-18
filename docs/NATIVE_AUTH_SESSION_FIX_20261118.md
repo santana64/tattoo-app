@@ -15,6 +15,8 @@ Ce défaut est **confirmé dans le code source** ; il n'a **pas** été reprodui
 - `removeItem` supprime le manifeste avant les blocs : une nouvelle lecture ne peut pas retrouver une session déconnectée.
 - `processLock` sérialise les opérations Auth **sur mobile uniquement** ; sur le Web, le verrou multi-onglets de Supabase est conservé.
 - `app/_layout.tsx` suspend le rafraîchissement Auth en arrière-plan et le relance au retour au premier plan, selon la recommandation Supabase React Native.
+- `signInWithGoogle()` lance explicitement l’URL OAuth dans le navigateur système sur Android/iOS (`skipBrowserRedirect: true`) pour permettre le retour par deep link. Sur le Web, la redirection native Supabase reste inchangée.
+- La CI compile désormais les bundles **Android et iOS**, en plus du Web, avec des URL Supabase fictives non routables ; aucune application mobile distribuée n’est générée.
 - Aucune migration SQL, aucun identifiant utilisateur, aucune clé privée ni modification Supabase de production.
 
 ## Tests automatisés
@@ -28,7 +30,7 @@ Ce défaut est **confirmé dans le code source** ; il n'a **pas** été reprodui
 5. Branchements explicites du stockage et du verrou dans le client Supabase.
 6. Rejet d'une session trop grande sans supprimer la précédente.
 
-Ces tests sont des **preuves unitaires**, non une certification de l'API Keychain/Keystore sur appareil réel.
+Ces tests sont des **preuves unitaires**, non une certification de l'API Keychain/Keystore sur appareil réel. Trois autres tests automatiques portent sur la connexion Google OAuth Android, Web et ses cas d’échec.
 
 ## Recette native obligatoire avant production
 
@@ -37,6 +39,8 @@ Utiliser une **nouvelle build Android/iOS** créée après ces commits et relié
 - Connexion client puis artiste sur des sessions distinctes : fermeture forcée, redémarrage, conservation de la bonne session et absence de données croisées.
 - Lien magique demandé et ouvert **sur le même appareil** : redirection `inkr://auth/callback?code=...`, échange PKCE, profil chargé.
 - Vérifier que `inkr://auth/callback` figure dans les **Redirect URLs de Supabase staging**. Sans cette autorisation, GoTrue peut revenir à sa Site URL Web au lieu d'ouvrir l'application native.
+
+**Test de validation effectué :** un `POST /auth/v1/otp` sur staging, avec `redirect_to=inkr://auth/callback`, a répondu **HTTP 200** et le mail QA est arrivé en **INBOX**. Le lien reçu contenait toutefois `redirect_to=https://tattoo-app-4gmu-57llo48jq-santana64s-projects.vercel.app` (ancienne Site URL Web). **Conclusion : redirection native non autorisée à ce jour.** Il faut ajouter exactement `inkr://auth/callback` dans les Redirect URLs staging, puis recommencer un seul test. Ne pas ajouter la règle sur le projet Supabase de production pendant cette recette. Aucun lien à jeton n'a été publié.
 - Passage en arrière-plan, retour au premier plan, renouvellement du jeton et reprise réseau après expiration.
 - Déconnexion puis redémarrage : aucune session ni donnée privée résiduelle.
 - Test iOS après réinstallation : les éléments Keychain peuvent subsister selon les règles du système ; ne jamais supposer qu'une désinstallation équivaut à une déconnexion.
