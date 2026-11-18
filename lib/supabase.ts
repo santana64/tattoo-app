@@ -1,5 +1,6 @@
 import { createClient, processLock } from '@supabase/supabase-js';
 import { Database } from './supabase.types';
+import { Platform } from 'react-native';
 import { authStorage } from './auth-storage';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -12,7 +13,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, 
     persistSession: true,
     detectSessionInUrl: false,
     flowType: 'pkce',
-    lock: processLock,
+    // Keep Supabase's browser multi-tab lock; use its process lock only on native.
+    ...(Platform.OS !== 'web' ? { lock: processLock } : {}),
   },
 });
 
