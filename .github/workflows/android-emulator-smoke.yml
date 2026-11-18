@@ -53,7 +53,19 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+          # Maven Central sometimes rate-limits shared CI IPs with HTTP 429.
+          # Retry up to three times; Gradle reuses artifacts already downloaded.
+          for attempt in 1 2 3; do
+            if ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Android compilation failed after three bounded attempts."
+              exit 1
+            fi
+            echo "::warning::Gradle dependency/build failure; retry $((attempt + 1))/3 after cooldown."
+            sleep "$((attempt * 25))"
+          done
       - name: Enable KVM on Ubuntu runner
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
