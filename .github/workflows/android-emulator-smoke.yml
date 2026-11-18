@@ -1,0 +1,76 @@
+name: Android Emulator Smoke (PR, no production)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/android-emulator-smoke.yml
+      - scripts/ci/android-emulator-smoke.sh
+      - app/**
+      - lib/**
+      - components/**
+      - store/**
+      - package.json
+      - package-lock.json
+      - app.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-smoke:
+    # Intentionally runs on a hosted runner, not the owner's low-RAM PC.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Generate native Android application
+        run: npx expo prebuild --platform android --clean --non-interactive
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile actual installable Android APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+      - name: Enable KVM on Ubuntu runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, launch and restart INKR on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/ci/android-emulator-smoke.sh
+      - name: Upload smoke evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-android-emulator-smoke
+          path: ${{ runner.temp }}/inkr-android-smoke/
+          retention-days: 3
+          if-no-files-found: ignore
