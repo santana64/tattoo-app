@@ -23,6 +23,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Reject newly introduced critical vulnerabilities without forcing Expo SDK upgrades.
+      - run: npm audit --omit=dev --audit-level=critical
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
