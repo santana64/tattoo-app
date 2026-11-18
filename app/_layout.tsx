@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Platform, View, useWindowDimensions } from 'react-native';
+import { AppState, Platform, View, useWindowDimensions } from 'react-native';
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -18,6 +18,7 @@ import {
   Geist_700Bold,
 } from '@expo-google-fonts/geist';
 import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 import { Colors, Layout } from '@/constants/theme';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ShellContext } from '@/hooks/useContentDimensions';
@@ -59,6 +60,22 @@ export default function RootLayout() {
   useEffect(() => {
     return initialize();
   }, [initialize]);
+
+  // React Native pauses JS timers while backgrounded. Refresh the Supabase
+  // session only while the app is active; browser tabs use Supabase's defaults.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const refresh = (state: string) => {
+      if (state === 'active') supabase.auth.startAutoRefresh();
+      else supabase.auth.stopAutoRefresh();
+    };
+    refresh(AppState.currentState);
+    const subscription = AppState.addEventListener('change', refresh);
+    return () => {
+      subscription.remove();
+      supabase.auth.stopAutoRefresh();
+    };
+  }, []);
 
   useEffect(() => {
     currentPath = pathname;
