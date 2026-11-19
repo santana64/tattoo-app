@@ -1,10 +1,11 @@
-name: Android Emulator Smoke (PR, no production)
+name: Android Emulator Staging Public UI (No Production)
 
 on:
   pull_request:
     paths:
       - .github/workflows/android-emulator-smoke.yml
       - scripts/ci/android-emulator-smoke.sh
+      - scripts/ci/android-staging-public-ui.sh
       - app/**
       - lib/**
       - components/**
@@ -28,8 +29,9 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "1"
-      EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
-      EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+      # Publishable key is intentionally client-visible; never use service_role.
+      EXPO_PUBLIC_SUPABASE_URL: https://lsewxsdulunuuzmszegm.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_1OXzm4QAsvKFAC2Kc2oQVw_G7qpS9Fq
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -82,12 +84,16 @@ jobs:
           profile: pixel_6
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/android-emulator-smoke.sh
+          script: |
+            bash scripts/ci/android-emulator-smoke.sh
+            bash scripts/ci/android-staging-public-ui.sh
       - name: Upload smoke evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: inkr-android-emulator-smoke
-          path: ${{ runner.temp }}/inkr-android-smoke/
+          name: inkr-android-staging-public-ui-smoke
+          path: |
+            ${{ runner.temp }}/inkr-android-smoke/
+            ${{ runner.temp }}/inkr-android-staging-ui/
           retention-days: 3
           if-no-files-found: ignore
