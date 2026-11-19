@@ -58,6 +58,7 @@ adb logcat -c
 launch_and_check fresh
 launch_and_check cold_restart
 
-# The page uses a fake Supabase URL for CI. This verifies installed native
-# startup and lifecycle only, NOT a real PKCE login or connected artist flow.
+# This step validates installed native startup only. The separate staging UI
+# script validates public network data and safe deep-link error handling.
+# Neither script performs a real PKCE login or an authenticated artist workflow.
 echo "::notice::Android install + two launch checks passed without physical hardware."
