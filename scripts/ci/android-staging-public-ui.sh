@@ -7,6 +7,15 @@ PACKAGE=com.inkr.tattoo
 OUT="${RUNNER_TEMP:-/tmp}/inkr-android-staging-ui"
 mkdir -p "$OUT"
 
+# Collect evidence even if a tap launches the system home screen or the app dies.
+collect_diagnostics() {
+  adb logcat -d -b crash > "$OUT/post-interaction-crash-buffer.txt" 2>/dev/null || true
+  adb logcat -d -t 15000 > "$OUT/post-interaction-logcat.txt" 2>/dev/null || true
+  adb shell dumpsys activity activities > "$OUT/activity-state.txt" 2>/dev/null || true
+  adb shell pidof "$PACKAGE" > "$OUT/app-pid.txt" 2>/dev/null || true
+}
+trap collect_diagnostics EXIT
+
 capture() {
   local name="$1"
   adb shell uiautomator dump /sdcard/inkr-stage.xml >/dev/null 2>&1
@@ -63,6 +72,12 @@ fi
 
 # Check that public tabs lead to the sign-in screen, without credentials.
 adb shell input tap 902 2270
+sleep 2
+if ! adb shell pidof "$PACKAGE" >/dev/null 2>&1; then
+  echo "::error::INKR process exited immediately after tapping the sign-in tab."
+  exit 1
+fi
+adb shell dumpsys activity activities > "$OUT/after-sign-in-tap-activity.txt" 2>/dev/null || true
 wait_for_text "Entrez dans l" sign_in
 
 # Verify Android URI intent delivery to the actual callback screen using
