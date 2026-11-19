@@ -23,11 +23,34 @@ capture() {
   adb exec-out screencap -p > "$OUT/$name.png"
 }
 
+# Hosted emulators occasionally show a *system launcher* ANR dialog over
+# the app. UIAutomator then sees only the dialog even though INKR is loaded
+# and visible behind it. Never mistake this for a missing network response.
+# The Pixel 6 AVD is fixed at 1080x2400; the Wait button is centred below.
+clear_launcher_anr() {
+  local phase="$1" attempt=0
+  while grep -Fq "Pixel Launcher isn" "$OUT/$phase.xml"; do
+    attempt=$((attempt + 1))
+    if (( attempt > 3 )); then
+      echo "::error::Emulator Pixel Launcher ANR cannot be dismissed; NOT an INKR data failure."
+      return 1
+    fi
+    echo "::warning::Emulator system launcher ANR overlay ($phase); dismissing with Wait ($attempt/3)."
+    # Capture the overlay separately as evidence before any tap.
+    cp "$OUT/$phase.xml" "$OUT/$phase-launcher-anr-$attempt.xml"
+    cp "$OUT/$phase.png" "$OUT/$phase-launcher-anr-$attempt.png"
+    adb shell input tap 540 1360
+    sleep 3
+    capture "$phase"
+  done
+}
+
 wait_for_text() {
   local phrase="$1" label="$2"
   local found=0
   for attempt in $(seq 1 16); do
     capture "$label"
+    clear_launcher_anr "$label"
     if grep -Fq "$phrase" "$OUT/$label.xml"; then
       found=1
       break
