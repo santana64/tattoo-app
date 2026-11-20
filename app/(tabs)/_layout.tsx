@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShell } from '@/hooks/useContentDimensions';
@@ -56,7 +56,11 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      // Keep inactive Android tab screens attached while Fabric/Reanimated flush
+      // pending mounts. This avoids screen detach/reparent races on navigation.
+      detachInactiveScreens={Platform.OS !== 'android'}
       screenOptions={{
+        freezeOnBlur: false,
         headerShown: false,
         tabBarHideOnKeyboard: true,
         tabBarStyle: hasSidebar ? { display: 'none' } : {
