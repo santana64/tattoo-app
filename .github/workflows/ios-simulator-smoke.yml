@@ -217,13 +217,46 @@ jobs:
 
       - name: Verify actual iOS UI and visitor sign-in with Maestro
         shell: bash
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "180000"
+          MAESTRO_CLI_NO_ANALYTICS: "1"
         run: |
-          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke/maestro"
-          maestro --platform=ios --device="$INKR_IOS_SIMULATOR" test \
-            --debug-output="$RUNNER_TEMP/inkr-ios-smoke/maestro" \
-            --format=JUNIT \
-            --output="$RUNNER_TEMP/inkr-ios-smoke/maestro/junit.xml" \
-            .maestro/ios-public-navigation.yaml
+          set -Eeuo pipefail
+          out="$RUNNER_TEMP/inkr-ios-smoke/maestro"
+          mkdir -p "$out"
+          maestro --version | tee "$out/version.txt"
+          # Retry only an XCTest driver *startup* failure after restarting the
+          # simulator. Never retry or hide a genuine INKR UI assertion failure.
+          for attempt in 1 2; do
+            echo "::notice::Maestro iOS run $attempt/2; XCUITest startup timeout 180s."
+            set +e
+            maestro --platform=ios --device="$INKR_IOS_SIMULATOR" test \
+              --debug-output="$out/attempt-$attempt" \
+              --format=JUNIT \
+              --output="$out/junit-attempt-$attempt.xml" \
+              .maestro/ios-public-navigation.yaml \
+              > "$out/maestro-attempt-$attempt.log" 2>&1
+            status=$?
+            set -e
+            cat "$out/maestro-attempt-$attempt.log"
+            if (( status == 0 )); then
+              echo "::notice::iOS UI navigation assertions passed."
+              exit 0
+            fi
+            if (( attempt == 2 )); then
+              echo "::error::Maestro UI test did not pass; see both attempt logs."
+              exit "$status"
+            fi
+            if ! grep -Eq 'iOS driver not ready in time|IOSDriverTimeoutException' "$out/maestro-attempt-$attempt.log"; then
+              echo "::error::Functional UI failure is not retried."
+              exit "$status"
+            fi
+            echo "::warning::XCUITest infrastructure startup timeout; rebooting simulator once."
+            xcrun simctl shutdown "$INKR_IOS_SIMULATOR" || true
+            xcrun simctl boot "$INKR_IOS_SIMULATOR"
+            xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
+            xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+          done
 
       - name: Capture iOS screen and app logs after Maestro
         if: always()
