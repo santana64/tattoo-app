@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Platform, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,6 +35,7 @@ function TabIcon({ name, color, focused, badge }: {
 }
 
 export default function TabLayout() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   // Artist requests are already scoped to the signed-in artist by the store.
   const requests = useRequestStore((s) => s.requests);
@@ -147,6 +148,16 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="profile"
+        listeners={{
+          tabPress: (event) => {
+            if (!isVisitor) return;
+            // Avoid mounting the private profile tab only to redirect it in
+            // RootLayout's auth effect. On Android Fabric this double route
+            // transition can reparent an already mounted native child.
+            event.preventDefault();
+            router.push('/(auth)/sign-in');
+          },
+        }}
         options={{
           title: isVisitor ? 'Se connecter' : 'Compte',
           tabBarAccessibilityLabel: isVisitor ? 'Se connecter ou créer un compte' : 'Compte',
