@@ -1,12 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShell } from '@/hooks/useContentDimensions';
-import Animated, {
-  useSharedValue, useAnimatedStyle,
-} from 'react-native-reanimated';
 import { useAuthStore } from '@/store/auth-store';
 import { useRequestStore } from '@/store/request-store';
 import { Colors, Fonts } from '@/constants/theme';
@@ -18,18 +15,6 @@ function TabIcon({ name, color, focused, badge }: {
   focused: boolean;
   badge?: number;
 }) {
-  const progress = useSharedValue(focused ? 1 : 0);
-
-  useEffect(() => {
-    // Tabs are peers used constantly: no transition on the marker.
-    progress.value = focused ? 1 : 0;
-  }, [focused, progress]);
-
-  const dotStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ scaleX: 0.4 + progress.value * 0.6 }],
-  }));
-
   return (
     <View style={styles.iconContainer}>
       <Ionicons
@@ -37,7 +22,7 @@ function TabIcon({ name, color, focused, badge }: {
         size={22}
         color={focused ? '#FFFFFF' : color}
       />
-      <Animated.View style={[styles.activeBar, dotStyle]} />
+      <View style={[styles.activeBar, !focused && styles.inactiveBar]} />
       {!!badge && badge > 0 && (
         <View style={styles.badge} accessibilityLabel={`${badge} nouvelles demandes`}>
           <TText variant="micro" tabular style={{ fontSize: 9, lineHeight: 12, color: '#FFFFFF', letterSpacing: 0 }}>
@@ -180,6 +165,9 @@ const styles = StyleSheet.create({
     top: -8,
     width: 22, height: 2,
     backgroundColor: Colors.flame,
+  },
+  inactiveBar: {
+    opacity: 0,
   },
   tabBarBorder: {
     position: 'absolute',
