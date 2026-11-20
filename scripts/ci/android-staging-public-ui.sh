@@ -88,6 +88,26 @@ wait_for_text "02 / DÉCOUVRIR" explore
 wait_for_text "2 ARTISTES" explore_artists
 wait_for_text "INKR QA Artiste (staging)" explore_artist
 
+# Exercise repeat tab transitions before authentication. A single navigation can
+# miss a delayed Fabric mount failure, so inspect the app process every time.
+assert_app_alive() {
+  local phase="$1"
+  if ! adb shell pidof "$PACKAGE" >/dev/null 2>&1; then
+    echo "::error::INKR native process exited during $phase."
+    collect_diagnostics
+    return 1
+  fi
+}
+
+for pass in 1 2 3; do
+  adb shell input tap 170 2270
+  wait_for_text "Mara Test" "roundtrip_home_$pass"
+  assert_app_alive "roundtrip_home_$pass"
+  adb shell input tap 540 2270
+  wait_for_text "02 / DÉCOUVRIR" "roundtrip_explore_$pass"
+  assert_app_alive "roundtrip_explore_$pass"
+done
+
 # Check that public tabs lead to the sign-in screen, without credentials.
 adb shell input tap 902 2270
 sleep 2
@@ -108,6 +128,24 @@ if ! grep -Eq 'com\.inkr\.tattoo|Status: ok' "$OUT/deep-link-intent.txt"; then
 fi
 wait_for_text "Connexion" callback_error
 
-# No real PKCE verification was attempted. This run verifies only public UI,
-# Android intent dispatch, and visibly handled bad links.
-echo "::notice::INKR Android live staging public UI and callback error handling passed."
+# Validate that Android lifecycle changes do not kill the JS/native state.
+# No user data is written or simulated credentials used.
+assert_app_alive "callback_error"
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > "$OUT/foreground-resume.txt"
+sleep 3
+assert_app_alive "foreground_resume"
+capture "foreground_resume"
+
+# Check absence of native application crashes across the whole interaction,
+# not only the process PID at the instant we test it.
+collect_diagnostics
+if grep -Eq 'FATAL EXCEPTION|Process: com\\.inkr\\.tattoo|addViewAt: failed' "$OUT/post-interaction-crash-buffer.txt"; then
+  echo "::error::Android crash buffer contains a native crash; inspect the artifact."
+  exit 1
+fi
+
+# No real PKCE verification was attempted. This run verifies public UI,
+# repeat navigation, Android callback error handling, and background resume.
+echo "::notice::INKR Android staging public UI, navigation stress, callback error and lifecycle passed."
