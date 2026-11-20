@@ -1,0 +1,24 @@
+# Public staging-only navigation. No accounts, payments, or backend writes.
+# Unlike a process-liveness smoke, this must see and interact with real UI.
+appId: com.inkr.tattoo
+tags:
+  - native-smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Mara Test"
+    timeout: 40000
+- tapOn:
+    text: "Rechercher"
+- extendedWaitUntil:
+    visible: "02 / DÉCOUVRIR"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "2 ARTISTES"
+    timeout: 30000
+- tapOn:
+    text: "Se connecter"
+- extendedWaitUntil:
+    visible: "Entrez dans"
+    timeout: 30000
