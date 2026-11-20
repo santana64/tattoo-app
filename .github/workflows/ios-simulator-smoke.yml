@@ -1,0 +1,122 @@
+name: iOS Simulator Staging Smoke (No Production)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ios-simulator-smoke.yml
+      - scripts/ci/ios-simulator-smoke.sh
+      - app/**
+      - components/**
+      - lib/**
+      - store/**
+      - hooks/**
+      - package.json
+      - package-lock.json
+      - app.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator-smoke:
+    # macOS is required for real iOS native build + Simulator.
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      RCT_NO_LAUNCH_PACKAGER: "1"
+      # Staging public credentials only. Never provide production or service_role keys.
+      EXPO_PUBLIC_SUPABASE_URL: https://lsewxsdulunuuzmszegm.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_1OXzm4QAsvKFAC2Kc2oQVw_G7qpS9Fq
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Inspect Xcode and iOS simulator availability
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+          xcrun simctl list runtimes
+
+      - name: Install locked JS dependencies
+        run: npm ci
+
+      - name: Generate native iOS project and install CocoaPods
+        run: npx expo prebuild --platform ios --clean --non-interactive
+
+      - name: Build installable iOS Simulator .app (Release)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          workspace="$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          if [[ -z "$workspace" ]]; then
+            echo "::error::Expo iOS prebuild did not create an Xcode workspace."
+            exit 1
+          fi
+          scheme="$(basename "$workspace" .xcworkspace)"
+          echo "INKR_IOS_SCHEME=$scheme" >> "$GITHUB_ENV"
+          # Build Release so JS is bundled offline; Debug would depend on Metro.
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/inkr-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO build \
+            > "$RUNNER_TEMP/inkr-ios-smoke/xcodebuild.log" 2>&1 || {
+              tail -n 100 "$RUNNER_TEMP/inkr-ios-smoke/xcodebuild.log"
+              exit 1
+            }
+          app="$(find "$RUNNER_TEMP/inkr-ios-derived/Build/Products/Release-iphonesimulator" -maxdepth 1 -name '*.app' -print -quit)"
+          if [[ -z "$app" ]]; then
+            echo "::error::No installable iOS simulator .app found."
+            exit 1
+          fi
+          echo "INKR_IOS_APP=$app" >> "$GITHUB_ENV"
+          echo "::notice::iOS Release Simulator app built successfully."
+
+      - name: Pick available iPhone simulator
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/inkr-ios-smoke/devices.json"
+          simulator_id="$(python3 - "$RUNNER_TEMP/inkr-ios-smoke/devices.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f:
+              devices = json.load(f).get("devices", {})
+          choices = [(runtime, device) for runtime, entries in devices.items()
+                     if "iOS" in runtime for device in entries
+                     if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]
+          if not choices:
+              raise SystemExit("No available iPhone simulator: cannot claim iOS runtime coverage")
+          choices.sort(key=lambda item: (item[0], "Pro" in item[1]["name"]), reverse=True)
+          print(choices[0][1]["udid"])
+          PY
+          )"
+          echo "INKR_IOS_SIMULATOR=$simulator_id" >> "$GITHUB_ENV"
+          echo "::notice::Selected iOS simulator $simulator_id."
+
+      - name: Install and smoke test INKR on iOS simulator
+        shell: bash
+        run: bash scripts/ci/ios-simulator-smoke.sh "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+
+      - name: Upload iOS simulator evidence and Xcode build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-ios-staging-simulator-smoke
+          path: ${{ runner.temp }}/inkr-ios-smoke/
+          retention-days: 3
+          if-no-files-found: ignore
