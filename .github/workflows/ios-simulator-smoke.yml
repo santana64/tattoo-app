@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/ios-simulator-smoke.yml
       - scripts/ci/ios-simulator-smoke.sh
+      - .maestro/**
       - app/**
       - components/**
       - lib/**
@@ -107,6 +108,34 @@ jobs:
           )"
           echo "INKR_IOS_SIMULATOR=$simulator_id" >> "$GITHUB_ENV"
           echo "::notice::Selected iOS simulator $simulator_id."
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Maestro UI test runner
+        shell: bash
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Boot iPhone simulator and install release app
+        shell: bash
+        run: |
+          xcrun simctl boot "$INKR_IOS_SIMULATOR" 2>/dev/null || true
+          xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
+          xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+
+      - name: Verify actual iOS UI and visitor sign-in with Maestro
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke/maestro"
+          maestro --platform=ios --device="$INKR_IOS_SIMULATOR" test \
+            --debug-output="$RUNNER_TEMP/inkr-ios-smoke/maestro" \
+            --format=JUNIT \
+            --output="$RUNNER_TEMP/inkr-ios-smoke/maestro/junit.xml" \
+            .maestro/ios-public-navigation.yaml
 
       - name: Install and smoke test INKR on iOS simulator
         shell: bash
