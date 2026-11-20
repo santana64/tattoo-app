@@ -108,6 +108,49 @@ jobs:
             exit 1
           fi
 
+      - name: Embed simulator-only iOS Keychain entitlements in app executable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The simulator executes an iOS app on the macOS host. Restricted iOS
+          # Keychain entitlements MUST be embedded by the linker into
+          # __TEXT,__entitlements; putting them in an ad-hoc code signature
+          # makes launchd reject the executable (POSIX 162).
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          entitlements="$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist"
+          cat > "$entitlements" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>application-identifier</key>
+            <string>INKRTEST01.com.inkr.tattoo</string>
+            <key>keychain-access-groups</key>
+            <array><string>INKRTEST01.com.inkr.tattoo</string></array>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$entitlements"
+          project="$(find ios -maxdepth 2 -name project.pbxproj -print -quit)"
+          test -n "$project"
+          ruby - "$project" "$entitlements" <<'RUBY'
+          require 'xcodeproj'
+          project_path, entitlements = ARGV
+          project = Xcodeproj::Project.open(File.dirname(project_path))
+          app = project.targets.find { |t| t.name == 'INKR' }
+          abort 'INKR application target not found' unless app
+          release = app.build_configurations.find { |c| c.name == 'Release' }
+          abort 'INKR Release configuration not found' unless release
+          flags = release.build_settings['OTHER_LDFLAGS']
+          flags = flags.is_a?(Array) ? flags : [flags || '$(inherited)']
+          release.build_settings['OTHER_LDFLAGS'] = flags + [
+            '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+            '-Xlinker', '__entitlements', '-Xlinker', entitlements,
+          ]
+          project.save
+          puts 'Embedded Keychain entitlement linker section configured for INKR Release only'
+          RUBY
+
       - name: Build installable iOS Simulator .app (Release)
         shell: bash
         run: |
@@ -141,40 +184,28 @@ jobs:
           echo "INKR_IOS_APP=$app" >> "$GITHUB_ENV"
           echo "::notice::iOS Release Simulator app built successfully."
 
-      - name: Ad-hoc sign simulator app with Keychain entitlements
+      - name: Sign simulator app without restricted host entitlements
         shell: bash
         run: |
           set -Eeuo pipefail
-          # The unsigned CI build cannot access iOS Keychain. Expo SecureStore
-          # then fails with ERR_KEY_CHAIN (-34018), leaving auth initialization
-          # pending behind the splash. Use simulator-only ad-hoc signing.
-          # Never use these test entitlements for a device or App Store release.
-          cat > "$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>application-identifier</key>
-            <string>INKRTEST01.com.inkr.tattoo</string>
-            <key>com.apple.developer.team-identifier</key>
-            <string>INKRTEST01</string>
-            <key>keychain-access-groups</key>
-            <array><string>INKRTEST01.com.inkr.tattoo</string></array>
-            <key>get-task-allow</key>
-            <true/>
-          </dict>
-          </plist>
-          PLIST
-          codesign --force --deep --sign - --generate-entitlement-der \
-            --entitlements "$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist" "$INKR_IOS_APP"
-          codesign --verify --deep --strict --verbose=2 "$INKR_IOS_APP"
-          codesign -d --entitlements - "$INKR_IOS_APP" \
-            > "$RUNNER_TEMP/inkr-ios-smoke/signed-entitlements.plist" 2>&1
-          if ! grep -q 'keychain-access-groups' "$RUNNER_TEMP/inkr-ios-smoke/signed-entitlements.plist"; then
-            echo "::error::Test .app is missing Keychain entitlements after signing."
+          executable="$INKR_IOS_APP/INKR"
+          test -s "$executable"
+          xcrun otool -l "$executable" > "$RUNNER_TEMP/inkr-ios-smoke/inkr-macho-load-commands.txt"
+          if ! grep -Fq 'sectname __entitlements' "$RUNNER_TEMP/inkr-ios-smoke/inkr-macho-load-commands.txt"; then
+            echo "::error::Missing embedded simulator Keychain entitlement section."
             exit 1
           fi
-          echo "::notice::Simulator app signed with explicit Keychain access group."
+          # Do NOT pass --entitlements to codesign: that creates a macOS-host
+          # restricted entitlement claim and prevents the app from launching.
+          codesign --force --deep --sign - "$INKR_IOS_APP"
+          codesign --verify --deep --strict --verbose=2 "$INKR_IOS_APP"
+          codesign -d --entitlements - "$INKR_IOS_APP" \
+            > "$RUNNER_TEMP/inkr-ios-smoke/signature-entitlements.txt" 2>&1 || true
+          if grep -Fq 'keychain-access-groups' "$RUNNER_TEMP/inkr-ios-smoke/signature-entitlements.txt"; then
+            echo "::error::Keychain entitlement must be embedded in Mach-O, not in the host signature."
+            exit 1
+          fi
+          echo "::notice::Simulator-only Keychain access embedded in Mach-O; host signature has no restricted entitlements."
 
       - name: Pick available iPhone simulator
         shell: bash
