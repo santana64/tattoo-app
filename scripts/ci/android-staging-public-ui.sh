@@ -79,15 +79,14 @@ if [[ "$size" != *"1080x2400"* ]]; then
   exit 1
 fi
 adb shell input tap 540 2270
-wait_for_text "02 / Découvrir" explore
+# The native Masthead kicker is rendered uppercase by the typography system.
+# Check actual accessibility-tree text, not the JSX prop's original casing.
+wait_for_text "02 / DÉCOUVRIR" explore
 
-# Explore can start at the top of a long ScrollView: scroll if needed.
-if ! grep -Fq "Mara Test" "$OUT/explore.xml"; then
-  adb shell input swipe 580 1780 580 700 500
-  wait_for_text "Mara Test" explore_artist
-else
-  cp "$OUT/explore.xml" "$OUT/explore_artist.xml"
-fi
+# The staging dataset contains two public artists. Check that actual results
+# render, without assuming which artist happens to be first on screen.
+wait_for_text "2 ARTISTES" explore_artists
+wait_for_text "INKR QA Artiste (staging)" explore_artist
 
 # Check that public tabs lead to the sign-in screen, without credentials.
 adb shell input tap 902 2270
