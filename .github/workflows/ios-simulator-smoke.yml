@@ -137,6 +137,18 @@ jobs:
             --output="$RUNNER_TEMP/inkr-ios-smoke/maestro/junit.xml" \
             .maestro/ios-public-navigation.yaml
 
+      - name: Capture iOS screen and app logs after Maestro
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          if [[ -n "${INKR_IOS_SIMULATOR:-}" ]]; then
+            xcrun simctl io "$INKR_IOS_SIMULATOR" screenshot "$RUNNER_TEMP/inkr-ios-smoke/after-maestro.png" || true
+            xcrun simctl spawn "$INKR_IOS_SIMULATOR" log show --last 5m --style compact \
+              --predicate 'process == "INKR" OR process == "SpringBoard" OR process == "ReportCrash"' \
+              > "$RUNNER_TEMP/inkr-ios-smoke/after-maestro-log.txt" 2>&1 || true
+          fi
+
       - name: Install and smoke test INKR on iOS simulator
         shell: bash
         run: bash scripts/ci/ios-simulator-smoke.sh "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
