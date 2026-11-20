@@ -52,8 +52,61 @@ jobs:
       - name: Install locked JS dependencies
         run: npm ci
 
+      - name: Restore pinned Hermes artifact cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/inkr/hermes
+          key: inkr-ios-hermes-release-v1-${{ hashFiles('package-lock.json') }}
+
+      - name: Resolve exact React Native Hermes iOS binary (fail closed)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(node -p "require('react-native/package.json').version")"
+          case "$version" in
+            0.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Unexpected React Native version: $version"; exit 1 ;;
+          esac
+          base="$HOME/.cache/inkr/hermes"
+          mkdir -p "$base"
+          archive="$base/react-native-artifacts-$version-hermes-ios-release.tar.gz"
+          rel="com/facebook/react/react-native-artifacts/$version/$(basename "$archive")"
+          valid_archive() {
+            test -s "$archive" &&
+              gzip -t "$archive" &&
+              tar -tzf "$archive" > "$base/contents.txt" &&
+              grep -Fq 'hermes.xcframework/' "$base/contents.txt"
+          }
+          if ! valid_archive; then
+            rm -f "$archive"
+            for host in https://repo.reactnative.dev/maven2 https://repo1.maven.org/maven2; do
+              echo "::notice::Fetching Hermes $version from $host (no GitHub HEAD fallback)."
+              if curl --fail --location --silent --show-error --retry 2 \
+                --retry-all-errors --connect-timeout 15 --max-time 180 \
+                --output "$archive.partial" "$host/$rel"; then
+                mv "$archive.partial" "$archive"
+                if valid_archive; then break; fi
+              fi
+              rm -f "$archive.partial" "$archive"
+            done
+          fi
+          if ! valid_archive; then
+            echo "::error::Hermes iOS Release $version unavailable or invalid; refusing unpinned source fallback."
+            exit 1
+          fi
+          echo "HERMES_ENGINE_TARBALL_PATH=$archive" >> "$GITHUB_ENV"
+          echo "::notice::Hermes $version Release binary verified and pinned for CocoaPods."
+
       - name: Generate native iOS project and install CocoaPods
-        run: npx expo prebuild --platform ios --clean --non-interactive
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -s "$HERMES_ENGINE_TARBALL_PATH"
+          npx expo prebuild --platform ios --clean --non-interactive
+          if grep -Fq '[RN] [2] Build Hermes' ios/Pods/Pods.xcodeproj/project.pbxproj; then
+            echo "::error::CocoaPods unexpectedly selected source-built Hermes instead of pinned prebuilt binary."
+            exit 1
+          fi
 
       - name: Build installable iOS Simulator .app (Release)
         shell: bash
