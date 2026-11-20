@@ -88,6 +88,41 @@ jobs:
           echo "INKR_IOS_APP=$app" >> "$GITHUB_ENV"
           echo "::notice::iOS Release Simulator app built successfully."
 
+      - name: Ad-hoc sign simulator app with Keychain entitlements
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The unsigned CI build cannot access iOS Keychain. Expo SecureStore
+          # then fails with ERR_KEY_CHAIN (-34018), leaving auth initialization
+          # pending behind the splash. Use simulator-only ad-hoc signing.
+          # Never use these test entitlements for a device or App Store release.
+          cat > "$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>application-identifier</key>
+            <string>INKRTEST01.com.inkr.tattoo</string>
+            <key>com.apple.developer.team-identifier</key>
+            <string>INKRTEST01</string>
+            <key>keychain-access-groups</key>
+            <array><string>INKRTEST01.com.inkr.tattoo</string></array>
+            <key>get-task-allow</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --deep --sign - --generate-entitlement-der \
+            --entitlements "$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist" "$INKR_IOS_APP"
+          codesign --verify --deep --strict --verbose=2 "$INKR_IOS_APP"
+          codesign -d --entitlements - "$INKR_IOS_APP" \
+            > "$RUNNER_TEMP/inkr-ios-smoke/signed-entitlements.plist" 2>&1
+          if ! grep -q 'keychain-access-groups' "$RUNNER_TEMP/inkr-ios-smoke/signed-entitlements.plist"; then
+            echo "::error::Test .app is missing Keychain entitlements after signing."
+            exit 1
+          fi
+          echo "::notice::Simulator app signed with explicit Keychain access group."
+
       - name: Pick available iPhone simulator
         shell: bash
         run: |
