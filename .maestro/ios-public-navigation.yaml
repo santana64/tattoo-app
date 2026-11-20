@@ -6,22 +6,16 @@ tags:
 ---
 - launchApp:
     clearState: true
-# First launch may open the editorial welcome, not the public feed.
-# If it does, enter via its actual public browsing CTA.
-- runFlow:
-    when:
-      visible: "Découvrir les artistes"
-    commands:
-      - tapOn:
-          text: "Découvrir les artistes"
-# On returning users, the public feed opens directly. On first launch,
-# the previous conditional already navigates from Welcome to Explore.
-- runFlow:
-    when:
-      visible: "Mara Test"
-    commands:
-      - tapOn:
-          text: "Rechercher"
+# In an actual iOS 18.5 simulator the initial public route renders "Mara
+# Test" and the bottom "Rechercher" tab. Previously runFlow(when: visible)
+# checked the artist *before* the Supabase feed had rendered, skipped its tap,
+# and then incorrectly expected Explore while still on Home. Wait for real
+# staging data, and make the tap mandatory.
+- extendedWaitUntil:
+    visible: "Mara Test"
+    timeout: 60000
+- tapOn:
+    text: "Rechercher"
 - extendedWaitUntil:
     visible: "02 / DÉCOUVRIR"
     timeout: 30000
