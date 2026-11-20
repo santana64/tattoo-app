@@ -6,24 +6,24 @@ tags:
 ---
 - launchApp:
     clearState: true
-# In an actual iOS 18.5 simulator the initial public route renders "Mara
-# Test" and the bottom "Rechercher" tab. Previously runFlow(when: visible)
-# checked the artist *before* the Supabase feed had rendered, skipped its tap,
-# and then incorrectly expected Explore while still on Home. Wait for real
-# staging data, and make the tap mandatory.
+# React Native groups ArtistChip children into one accessible Pressable label:
+# "Mara Test, <booking status>". Maestro matches the *full* label as regex;
+# the former exact "Mara Test" selector failed although the artist was visibly
+# rendered in pre- and post-Maestro screenshots. Match the composite label,
+# retain the real staging-data assertion, and require actual tab navigation.
 - extendedWaitUntil:
-    visible: "Mara Test"
+    visible: ".*Mara Test.*"
     timeout: 60000
 - tapOn:
-    text: "Rechercher"
+    text: ".*Rechercher.*"
 - extendedWaitUntil:
-    visible: "02 / DÉCOUVRIR"
+    visible: ".*02 / DÉCOUVRIR.*"
     timeout: 30000
 - extendedWaitUntil:
-    visible: "2 ARTISTES"
+    visible: ".*2 ARTISTES.*"
     timeout: 30000
 - tapOn:
-    text: "Se connecter"
+    text: ".*Se connecter.*"
 - extendedWaitUntil:
-    visible: "Entrez dans"
+    visible: ".*Entrez dans.*"
     timeout: 30000
