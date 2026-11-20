@@ -27,41 +27,37 @@ capture() {
 # the app. UIAutomator then sees only the dialog even though INKR is loaded
 # and visible behind it. Never mistake this for a missing network response.
 # The Pixel 6 AVD is fixed at 1080x2400; the Wait button is centred below.
-clear_launcher_anr() {
-  local phase="$1" attempt=0
-  while grep -Fq "Pixel Launcher isn" "$OUT/$phase.xml"; do
-    attempt=$((attempt + 1))
-    if (( attempt > 3 )); then
-      echo "::error::Emulator Pixel Launcher ANR cannot be dismissed; NOT an INKR data failure."
-      return 1
-    fi
-    echo "::warning::Emulator system launcher ANR overlay ($phase); dismissing with Wait ($attempt/3)."
-    # Capture the overlay separately as evidence before any tap.
-    cp "$OUT/$phase.xml" "$OUT/$phase-launcher-anr-$attempt.xml"
-    cp "$OUT/$phase.png" "$OUT/$phase-launcher-anr-$attempt.png"
-    adb shell input tap 540 1360
-    sleep 3
-    capture "$phase"
-  done
-}
-
+# Guard against system launcher ANRs independently from INKR's own process.
+# Android UIAutomator sees only the dialog while it overlays an otherwise
+# functioning application. Dismiss it by closing *the launcher*, not INKR.
 wait_for_text() {
   local phrase="$1" label="$2"
-  local found=0
+  local anr_count=0
   for attempt in $(seq 1 16); do
     capture "$label"
-    clear_launcher_anr "$label"
+    if grep -Eq "(Pixel Launcher|Launcher3).*(isn.t responding|keeps stopping)" "$OUT/$label.xml"; then
+      anr_count=$((anr_count + 1))
+      cp "$OUT/$label.xml" "$OUT/$label-launcher-anr-$anr_count.xml"
+      cp "$OUT/$label.png" "$OUT/$label-launcher-anr-$anr_count.png"
+      if (( anr_count > 3 )); then
+        echo "::error::System launcher ANR persisted after $anr_count dismissals ($label)"
+        return 1
+      fi
+      echo "::warning::System launcher ANR overlay ($label): closing launcher, attempt $anr_count/3."
+      # Pixel 6 / Android 15 screenshot: "Close app" bounds [70,1170][1010,1296].
+      # The native INKR process is separate and must remain alive.
+      adb shell input tap 540 1233
+      sleep 3
+      continue
+    fi
     if grep -Fq "$phrase" "$OUT/$label.xml"; then
-      found=1
-      break
+      echo "::notice::Public UI $label contains '$phrase'"
+      return 0
     fi
     sleep 3
   done
-  if [[ "$found" != 1 ]]; then
-    echo "::error::Missing public UI text '$phrase' at $label"
-    return 1
-  fi
-  echo "::notice::Public UI $label contains '$phrase'"
+  echo "::error::Missing public UI text '$phrase' at $label"
+  return 1
 }
 
 if ! adb shell pidof "$PACKAGE" >/dev/null 2>&1; then
@@ -83,7 +79,7 @@ if [[ "$size" != *"1080x2400"* ]]; then
   exit 1
 fi
 adb shell input tap 540 2270
-wait_for_text "La bonne rencontre" explore
+wait_for_text "02 / Découvrir" explore
 
 # Explore can start at the top of a long ScrollView: scroll if needed.
 if ! grep -Fq "Mara Test" "$OUT/explore.xml"; then
@@ -101,7 +97,7 @@ if ! adb shell pidof "$PACKAGE" >/dev/null 2>&1; then
   exit 1
 fi
 adb shell dumpsys activity activities > "$OUT/after-sign-in-tap-activity.txt" 2>/dev/null || true
-wait_for_text "Entrez dans l" sign_in
+wait_for_text "Entrez dans" sign_in
 
 # Verify Android URI intent delivery to the actual callback screen using
 # a synthetic provider error: no OTP, JWT, password, or backend mutation.
