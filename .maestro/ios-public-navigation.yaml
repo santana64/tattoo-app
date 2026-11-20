@@ -6,6 +6,14 @@ tags:
 ---
 - launchApp:
     clearState: true
+# First launch may open the editorial welcome, not the public feed.
+# If it does, enter via its actual public browsing CTA.
+- runFlow:
+    when:
+      visible: "Découvrir les artistes"
+    commands:
+      - tapOn:
+          text: "Découvrir les artistes"
 - extendedWaitUntil:
     visible: "Mara Test"
     timeout: 40000
