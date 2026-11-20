@@ -14,11 +14,14 @@ tags:
     commands:
       - tapOn:
           text: "Découvrir les artistes"
-- extendedWaitUntil:
-    visible: "Mara Test"
-    timeout: 40000
-- tapOn:
-    text: "Rechercher"
+# On returning users, the public feed opens directly. On first launch,
+# the previous conditional already navigates from Welcome to Explore.
+- runFlow:
+    when:
+      visible: "Mara Test"
+    commands:
+      - tapOn:
+          text: "Rechercher"
 - extendedWaitUntil:
     visible: "02 / DÉCOUVRIR"
     timeout: 30000
