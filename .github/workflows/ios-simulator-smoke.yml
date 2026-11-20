@@ -185,13 +185,17 @@ jobs:
           import json, sys
           with open(sys.argv[1], encoding='utf-8') as f:
               devices = json.load(f).get("devices", {})
-          choices = [(runtime, device) for runtime, entries in devices.items()
-                     if "iOS" in runtime for device in entries
+          # Xcode 16.4 ships the iOS 18.5 SDK. Do not select the newest
+          # installed simulator by lexical sorting: that chose iOS 26.2, whose
+          # XCTest runtime is not the one paired with this Xcode installation.
+          runtime_id = "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+          choices = [device for runtime, entries in devices.items()
+                     if runtime == runtime_id for device in entries
                      if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]
           if not choices:
-              raise SystemExit("No available iPhone simulator: cannot claim iOS runtime coverage")
-          choices.sort(key=lambda item: (item[0], "Pro" in item[1]["name"]), reverse=True)
-          print(choices[0][1]["udid"])
+              raise SystemExit("No iOS 18.5 iPhone simulator available for Xcode 16.4; refusing a mismatched runtime")
+          preferred = next((item for item in choices if item["name"] == "iPhone 16 Pro"), choices[0])
+          print(preferred["udid"])
           PY
           )"
           echo "INKR_IOS_SIMULATOR=$simulator_id" >> "$GITHUB_ENV"
@@ -208,12 +212,94 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
-      - name: Boot iPhone simulator and install release app
+      - name: Boot and verify iOS 18.5 simulator with Xcode 16.4
         shell: bash
         run: |
+          set -Eeuo pipefail
+          xcodebuild -version | grep -F 'Xcode 16.4'
           xcrun simctl boot "$INKR_IOS_SIMULATOR" 2>/dev/null || true
           xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
           xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+          # Launch app without Maestro first to separate native startup from
+          # XCTest driver initialization and collect independent evidence.
+          xcrun simctl launch "$INKR_IOS_SIMULATOR" com.inkr.tattoo \
+            | tee "$RUNNER_TEMP/inkr-ios-smoke/pre-maestro-launch.txt"
+          sleep 8
+          xcrun simctl io "$INKR_IOS_SIMULATOR" screenshot \
+            "$RUNNER_TEMP/inkr-ios-smoke/pre-maestro-launch.png"
+          if ! (xcrun simctl spawn "$INKR_IOS_SIMULATOR" launchctl list | grep -Fq com.inkr.tattoo ||
+                xcrun simctl spawn "$INKR_IOS_SIMULATOR" /bin/ps -A -o comm= | grep -Eq '(/|^)INKR      - name: Verify actual iOS UI and visitor sign-in with Maestro
+        shell: bash
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "180000"
+          MAESTRO_CLI_NO_ANALYTICS: "1"
+        run: |
+          set -Eeuo pipefail
+          out="$RUNNER_TEMP/inkr-ios-smoke/maestro"
+          mkdir -p "$out"
+          maestro --version | tee "$out/version.txt"
+          # Retry only an XCTest driver *startup* failure after restarting the
+          # simulator. Never retry or hide a genuine INKR UI assertion failure.
+          for attempt in 1 2; do
+            echo "::notice::Maestro iOS run $attempt/2; XCUITest startup timeout 180s."
+            set +e
+            maestro --platform=ios --device="$INKR_IOS_SIMULATOR" test \
+              --debug-output="$out/attempt-$attempt" \
+              --format=JUNIT \
+              --output="$out/junit-attempt-$attempt.xml" \
+              .maestro/ios-public-navigation.yaml \
+              > "$out/maestro-attempt-$attempt.log" 2>&1
+            status=$?
+            set -e
+            cat "$out/maestro-attempt-$attempt.log"
+            if (( status == 0 )); then
+              echo "::notice::iOS UI navigation assertions passed."
+              exit 0
+            fi
+            if (( attempt == 2 )); then
+              echo "::error::Maestro UI test did not pass; see both attempt logs."
+              exit "$status"
+            fi
+            if ! grep -Eq 'iOS driver not ready in time|IOSDriverTimeoutException' "$out/maestro-attempt-$attempt.log"; then
+              echo "::error::Functional UI failure is not retried."
+              exit "$status"
+            fi
+            echo "::warning::XCUITest infrastructure startup timeout; rebooting simulator once."
+            xcrun simctl shutdown "$INKR_IOS_SIMULATOR" || true
+            xcrun simctl boot "$INKR_IOS_SIMULATOR"
+            xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
+            xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+          done
+
+      - name: Capture iOS screen and app logs after Maestro
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          if [[ -n "${INKR_IOS_SIMULATOR:-}" ]]; then
+            xcrun simctl io "$INKR_IOS_SIMULATOR" screenshot "$RUNNER_TEMP/inkr-ios-smoke/after-maestro.png" || true
+            xcrun simctl spawn "$INKR_IOS_SIMULATOR" log show --last 5m --style compact \
+              --predicate 'process == "INKR" OR process == "SpringBoard" OR process == "ReportCrash"' \
+              > "$RUNNER_TEMP/inkr-ios-smoke/after-maestro-log.txt" 2>&1 || true
+          fi
+
+      - name: Install and smoke test INKR on iOS simulator
+        shell: bash
+        run: bash scripts/ci/ios-simulator-smoke.sh "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+
+      - name: Upload iOS simulator evidence and Xcode build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-ios-staging-simulator-smoke
+          path: ${{ runner.temp }}/inkr-ios-smoke/
+          retention-days: 3
+          if-no-files-found: ignore
+); then
+            echo "::error::INKR process exited before Maestro; native startup is not validated."
+            exit 1
+          fi
+          echo "::notice::INKR native iOS startup passed independently of Maestro."
 
       - name: Verify actual iOS UI and visitor sign-in with Maestro
         shell: bash
