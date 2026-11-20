@@ -1,0 +1,129 @@
+name: iOS XCUITest Driver Isolation (No INKR App)
+
+on:
+  push:
+    branches:
+      - diagnostics/inkr-ios-driver-20261120
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  driver-only:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: "120000"
+      MAESTRO_CLI_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Establish runner and toolchain identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/xcuitest-isolation"
+          {
+            date -u
+            sw_vers
+            uname -a
+            uname -m
+            xcodebuild -version
+            xcrun simctl list runtimes
+            xcrun simctl list devices available
+          } | tee "$RUNNER_TEMP/xcuitest-isolation/environment.txt"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Maestro and capture exact version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro/bin/maestro" --version | tee "$RUNNER_TEMP/xcuitest-isolation/maestro-version.txt"
+          java -version 2>&1 | tee "$RUNNER_TEMP/xcuitest-isolation/java-version.txt"
+
+      - name: Boot simulator and prove built-in Settings can launch without Maestro
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/xcuitest-isolation/devices.json"
+          id="$(python3 - "$RUNNER_TEMP/xcuitest-isolation/devices.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))['devices']
+          candidates = [(r, d) for r, devices in data.items() if r.startswith('com.apple.CoreSimulator.SimRuntime.iOS')
+                        for d in devices if d.get('isAvailable') and d['name'].startswith('iPhone')]
+          if not candidates: raise SystemExit('No supported iPhone Simulator')
+          candidates.sort(key=lambda x:(x[0],x[1]['name']),reverse=True)
+          print(candidates[0][1]['udid'])
+          PY
+          )"
+          echo "IOS_SIMULATOR=$id" >> "$GITHUB_ENV"
+          xcrun simctl boot "$id" 2>/dev/null || true
+          xcrun simctl bootstatus "$id" -b
+          xcrun simctl launch "$id" com.apple.Preferences \
+            > "$RUNNER_TEMP/xcuitest-isolation/settings-launch.txt" 2>&1
+          xcrun simctl io "$id" screenshot "$RUNNER_TEMP/xcuitest-isolation/settings-without-maestro.png"
+          echo "::notice::Simulator boot, app launch and screenshot work without Maestro."
+
+      - name: Isolate Maestro XCUITest bootstrap from INKR
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/xcuitest-isolation"
+          cat > "$out/settings-maestro.yaml" <<'FLOW'
+          appId: com.apple.Preferences
+          ---
+          - launchApp
+          FLOW
+          maestro --platform=ios --device="$IOS_SIMULATOR" test \
+            --debug-output="$out/maestro-debug" \
+            --format=JUNIT \
+            --output="$out/maestro.xml" "$out/settings-maestro.yaml" \
+            > "$out/maestro-stdout.txt" 2>&1
+          status=$?
+          cat "$out/maestro-stdout.txt"
+          echo "MAESTRO_EXIT_CODE=$status" | tee "$out/result.txt"
+          if (( status != 0 )); then
+            echo "::error::The XCTest driver cannot run a 1-step flow on Apple Settings; independent of INKR."
+          else
+            echo "::notice::Independent Maestro driver bootstrap passed on Apple Settings."
+          fi
+          exit "$status"
+
+      - name: Capture native XCTest, simulator, host and Maestro evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/xcuitest-isolation"
+          out="$RUNNER_TEMP/xcuitest-isolation"
+          {
+            date -u
+            ps -axo pid,ppid,state,command | grep -E 'xcodebuild|maestro|testmanagerd|xctest|XCTRunner' || true
+            lsof -nP -iTCP -sTCP:LISTEN | grep -E 'maestro|java|xcodebuild|XCTRunner' || true
+          } > "$out/host-processes.txt" 2>&1
+          if [[ -n "${IOS_SIMULATOR:-}" ]]; then
+            xcrun simctl io "$IOS_SIMULATOR" screenshot "$out/after-maestro.png" || true
+            xcrun simctl spawn "$IOS_SIMULATOR" launchctl list > "$out/device-launchctl.txt" 2>&1 || true
+            xcrun simctl listapps "$IOS_SIMULATOR" > "$out/device-installed-apps.txt" 2>&1 || true
+            xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact \
+              --predicate 'process == "testmanagerd" OR process == "SpringBoard" OR process == "xctest" OR process == "ReportCrash" OR eventMessage CONTAINS[c] "maestro-driver"' \
+              > "$out/simulator-xctest-log.txt" 2>&1 || true
+          fi
+          log show --last 10m --style compact \
+            --predicate 'process == "xcodebuild" OR process == "testmanagerd" OR eventMessage CONTAINS[c] "maestro-driver"' \
+            > "$out/host-xctest-log.txt" 2>&1 || true
+
+      - name: Upload full driver-only diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcuitest-driver-isolation
+          path: ${{ runner.temp }}/xcuitest-isolation/
+          retention-days: 7
+          if-no-files-found: error
