@@ -50,9 +50,11 @@ jobs:
         run: npm ci
       - name: Generate native Android application
         run: npx expo prebuild --platform android --clean --non-interactive
-      - name: Prefer Google-hosted Maven Central mirror for CI dependency downloads
-        run: node scripts/ci/patch-maven-mirror.cjs
       - uses: gradle/actions/setup-gradle@v4
+      - name: Configure global Maven Central mirror for Gradle and included builds
+        run: |
+          mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          cp scripts/ci/maven-central-mirror.init.gradle "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d/inkr-ci-mirror.init.gradle"
       - name: Compile actual installable Android APK
         run: |
           chmod +x android/gradlew
