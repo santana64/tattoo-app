@@ -130,13 +130,23 @@
       "status": "HOLD",
       "evidence": [
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
-        "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md"
+        "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
+        "docs/INKR_G4_REAL_SNAPSHOT_MIGRATION_ROLLBACK_20261121.md"
       ],
       "local_sql_transaction_rollback_verified": true,
       "local_all_22_migrations_rollback_verified": true,
       "local_restore_content_fingerprints_verified": true,
       "rollback_rehearsed": false,
-      "storage_restore_verified": false
+      "storage_restore_verified": false,
+      "historical_production_snapshot_20261117_12_migrations_real_replay_verified": true,
+      "historical_production_snapshot_20261117_replay_migrated_tables": 38,
+      "historical_production_snapshot_20261117_rollback_tables": 36,
+      "historical_production_snapshot_20261117_content_fingerprint_preserved": true,
+      "historical_production_snapshot_transactional_rollback_verified": true,
+      "historical_production_snapshot_disposable_postgres_cleanup_verified": true,
+      "historical_production_snapshot_real_auth_user_count_preserved": true,
+      "historical_production_snapshot_storage_object_metadata_preserved": true,
+      "full_supabase_services_rollback_verified": false
     },
     "G5": {
       "status": "HOLD",
