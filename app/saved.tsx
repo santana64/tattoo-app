@@ -38,6 +38,7 @@ function WorkTile({ post, width, index }: { post: FeedPost; width: number; index
     <View style={{ width }}>
       <PressableScale
         onPress={() => router.push(isVideo ? `/reels/${post.id}` : `/post/${post.id}`)}
+        {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push(isVideo ? `/reels/${post.id}` : `/post/${post.id}`); } } } : {})}
         accessibilityRole="link"
         accessibilityLabel={`Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`}
       >
