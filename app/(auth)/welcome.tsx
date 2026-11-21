@@ -57,6 +57,7 @@ function SelectionColumn({ posts, onOpen }: { posts: FeedPost[]; onOpen: (id: st
     <Pressable
       key={post.id}
       onPress={() => onOpen(post.id)}
+      {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); onOpen(post.id); } } } : {})}
       accessibilityRole="link"
       accessibilityLabel={`Réalisation de ${post.artistName}${post.artistCity ? `, ${post.artistCity}` : ''}`}
       style={[styles.cell, style, webPointer]}
