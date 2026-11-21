@@ -49,6 +49,10 @@ const cartelNumber = (index: number) => `N° ${String(index + 1).padStart(2, '0'
 type Hover = { pressed: boolean; hovered?: boolean };
 const webPointer = Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null;
 
+// Fabric on Android 15 may reparent children of animated artist cards during
+// asynchronous portfolio updates. Retain lift effects on Web/iOS only.
+const CardSurface = Platform.OS === 'android' ? View : Animated.View;
+
 /** Shown when there is no work to show: a skin-tone plate stamped with the artist's monogram. */
 export function ArtPlaceholder({ name, size = 56 }: { name: string; size?: number }) {
   const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
@@ -73,7 +77,7 @@ function Plate({ uri, name, size, aspectRatio, mark, style }: {
   style?: React.ComponentProps<typeof View>['style'];
 }) {
   return (
-    <ArtCanvas uri={uri} aspectRatio={aspectRatio} mark={mark} style={style}>
+    <ArtCanvas uri={uri} aspectRatio={aspectRatio} mark={mark} accessibilityLabel="" style={style}>
       {!uri && <ArtPlaceholder name={name} size={size} />}
     </ArtCanvas>
   );
@@ -94,7 +98,7 @@ function SaveButton({ saved, onPress, onImage }: { saved: boolean; onPress: () =
   const scale = useSharedValue(1);
   const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   return (
-    <Animated.View style={anim}>
+    <CardSurface style={Platform.OS === 'android' ? undefined : anim}>
       <Pressable
         onPress={() => {
           if (!saved && !reduced) {
@@ -124,7 +128,7 @@ function SaveButton({ saved, onPress, onImage }: { saved: boolean; onPress: () =
           color={saved ? Colors.flameText : Colors.ink}
         />
       </Pressable>
-    </Animated.View>
+    </CardSurface>
   );
 }
 
@@ -158,7 +162,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
   // ── Featured: the work beside a white cartel with a vermilion top rule ──
   if (variant === 'featured') {
     return (
-      <Animated.View style={[styles.featured, lift.style]}>
+      <CardSurface style={[styles.featured, Platform.OS !== 'android' && lift.style]}>
         <Pressable
           onPress={open}
           onPressIn={lift.onPressIn}
@@ -216,27 +220,27 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
             <SaveButton saved={isSaved} onPress={save} onImage />
           </View>
         )}
-      </Animated.View>
+      </CardSurface>
     );
   }
 
   // ── Compact: horizontal rails ──────────────────────────────────
   if (variant === 'compact') {
     return (
-      <Animated.View style={[styles.compact, lift.style]}>
+      <CardSurface style={[styles.compact, Platform.OS !== 'android' && lift.style]}>
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={webPointer}>
           <Plate uri={images[0] || artist.avatarUrl} name={artist.blaze} size={40} aspectRatio={132 / 168} />
           <TText variant="title2" serif numberOfLines={1} style={styles.compactName}>{artist.blaze}</TText>
           <TText variant="caption" color="secondary" numberOfLines={1}>{artist.city}{distance ? ` · ${distance}` : ''}</TText>
         </Pressable>
-      </Animated.View>
+      </CardSurface>
     );
   }
 
   // ── Tile: grid view ────────────────────────────────────────────
   if (variant === 'tile') {
     return (
-      <Animated.View style={[styles.tile, lift.style]}>
+      <CardSurface style={[styles.tile, Platform.OS !== 'android' && lift.style]}>
         <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={webPointer}>
           {(state) => (
             <>
@@ -263,7 +267,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
           )}
         </Pressable>
         {onSave && <View style={styles.tileSave}><SaveButton saved={isSaved} onPress={save} onImage /></View>}
-      </Animated.View>
+      </CardSurface>
     );
   }
 
@@ -271,7 +275,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
   const [lead, ...rest] = images;
   const side = rest.slice(0, 2);
   return (
-    <Animated.View style={[styles.card, lift.style]}>
+    <CardSurface style={[styles.card, Platform.OS !== 'android' && lift.style]}>
       <Pressable onPress={open} onPressIn={lift.onPressIn} onPressOut={lift.onPressOut} accessibilityRole="link" accessibilityLabel={a11y} style={webPointer}>
         {(state) => {
           const lit = (state as Hover).hovered;
@@ -280,14 +284,14 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
               <View style={[styles.mosaic, isWide && styles.mosaicWide]}>
                 <View style={[styles.mosaicLead, side.length === 0 && { flex: 1 }]}>
                   {lead ? (
-                    <RevealImage uri={lead} style={StyleSheet.absoluteFill} />
+                    <RevealImage uri={lead} accessibilityLabel="" style={StyleSheet.absoluteFill} />
                   ) : <ArtPlaceholder name={artist.blaze} size={72} />}
                 </View>
                 {side.length > 0 && (
                   <View style={styles.mosaicSide}>
                     {side.map((uri) => (
                       <View key={uri} style={styles.mosaicCell}>
-                        <RevealImage uri={uri} style={StyleSheet.absoluteFill} />
+                        <RevealImage uri={uri} accessibilityLabel="" style={StyleSheet.absoluteFill} />
                       </View>
                     ))}
                   </View>
@@ -326,7 +330,7 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
           );
         }}
       </Pressable>
-    </Animated.View>
+    </CardSurface>
   );
 }
 

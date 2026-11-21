@@ -1,0 +1,331 @@
+name: iOS Simulator Staging Smoke (No Production)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ios-simulator-smoke.yml
+      - scripts/ci/ios-simulator-smoke.sh
+      - .maestro/**
+      - app/**
+      - components/**
+      - lib/**
+      - store/**
+      - hooks/**
+      - package.json
+      - package-lock.json
+      - app.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator-smoke:
+    # macOS is required for real iOS native build + Simulator.
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      RCT_NO_LAUNCH_PACKAGER: "1"
+      # Staging public credentials only. Never provide production or service_role keys.
+      EXPO_PUBLIC_SUPABASE_URL: https://lsewxsdulunuuzmszegm.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_1OXzm4QAsvKFAC2Kc2oQVw_G7qpS9Fq
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Inspect Xcode and iOS simulator availability
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+          xcrun simctl list runtimes
+
+      - name: Install locked JS dependencies
+        run: npm ci
+
+      - name: Restore pinned Hermes artifact cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/inkr/hermes
+          key: inkr-ios-hermes-release-v1-${{ hashFiles('package-lock.json') }}
+
+      - name: Resolve exact React Native Hermes iOS binary (fail closed)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(node -p "require('react-native/package.json').version")"
+          case "$version" in
+            0.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Unexpected React Native version: $version"; exit 1 ;;
+          esac
+          base="$HOME/.cache/inkr/hermes"
+          mkdir -p "$base"
+          archive="$base/react-native-artifacts-$version-hermes-ios-release.tar.gz"
+          rel="com/facebook/react/react-native-artifacts/$version/$(basename "$archive")"
+          valid_archive() {
+            test -s "$archive" &&
+              gzip -t "$archive" &&
+              tar -tzf "$archive" > "$base/contents.txt" &&
+              grep -Fq 'hermes.xcframework/' "$base/contents.txt"
+          }
+          if ! valid_archive; then
+            rm -f "$archive"
+            for host in https://repo.reactnative.dev/maven2 https://repo1.maven.org/maven2; do
+              echo "::notice::Fetching Hermes $version from $host (no GitHub HEAD fallback)."
+              if curl --fail --location --silent --show-error --retry 2 \
+                --retry-all-errors --connect-timeout 15 --max-time 180 \
+                --output "$archive.partial" "$host/$rel"; then
+                mv "$archive.partial" "$archive"
+                if valid_archive; then break; fi
+              fi
+              rm -f "$archive.partial" "$archive"
+            done
+          fi
+          if ! valid_archive; then
+            echo "::error::Hermes iOS Release $version unavailable or invalid; refusing unpinned source fallback."
+            exit 1
+          fi
+          echo "HERMES_ENGINE_TARBALL_PATH=$archive" >> "$GITHUB_ENV"
+          echo "::notice::Hermes $version Release binary verified and pinned for CocoaPods."
+
+      - name: Generate native iOS project and install CocoaPods
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -s "$HERMES_ENGINE_TARBALL_PATH"
+          npx expo prebuild --platform ios --clean --non-interactive
+          if grep -Fq '[RN] [2] Build Hermes' ios/Pods/Pods.xcodeproj/project.pbxproj; then
+            echo "::error::CocoaPods unexpectedly selected source-built Hermes instead of pinned prebuilt binary."
+            exit 1
+          fi
+
+      - name: Embed simulator-only iOS Keychain entitlements in app executable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The simulator executes an iOS app on the macOS host. Restricted iOS
+          # Keychain entitlements MUST be embedded by the linker into
+          # __TEXT,__entitlements; putting them in an ad-hoc code signature
+          # makes launchd reject the executable (POSIX 162).
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          entitlements="$RUNNER_TEMP/inkr-ios-smoke/simulator-entitlements.plist"
+          cat > "$entitlements" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>application-identifier</key>
+            <string>INKRTEST01.com.inkr.tattoo</string>
+            <key>keychain-access-groups</key>
+            <array><string>INKRTEST01.com.inkr.tattoo</string></array>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$entitlements"
+          project="$(find ios -maxdepth 2 -name project.pbxproj -print -quit)"
+          test -n "$project"
+          ruby - "$project" "$entitlements" <<'RUBY'
+          require 'xcodeproj'
+          project_path, entitlements = ARGV
+          project = Xcodeproj::Project.open(File.dirname(project_path))
+          app = project.targets.find { |t| t.name == 'INKR' }
+          abort 'INKR application target not found' unless app
+          release = app.build_configurations.find { |c| c.name == 'Release' }
+          abort 'INKR Release configuration not found' unless release
+          flags = release.build_settings['OTHER_LDFLAGS']
+          flags = flags.is_a?(Array) ? flags : [flags || '$(inherited)']
+          release.build_settings['OTHER_LDFLAGS'] = flags + [
+            '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+            '-Xlinker', '__entitlements', '-Xlinker', entitlements,
+          ]
+          project.save
+          puts 'Embedded Keychain entitlement linker section configured for INKR Release only'
+          RUBY
+
+      - name: Build installable iOS Simulator .app (Release)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          workspace="$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          if [[ -z "$workspace" ]]; then
+            echo "::error::Expo iOS prebuild did not create an Xcode workspace."
+            exit 1
+          fi
+          scheme="$(basename "$workspace" .xcworkspace)"
+          echo "INKR_IOS_SCHEME=$scheme" >> "$GITHUB_ENV"
+          # Build Release so JS is bundled offline; Debug would depend on Metro.
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/inkr-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO build \
+            > "$RUNNER_TEMP/inkr-ios-smoke/xcodebuild.log" 2>&1 || {
+              tail -n 100 "$RUNNER_TEMP/inkr-ios-smoke/xcodebuild.log"
+              exit 1
+            }
+          app="$(find "$RUNNER_TEMP/inkr-ios-derived/Build/Products/Release-iphonesimulator" -maxdepth 1 -name '*.app' -print -quit)"
+          if [[ -z "$app" ]]; then
+            echo "::error::No installable iOS simulator .app found."
+            exit 1
+          fi
+          echo "INKR_IOS_APP=$app" >> "$GITHUB_ENV"
+          echo "::notice::iOS Release Simulator app built successfully."
+
+      - name: Sign simulator app without restricted host entitlements
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          executable="$INKR_IOS_APP/INKR"
+          test -s "$executable"
+          xcrun otool -l "$executable" > "$RUNNER_TEMP/inkr-ios-smoke/inkr-macho-load-commands.txt"
+          if ! grep -Fq 'sectname __entitlements' "$RUNNER_TEMP/inkr-ios-smoke/inkr-macho-load-commands.txt"; then
+            echo "::error::Missing embedded simulator Keychain entitlement section."
+            exit 1
+          fi
+          # Do NOT pass --entitlements to codesign: that creates a macOS-host
+          # restricted entitlement claim and prevents the app from launching.
+          codesign --force --deep --sign - "$INKR_IOS_APP"
+          codesign --verify --deep --strict --verbose=2 "$INKR_IOS_APP"
+          codesign -d --entitlements - "$INKR_IOS_APP" \
+            > "$RUNNER_TEMP/inkr-ios-smoke/signature-entitlements.txt" 2>&1 || true
+          if grep -Fq 'keychain-access-groups' "$RUNNER_TEMP/inkr-ios-smoke/signature-entitlements.txt"; then
+            echo "::error::Keychain entitlement must be embedded in Mach-O, not in the host signature."
+            exit 1
+          fi
+          echo "::notice::Simulator-only Keychain access embedded in Mach-O; host signature has no restricted entitlements."
+
+      - name: Pick available iPhone simulator
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/inkr-ios-smoke/devices.json"
+          simulator_id="$(python3 - "$RUNNER_TEMP/inkr-ios-smoke/devices.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f:
+              devices = json.load(f).get("devices", {})
+          # Keep the simulator runtime paired with the installed Xcode SDK.
+          # Lexical "newest runtime" previously selected iOS 26.2 on Xcode 16.4.
+          runtime_id = "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+          choices = [device for runtime, entries in devices.items()
+                     if runtime == runtime_id for device in entries
+                     if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]
+          if not choices:
+              raise SystemExit("No iOS 18.5 iPhone simulator available for Xcode 16.4")
+          preferred = next((item for item in choices if item["name"] == "iPhone 16 Pro"), choices[0])
+          print(preferred["udid"])
+          PY
+          )"
+          echo "INKR_IOS_SIMULATOR=$simulator_id" >> "$GITHUB_ENV"
+          echo "::notice::Selected iOS simulator $simulator_id."
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Maestro UI test runner
+        shell: bash
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Boot compatible simulator and independently verify app startup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          xcodebuild -version | grep -F 'Xcode 16.4'
+          xcrun simctl boot "$INKR_IOS_SIMULATOR" 2>/dev/null || true
+          xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
+          xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+          xcrun simctl launch "$INKR_IOS_SIMULATOR" com.inkr.tattoo \
+            | tee "$RUNNER_TEMP/inkr-ios-smoke/pre-maestro-launch.txt"
+          sleep 8
+          xcrun simctl io "$INKR_IOS_SIMULATOR" screenshot \
+            "$RUNNER_TEMP/inkr-ios-smoke/pre-maestro-launch.png"
+          if ! (xcrun simctl spawn "$INKR_IOS_SIMULATOR" launchctl list | grep -Fq com.inkr.tattoo ||
+                xcrun simctl spawn "$INKR_IOS_SIMULATOR" /bin/ps -A -o comm= | grep -Eq '(/|^)INKR$'); then
+            echo "::error::INKR process exited before Maestro."
+            exit 1
+          fi
+          echo "::notice::INKR native iOS process alive before Maestro."
+
+      - name: Verify actual iOS UI and visitor sign-in with Maestro
+        shell: bash
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "180000"
+          MAESTRO_CLI_NO_ANALYTICS: "1"
+        run: |
+          set -Eeuo pipefail
+          out="$RUNNER_TEMP/inkr-ios-smoke/maestro"
+          mkdir -p "$out"
+          maestro --version | tee "$out/version.txt"
+          # Retry only an XCTest driver *startup* failure after restarting the
+          # simulator. Never retry or hide a genuine INKR UI assertion failure.
+          for attempt in 1 2; do
+            echo "::notice::Maestro iOS run $attempt/2; XCUITest startup timeout 180s."
+            set +e
+            maestro --platform=ios --device="$INKR_IOS_SIMULATOR" test \
+              --debug-output="$out/attempt-$attempt" \
+              --format=JUNIT \
+              --output="$out/junit-attempt-$attempt.xml" \
+              .maestro/ios-public-navigation.yaml \
+              > "$out/maestro-attempt-$attempt.log" 2>&1
+            status=$?
+            set -e
+            cat "$out/maestro-attempt-$attempt.log"
+            if (( status == 0 )); then
+              echo "::notice::iOS UI navigation assertions passed."
+              exit 0
+            fi
+            if (( attempt == 2 )); then
+              echo "::error::Maestro UI test did not pass; see both attempt logs."
+              exit "$status"
+            fi
+            if ! grep -Eq 'iOS driver not ready in time|IOSDriverTimeoutException' "$out/maestro-attempt-$attempt.log"; then
+              echo "::error::Functional UI failure is not retried."
+              exit "$status"
+            fi
+            echo "::warning::XCUITest infrastructure startup timeout; rebooting simulator once."
+            xcrun simctl shutdown "$INKR_IOS_SIMULATOR" || true
+            xcrun simctl boot "$INKR_IOS_SIMULATOR"
+            xcrun simctl bootstatus "$INKR_IOS_SIMULATOR" -b
+            xcrun simctl install "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+          done
+
+      - name: Capture iOS screen and app logs after Maestro
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/inkr-ios-smoke"
+          if [[ -n "${INKR_IOS_SIMULATOR:-}" ]]; then
+            xcrun simctl io "$INKR_IOS_SIMULATOR" screenshot "$RUNNER_TEMP/inkr-ios-smoke/after-maestro.png" || true
+            xcrun simctl spawn "$INKR_IOS_SIMULATOR" log show --last 5m --style compact \
+              --predicate 'process == "INKR" OR process == "SpringBoard" OR process == "ReportCrash"' \
+              > "$RUNNER_TEMP/inkr-ios-smoke/after-maestro-log.txt" 2>&1 || true
+          fi
+
+      - name: Install and smoke test INKR on iOS simulator
+        shell: bash
+        run: bash scripts/ci/ios-simulator-smoke.sh "$INKR_IOS_SIMULATOR" "$INKR_IOS_APP"
+
+      - name: Upload iOS simulator evidence and Xcode build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-ios-staging-simulator-smoke
+          path: ${{ runner.temp }}/inkr-ios-smoke/
+          retention-days: 3
+          if-no-files-found: ignore

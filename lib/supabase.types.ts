@@ -583,6 +583,26 @@ export interface Database {
           { foreignKeyName: 'appointments_client_id_fkey'; columns: ['client_id']; isOneToOne: false; referencedRelation: 'profiles'; referencedColumns: ['id'] },
         ];
       };
+      appointment_deposit_requests: {
+        Row: {
+          appointment_id: string;
+          artist_id: string;
+          client_id: string;
+          amount_cents: number;
+          currency: 'EUR';
+          method: 'manual' | 'external';
+          external_url: string | null;
+          status: 'requested' | 'declared_received' | 'waived' | 'cancelled';
+          declared_received_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: 'appointment_deposit_requests_appointment_id_fkey'; columns: ['appointment_id']; isOneToOne: true; referencedRelation: 'appointments'; referencedColumns: ['id'] },
+        ];
+      };
       artist_availability: {
         Row: {
           id: string;
@@ -833,6 +853,14 @@ export interface Database {
       complete_appointment: {
         Args: { p_appointment_id: string };
         Returns: Database['public']['Tables']['appointments']['Row'];
+      };
+      set_appointment_deposit_request: {
+        Args: { p_appointment_id: string; p_amount_cents: number; p_method: 'manual' | 'external'; p_external_url?: string | null };
+        Returns: Database['public']['Tables']['appointment_deposit_requests']['Row'];
+      };
+      finalize_appointment_deposit_request: {
+        Args: { p_appointment_id: string; p_status: 'declared_received' | 'waived' };
+        Returns: Database['public']['Tables']['appointment_deposit_requests']['Row'];
       };
       mark_messages_read: {
         Args: { p_request_id: string };

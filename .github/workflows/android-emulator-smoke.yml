@@ -1,0 +1,102 @@
+name: Android Emulator Staging Public UI (No Production)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/android-emulator-smoke.yml
+      - scripts/ci/android-emulator-smoke.sh
+      - scripts/ci/android-staging-public-ui.sh
+      - app/**
+      - lib/**
+      - components/**
+      - store/**
+      - package.json
+      - package-lock.json
+      - app.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-smoke:
+    # Intentionally runs on a hosted runner, not the owner's low-RAM PC.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      # Publishable key is intentionally client-visible; never use service_role.
+      EXPO_PUBLIC_SUPABASE_URL: https://lsewxsdulunuuzmszegm.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_1OXzm4QAsvKFAC2Kc2oQVw_G7qpS9Fq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # Legacy SDK package 'tools' was removed; request only supported packages.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Generate native Android application
+        run: npx expo prebuild --platform android --clean --non-interactive
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Configure global Maven Central mirror for Gradle and included builds
+        run: |
+          mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          cp scripts/ci/maven-central-mirror.init.gradle "${GRADLE_USER_HOME:-$HOME/.gradle}/init.d/inkr-ci-mirror.init.gradle"
+      - name: Compile actual installable Android APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          # Maven Central sometimes rate-limits shared CI IPs with HTTP 429.
+          # Retry up to three times; Gradle reuses artifacts already downloaded.
+          for attempt in 1 2 3; do
+            if ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Android compilation failed after three bounded attempts."
+              exit 1
+            fi
+            echo "::warning::Gradle dependency/build failure; retry $((attempt + 1))/3 after cooldown."
+            sleep "$((attempt * 25))"
+          done
+      - name: Enable KVM on Ubuntu runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, launch and restart INKR on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          # AOSP image avoids Pixel Launcher ANR dialogs covering INKR in CI.
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            bash scripts/ci/android-emulator-smoke.sh
+            bash scripts/ci/android-staging-public-ui.sh
+      - name: Upload smoke evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-android-staging-public-ui-smoke
+          path: |
+            ${{ runner.temp }}/inkr-android-smoke/
+            ${{ runner.temp }}/inkr-android-staging-ui/
+          retention-days: 3
+          if-no-files-found: ignore

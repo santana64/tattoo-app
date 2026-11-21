@@ -19,6 +19,25 @@ const allGo = () => {
   g0.web_release_reviewed = true;
   g0.legacy_client_resolution = 'legacy-exclusion-tested';
   g0.exclusion_tested_on_copy = true;
+  g0.candidate_android_version_code = 5;
+  g0.eas_remote_android_version_code_at_audit = 4;
+  g0.android_signing_compatibility_verified = true;
+  Object.assign(value.gates.G1, {
+    backup_verified: true,
+    isolated_restore_verified: true,
+    storage_offsite_portable_backup_verified: true,
+    production_schema_drift_checked: true,
+    data_integrity_preserved: true,
+  });
+  Object.assign(value.gates.G2, {
+    authenticated_client_artist_tested: true,
+    outsider_rls_tested: true,
+    deposit_notification_flow_tested: true,
+  });
+  Object.assign(value.gates.G4, {
+    rollback_rehearsed: true,
+    storage_restore_verified: true,
+  });
   value.gates.G5.owner_approval = true;
   value.gates.G5.approval_reference = 'Owner approval after review of G0-G4';
   return value;
@@ -61,10 +80,78 @@ test('legacy exclusion must have been exercised on a copy', () => {
   assert.ok(assessEvidence(value).blockers.some((line) => line.includes('exclusion not demonstrated')));
 });
 
+test('G0 cannot pass with an Android build number below the historical v4 baseline', () => {
+  const value = allGo();
+  value.gates.G0.candidate_android_version_code = 1;
+  const result = assessEvidence(value);
+  assert.equal(result.ready, false);
+  assert.ok(result.blockers.some((line) => line.includes('versionCode must exceed')));
+  value.gates.G0.candidate_android_version_code = 4;
+  assert.ok(assessEvidence(value).blockers.some((line) => line.includes('versionCode must exceed')));
+});
+
+test('G0 compatible-upgrade path requires an evidenced signing certificate match', () => {
+  const value = allGo();
+  value.gates.G0.legacy_client_resolution = 'legacy-compatibility-tested';
+  value.gates.G0.compatibility_tested_on_copy = true;
+  value.gates.G0.android_signing_compatibility_verified = false;
+  assert.ok(assessEvidence(value).blockers.some((line) => line.includes('signing compatibility')));
+  value.gates.G0.android_signing_compatibility_verified = true;
+  assert.equal(assessEvidence(value).ready, true);
+});
+
+test('G1 requires a verified backup, isolated restore, drift review and data preservation', () => {
+  for (const field of [
+    'backup_verified', 'isolated_restore_verified',
+    'storage_offsite_portable_backup_verified',
+    'production_schema_drift_checked', 'data_integrity_preserved',
+  ]) {
+    const value = allGo();
+    value.gates.G1[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G1: ' + field)));
+  }
+});
+
+test('G2 cannot pass on PGlite-only tests without authenticated multi-role evidence', () => {
+  for (const field of [
+    'authenticated_client_artist_tested', 'outsider_rls_tested',
+    'deposit_notification_flow_tested',
+  ]) {
+    const value = allGo();
+    value.gates.G2[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G2: ' + field)));
+  }
+});
+
+test('G4 requires rollback and Storage recovery exercises', () => {
+  for (const field of ['rollback_rehearsed', 'storage_restore_verified']) {
+    const value = allGo();
+    value.gates.G4[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes('G4: ' + field)));
+  }
+});
+
 test('owner approval cannot be inferred from CI, evidence, or Stripe tests', () => {
   const value = allGo();
   value.gates.G5.owner_approval = false;
   assert.ok(assessEvidence(value).blockers.some((line) => line.includes('owner approval absent')));
+});
+
+
+test('G0 GO must reject stale remote EAS version even if candidate is claimed as 5', () => {
+  const value = allGo();
+  value.gates.G0.eas_remote_android_version_code_at_audit = 1;
+  const result = assessEvidence(value);
+  assert.equal(result.ready, false);
+  assert.ok(result.blockers.some((line) => line.includes('EAS remote Android version counter')));
+});
+
+test('G1 GO must reject machine-bound-only DPAPI backup without portable offsite proof', () => {
+  const value = allGo();
+  value.gates.G1.storage_offsite_portable_backup_verified = false;
+  const result = assessEvidence(value);
+  assert.equal(result.ready, false);
+  assert.ok(result.blockers.some((line) => line.includes('storage_offsite_portable_backup_verified')));
 });
 
 test('syntactically complete evidence can pass documentary validation only', () => {

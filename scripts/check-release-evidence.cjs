@@ -51,6 +51,23 @@ function assessEvidence(manifest) {
     if (g0.historical_android_builds !== 10) {
       blockers.push('G0: reconcile the 10 historically recorded Android builds');
     }
+    if (g0.max_historical_android_version_code !== 4) {
+      blockers.push('G0: historical Android versionCode baseline is not reconciled');
+    }
+    if (!Number.isSafeInteger(g0.candidate_android_version_code) ||
+        g0.candidate_android_version_code <= g0.max_historical_android_version_code) {
+      blockers.push('G0: candidate Android versionCode must exceed every historical distributed build');
+    }
+    // EAS appVersionSource=remote: local app.json and a candidate claim alone
+    // cannot authorize a release when the actual remote counter still lags.
+    if (!Number.isSafeInteger(g0.eas_remote_android_version_code_at_audit) ||
+        g0.eas_remote_android_version_code_at_audit < g0.max_historical_android_version_code) {
+      blockers.push('G0: current EAS remote Android version counter has not been reconciled');
+    }
+    if (g0.legacy_client_resolution === 'legacy-compatibility-tested' &&
+        g0.android_signing_compatibility_verified !== true) {
+      blockers.push('G0: Android signing compatibility has not been demonstrated');
+    }
     for (const field of [
       'eas_reviewed', 'play_console_reviewed', 'app_store_reviewed',
       'manual_apk_distribution_reviewed', 'web_release_reviewed',
@@ -67,6 +84,24 @@ function assessEvidence(manifest) {
     if (g0.legacy_client_resolution === 'legacy-compatibility-tested' &&
         g0.compatibility_tested_on_copy !== true) {
       blockers.push('G0: legacy compatibility not demonstrated on a copy');
+    }
+  }
+
+  // A linked document alone cannot certify a backup, real-role QA or a
+  // rollback. Keep these release gates fail-closed until the named evidence
+  // has been independently inspected and attested.
+  const verifiedOperations = {
+    G1: ['backup_verified', 'isolated_restore_verified',
+      'storage_offsite_portable_backup_verified',
+      'production_schema_drift_checked', 'data_integrity_preserved'],
+    G2: ['authenticated_client_artist_tested', 'outsider_rls_tested',
+      'deposit_notification_flow_tested'],
+    G4: ['rollback_rehearsed', 'storage_restore_verified'],
+  };
+  for (const [id, fields] of Object.entries(verifiedOperations)) {
+    if (gates[id]?.status !== 'GO') continue;
+    for (const field of fields) {
+      if (gates[id][field] !== true) blockers.push(id + ': ' + field + ' not verified');
     }
   }
 

@@ -65,6 +65,29 @@ test('migration preserves two existing proposals, closes direct writes and retai
       await db.exec(fs.readFileSync(path.join(MIGRATIONS, file), 'utf8'));
     }
 
+    // Reproduce selected historical schema additions confirmed by read-only
+    // catalog inspection of the live project. These are absent from fresh
+    // staging migrations and must survive an additive upgrade.
+    await db.exec([
+      "alter table public.artists add column gallery_layout text not null default 'hero_grid';",
+      "alter table public.artists add column hero_variant text not null default 'cover_dominant';",
+      "alter table public.artists add column cta_variant text not null default 'book';",
+      "alter table public.artists add column tagline text;",
+      "alter table public.artists add column pinned_post_id uuid references public.posts(id) on delete set null;",
+      "alter table public.artists add column section_order text[] not null default array['gallery','bio','rules','process','faq'];",
+      "alter table public.artists add constraint chk_gallery_layout check (gallery_layout in ('hero_grid','editorial','dense'));",
+      "alter table public.artists add constraint chk_hero_variant check (hero_variant in ('cover_dominant','compact','minimal'));",
+      "alter table public.artists add constraint chk_cta_variant check (cta_variant in ('book','flash','contact','custom'));",
+      "alter table public.profiles add column deletion_requested_at timestamptz;",
+      "alter table public.tattoo_requests add column availability_hint text;",
+      "alter table public.tattoo_requests add constraint tattoo_requests_availability_hint_check check (availability_hint in ('this_month','next_3_months','next_6_months','flexible'));",
+      "alter table public.tattoo_requests alter column artist_id drop not null;",
+      "alter table public.reviews alter column client_id drop not null;",
+    ].join('\n'));
+    await db.exec(fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'production-only-tables.sql'), 'utf8',
+    ));
+
     const beforeGrants = await one(
       "select has_table_privilege('authenticated','public.appointments','UPDATE') as may_update"
     );
@@ -79,6 +102,16 @@ test('migration preserves two existing proposals, closes direct writes and retai
       "insert into public.artists (profile_id, blaze, city) values ($1,'Upgrade QA','Lyon') returning id",
       [artistUser]
     )).id;
+    await db.query(
+      "update public.artists set gallery_layout='editorial', hero_variant='compact', cta_variant='contact', tagline='QA only' where id=$1",
+      [artist],
+    );
+    for (let i = 0; i < 7; i++) {
+      await db.query(
+        "insert into public.message_templates(artist_id,title,body,sort_order) values ($1,$2,$3,$4)",
+        [artist, 'Template ' + i, 'Synthetic text only', i],
+      );
+    }
 
     const proposals = [];
     for (const days of [7, 9]) {
@@ -86,6 +119,10 @@ test('migration preserves two existing proposals, closes direct writes and retai
         "insert into public.tattoo_requests (client_id, artist_id, project_type, body_zone, size_category, color_preference, description, flexibility_level, status) values ($1,$2,'new','bras','m','black_grey','Test migration','open','accepted') returning id",
         [client, artist]
       )).id;
+      await db.query(
+        "update public.tattoo_requests set availability_hint='flexible' where id=$1",
+        [request],
+      );
       const starts = new Date(Date.now() + days * 86_400_000).toISOString();
       const ends = new Date(Date.now() + days * 86_400_000 + 2 * 3_600_000).toISOString();
       const appt = (await one(
@@ -100,6 +137,50 @@ test('migration preserves two existing proposals, closes direct writes and retai
     assert.ok(initial.every((row) => row.status === 'proposed'));
 
     await db.exec(fs.readFileSync(path.join(MIGRATIONS, LOCKDOWN), 'utf8'));
+    for (const file of migrations.filter((name) => name > LOCKDOWN)) {
+      await db.exec(fs.readFileSync(path.join(MIGRATIONS, file), 'utf8'));
+    }
+    // All subsequent V5/V5.1 migrations must preserve historical data and
+    // old columns. This is a partial production-schema overlay, not a dump.
+    const extras = await one(
+      "select gallery_layout, hero_variant, cta_variant, tagline from public.artists where id=$1",
+      [artist],
+    );
+    assert.deepEqual(extras, {
+      gallery_layout: 'editorial', hero_variant: 'compact', cta_variant: 'contact', tagline: 'QA only',
+    });
+    assert.equal((await one("select count(*)::int as n from public.message_templates")).n, 7);
+    const legacyTables = [
+      'artist_reviews', 'deposits', 'flash_bookings', 'healed_photo_reminders',
+      'message_templates', 'notification_preferences', 'open_slots',
+    ];
+    const survivingTables = (await sql(
+      "select tablename from pg_tables where schemaname='public' and tablename=any($1::text[]) order by tablename",
+      [legacyTables],
+    )).map((r) => r.tablename);
+    assert.deepEqual(survivingTables, [...legacyTables].sort());
+    const historicalSchema = await one(`
+      select
+        (select count(*)::int from information_schema.columns
+         where table_schema='public' and table_name=any($1::text[])) as columns,
+        (select count(*)::int from pg_constraint
+         where conrelid in (select oid from pg_class where relnamespace='public'::regnamespace
+           and relname=any($1::text[]))) as constraints,
+        (select count(*)::int from pg_policies
+         where schemaname='public' and tablename=any($1::text[])) as policies,
+        (select count(*)::int from pg_indexes
+         where schemaname='public' and tablename=any($1::text[])
+           and indexname not in (select conname from pg_constraint)) as extra_indexes
+    `, [legacyTables]);
+    assert.ok(historicalSchema.columns >= 80, 'historical columns must survive');
+    assert.ok(historicalSchema.constraints >= 37, 'historical constraints must survive');
+    assert.ok(historicalSchema.policies >= 22, 'historical RLS policies must survive');
+    assert.ok(historicalSchema.extra_indexes >= 9, 'historical indexes must survive');
+    for (const proposal of proposals) {
+      assert.equal((await one(
+        'select availability_hint from public.tattoo_requests where id=$1', [proposal.request],
+      )).availability_hint, 'flexible');
+    }
     const after = await sql('select id, status, request_id from public.appointments order by id');
     assert.deepEqual(after, initial, 'no existing appointment may be deleted or rewritten');
 

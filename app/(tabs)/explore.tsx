@@ -8,12 +8,13 @@ import {
   RefreshControl,
   Platform,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
+
 import { BottomSheet } from '@/components/motion';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Radius, FontSize, Fonts, Layout } from '@/constants/theme';
@@ -168,7 +169,7 @@ function TrendingTile({ post, index }: { post: ExploreTrendingPost; index: numbe
     >
       {(state) => (
         <>
-          <ArtCanvas uri={post.mediaUrl} aspectRatio={4 / 5} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
+          <ArtCanvas uri={post.mediaUrl} accessibilityLabel="" aspectRatio={4 / 5} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
           <TText
             variant="title2"
             serif
@@ -208,7 +209,6 @@ export default function ExploreScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ style?: string }>();
   const { width, isWide, gutter } = useContentDimensions();
-  const reduced = useReducedMotion();
   const { user } = useAuthStore();
   const { savedArtistIds, fetchSaved, toggle } = useSavedArtistsStore();
   useEffect(() => { void fetchSaved(user?.id); }, [fetchSaved, user?.id]);
@@ -798,7 +798,7 @@ export default function ExploreScreen() {
       {!nearMode && !hasFilters && !isLoading && !fetchError && (
         <>
           {spotlightArtist && (
-            <Animated.View entering={reduced ? undefined : FadeIn.duration(500)} style={styles.spotlight}>
+            <View style={styles.spotlight}>
               <ArtistCard
                 artist={spotlightArtist}
                 variant="featured"
@@ -807,7 +807,7 @@ export default function ExploreScreen() {
                 previewImages={previews[spotlightArtist.id]}
                 stats={stats[spotlightArtist.id]}
               />
-            </Animated.View>
+            </View>
           )}
 
         </>
@@ -843,7 +843,11 @@ export default function ExploreScreen() {
 
   return (
     <View style={styles.container}>
-      <Animated.FlatList
+      <FlatList
+        // React Native Fabric on Android can reparent a clipped child during
+        // asynchronously populated artist rows (addViewAt double-parent crash).
+        // Keep the small virtualized discovery window mounted across scrolls.
+        removeClippedSubviews={false}
         data={listData}
         keyExtractor={(item) => item.id}
         renderItem={renderArtist}

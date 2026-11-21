@@ -47,6 +47,7 @@ function WorkTile({ post, width, index }: { post: FeedPost; width: number; index
           ) : (
             <RevealImage
               uri={post.mediaUrl}
+              accessibilityLabel=""
               style={StyleSheet.absoluteFill}
               fallback={<ArtPlaceholder name={post.artistName} size={40} />}
             />

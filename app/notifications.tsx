@@ -35,6 +35,9 @@ type NotifType =
   | 'appointment_reminder'
   | 'appointment_reschedule'
   | 'appointment_canceled'
+  | 'deposit_requested'
+  | 'deposit_declared_received'
+  | 'deposit_waived'
   | 'healed_photo'
   | 'healed_photo_reminder'
   | 'system';
@@ -52,6 +55,9 @@ const NOTIF_CONFIG: Record<NotifType, { icon: keyof typeof Ionicons.glyphMap; co
   appointment_reminder:   { icon: 'alarm-outline', color: Colors.flameText, label: 'Rappel' },
   appointment_reschedule: { icon: 'swap-horizontal-outline', color: Colors.warning, label: 'Report demandé' },
   appointment_canceled:   { icon: 'calendar-clear-outline', color: Colors.error, label: 'Annulation' },
+  deposit_requested:        { icon: 'card-outline', color: Colors.flameText, label: 'Acompte demandé' },
+  deposit_declared_received: { icon: 'checkmark-circle-outline', color: Colors.success, label: 'Acompte déclaré' },
+  deposit_waived:           { icon: 'close-circle-outline', color: Colors.textSecondary, label: 'Acompte non requis' },
   healed_photo:           { icon: 'sparkles-outline', color: Colors.flameText, label: 'Photo cicatrisée' },
   healed_photo_reminder:  { icon: 'camera-outline', color: Colors.flameText, label: 'Photo cicatrisée' },
   system:        { icon: 'information-outline', color: Colors.textSecondary, label: 'Information' },
@@ -67,6 +73,7 @@ const SENTENCE_TYPES: ReadonlySet<NotifType> = new Set(['new_post', 'new_followe
 const EXACT_TYPES: ReadonlySet<NotifType> = new Set([
   'new_post', 'new_follower', 'book_reopened',
   'appointment_reminder', 'appointment_reschedule', 'appointment_canceled',
+  'deposit_requested', 'deposit_declared_received', 'deposit_waived',
   'healed_photo', 'healed_photo_reminder',
 ]);
 
