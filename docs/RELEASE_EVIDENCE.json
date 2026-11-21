@@ -12,7 +12,8 @@
         "docs/INKR_G0_ANDROID_V4_V5_UPGRADE_20261121.md",
         "docs/INKR_G0_LEGACY_APK_HERMES_DIFFERENTIAL_20261121.md",
         "docs/INKR_G0_OFFICIAL_EAS_BUILD_INVENTORY_20261121.md",
-        "docs/INKR_G0_EAS_DISTRIBUTION_INVENTORY_20261121.md"
+        "docs/INKR_G0_EAS_DISTRIBUTION_INVENTORY_20261121.md",
+        "docs/INKR_PRIORITY_STRIPE_LEGACY_RECOVERY_REVALIDATION_20261121.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
@@ -70,7 +71,10 @@
       "eas_manual_apk_distributions_inventoried": false,
       "legacy_v4_business_flows_on_restricted_backend_verified": false,
       "eas_official_submissions_list_checked": true,
-      "eas_official_submissions_recorded_count": 0
+      "eas_official_submissions_recorded_count": 0,
+      "staging_real_artist_jwt_direct_appointment_update_negative_verified": true,
+      "staging_legacy_style_direct_update_http_status": 403,
+      "staging_legacy_style_direct_update_sqlstate": "42501"
     },
     "G1": {
       "status": "HOLD",
@@ -80,7 +84,8 @@
         "docs/INKR_G1_SECOND_HOST_RESTORE_20261121.md",
         "docs/INKR_G1_ONEDRIVE_ENCRYPTED_COPY_INTEGRITY_20261121.md",
         "docs/INKR_G1_NEW_STORAGE_BACKUP_20261121.md",
-        "docs/INKR_G1_FRESH_STORAGE_SECOND_HOST_RESTORE_20261121.md"
+        "docs/INKR_G1_FRESH_STORAGE_SECOND_HOST_RESTORE_20261121.md",
+        "docs/INKR_PRIORITY_STRIPE_LEGACY_RECOVERY_REVALIDATION_20261121.md"
       ],
       "sql_backup_verified": true,
       "sql_local_restore_verified": true,
@@ -122,7 +127,10 @@
       "fresh_storage_independent_second_host_three_objects_restored": true,
       "fresh_storage_independent_second_host_bytes_verified": 399767,
       "fresh_storage_private_ciphertext_only_transfer_verified": true,
-      "offsite_retrievable_cloud_copy_verified": false
+      "offsite_retrievable_cloud_copy_verified": false,
+      "independent_second_host_sql_20261117_restore_reverified_on": "2026-11-21",
+      "independent_second_host_sql_restore_plaintext_removed": true,
+      "independent_second_host_fresh_storage_20261121_reverified": true
     },
     "G2": {
       "status": "HOLD",
@@ -136,7 +144,8 @@
         "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md",
         "docs/INKR_G2_WEB_E2E_CLIENT_ARTIST_3_PRIVATE_IMAGES_20261121.md",
         "docs/INKR_G2_STRIPE_TEST_REAL_CHECKOUT_PARTIAL_20261121.md",
-        "docs/INKR_G2_STRIPE_TEST_WEB_AUTORETURN_20261121.md"
+        "docs/INKR_G2_STRIPE_TEST_WEB_AUTORETURN_20261121.md",
+        "docs/INKR_PRIORITY_STRIPE_LEGACY_RECOVERY_REVALIDATION_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
@@ -207,7 +216,9 @@
       "stripe_test_api_cancellation_verified": true,
       "stripe_test_backend_normal_after_cancel_verified": true,
       "stripe_test_free_tier_ui_after_cancel_web_reload_verified": true,
-      "stripe_test_premium_after_fresh_goTrue_relogin_verified": false
+      "stripe_test_premium_after_fresh_goTrue_relogin_verified": false,
+      "stripe_test_latest_verified_checkout_sandbox_only": true,
+      "stripe_test_latest_verified_checkout_payment_submitted": false
     },
     "G3": {
       "status": "HOLD",
