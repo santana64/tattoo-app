@@ -89,7 +89,8 @@
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
         "docs/STAGING_AUTH_QA_20261117.md",
-        "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md"
+        "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md",
+        "docs/INKR_G2_STAGING_HTTP_DENIALS_CORS_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
@@ -110,7 +111,16 @@
       "staging_signed_jwt_anonymous_denial_verified": true,
       "staging_signed_jwt_qa_marker_residue_zero_verified": true,
       "staging_signed_jwt_real_ui_verified": false,
-      "staging_signed_jwt_third_party_authenticated_verified": false
+      "staging_signed_jwt_third_party_authenticated_verified": false,
+      "staging_real_http_anon_denials_10_of_10_verified": true,
+      "staging_real_http_anon_private_tables_verified": true,
+      "staging_real_http_anon_private_storage_listing_denied": true,
+      "staging_real_http_anon_admin_rpc_denied": true,
+      "staging_checkout_cors_two_project_preview_origins_verified": true,
+      "staging_checkout_cors_foreign_origin_denied": true,
+      "staging_checkout_real_web_return_qa_verified": false,
+      "staging_standalone_security_seed_function_disabled": true,
+      "staging_sql_rls_public_31_of_31_verified": true
     },
     "G3": {
       "status": "HOLD",
