@@ -37,4 +37,4 @@ export function safeNextPath(next: unknown): string | null {
   const pathname = next.split(/[?#]/, 1)[0];
   if (pathname.split('/').some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment))) return null;
   return next;
-
+}
