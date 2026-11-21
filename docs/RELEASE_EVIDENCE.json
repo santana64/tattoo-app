@@ -88,19 +88,29 @@
       "evidence": [
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
-        "docs/STAGING_AUTH_QA_20261117.md"
+        "docs/STAGING_AUTH_QA_20261117.md",
+        "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
       "staging_auth_readonly_harness_ready": true,
-      "staging_real_client_artist_auth_executed": false,
+      "staging_real_client_artist_auth_executed": true,
       "staging_simulated_client_artist_rls_read_verified": true,
       "staging_two_auth_test_accounts_email_confirmed": true,
       "staging_real_artist_role_profile_created": true,
       "staging_qa_request_notification_sql_transaction_verified": true,
       "authenticated_client_artist_tested": false,
       "outsider_rls_tested": false,
-      "deposit_notification_flow_tested": false
+      "deposit_notification_flow_tested": false,
+      "staging_signed_jwt_client_artist_backend_verified": true,
+      "staging_signed_jwt_backend_passed_assertions": 33,
+      "staging_signed_jwt_two_way_messages_verified": true,
+      "staging_signed_jwt_rpc_booking_lifecycle_verified": true,
+      "staging_signed_jwt_optional_deposit_verified": true,
+      "staging_signed_jwt_anonymous_denial_verified": true,
+      "staging_signed_jwt_qa_marker_residue_zero_verified": true,
+      "staging_signed_jwt_real_ui_verified": false,
+      "staging_signed_jwt_third_party_authenticated_verified": false
     },
     "G3": {
       "status": "HOLD",
