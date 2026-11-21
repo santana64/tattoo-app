@@ -41,11 +41,14 @@ async function scenario(engineName, browser, viewport) {
   try {
     const response = await page.goto(base + '/', { waitUntil: 'domcontentloaded', timeout: 45000 });
     assert.equal(response && response.status(), 200, id + ': web root must respond HTTP 200');
-    // SSR and Expo's loading shell can populate body.innerText before React
-    // renders the actual public UI. Wait for app-specific content, not bytes.
+    // Expo static HTML initially includes prerendered text; during hydration
+    // that DOM is removed and RootLayout may return null until fonts finish.
+    // Waiting only for prerendered HTML produced a false positive at 1 second.
+    await page.waitForLoadState('load', { timeout: 30000 });
+    await page.waitForTimeout(3500);
     await page.waitForFunction(
       () => !!document.body && /INKR|Mara Test|Découvrir|tatouage/i.test(document.body.innerText || ''),
-      null, { timeout: 60000 },
+      null, { timeout: 45000 },
     );
     const metrics = await page.evaluate(() => ({
       width: innerWidth,
@@ -88,6 +91,9 @@ async function scenario(engineName, browser, viewport) {
       url: location.pathname,
       visibleText: (document.body?.innerText || '').slice(0, 1600),
       rootElementCount: document.querySelectorAll('#root, [data-reactroot]').length,
+      rootHtml: (document.querySelector('#root')?.innerHTML || '').slice(0, 1800),
+      fontStatus: document.fonts?.status,
+      fontCount: document.fonts?.size,
       documentReadyState: document.readyState,
     })).catch((err) => ({ diagnosticError: String(err) }));
     const record = { id, status: 'FAIL', error: String(error), pageErrors, consoleErrors: consoleErrors.slice(0, 20), diagnostic };
