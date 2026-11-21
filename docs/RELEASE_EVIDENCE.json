@@ -266,7 +266,8 @@
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
         "docs/INKR_G4_REAL_SNAPSHOT_MIGRATION_ROLLBACK_20261121.md",
-        "docs/INKR_G4_MULTI_SERVICE_ROLLBACK_PREP_20261121.md"
+        "docs/INKR_G4_MULTI_SERVICE_ROLLBACK_PREP_20261121.md",
+        "docs/INKR_G4_FRESH_20261121_SNAPSHOT_ROLLBACK.md"
       ],
       "local_sql_transaction_rollback_verified": true,
       "local_all_22_migrations_rollback_verified": true,
@@ -284,7 +285,12 @@
       "full_supabase_services_rollback_verified": false,
       "real_snapshot_sql_migration_transaction_rollback_verified": true,
       "current_prod_edge_function_inventory_compared_with_staging": true,
-      "all_services_hosted_rollback_rehearsed": false
+      "all_services_hosted_rollback_rehearsed": false,
+      "fresh_production_sql_20261121_12_migrations_transactional_rollback_verified": true,
+      "fresh_production_sql_20261121_public_tables_before": 36,
+      "fresh_production_sql_20261121_public_tables_during": 38,
+      "fresh_production_sql_20261121_public_tables_after_rollback": 36,
+      "fresh_production_sql_20261121_snapshot_private_files_removed": true
     },
     "G5": {
       "status": "HOLD",
