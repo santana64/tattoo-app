@@ -50,3 +50,57 @@ test('server errors map to French messages, overlap included', () => {
   assert.equal(lib.appointmentErrorMessage(null), null);
   assert.doesNotMatch(lib.appointmentErrorMessage({ message: 'internal boom' }), /boom/);
 });
+
+test('malformed slot strings cannot roll into a different day or hour', () => {
+  const day = new Date(2027, 3, 12);
+  const now = new Date(2027, 3, 11);
+  for (const time of ['24:00', '25:61', '10:60', '09:99', '9:30', '09:3', '-1:30', '', '12:30:00', '12\n30', ' 12:30 ', 'NaN:00']) {
+    assert.equal(lib.buildSlot(day, time, 120, now), null, JSON.stringify(time));
+  }
+  for (const duration of [0, -1, 1.5, Number.NaN, Infinity, -Infinity, 601, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(lib.buildSlot(day, '13:30', duration, now), null, String(duration));
+  }
+  assert.equal(lib.buildSlot(new Date(NaN), '12:00', 120, now), null);
+  assert.equal(lib.buildSlot(day, '12:00', 120, new Date(NaN)), null);
+});
+
+test('day generation rejects invalid counts and steps without hanging', () => {
+  for (const bad of [0, -1, Infinity, -Infinity, NaN, 1.5, 1441]) {
+    assert.deepEqual(lib.dayTimes(9, 20, bad), [], String(bad));
+  }
+  for (const inputs of [[-1, 20, 30], [9, 24, 30], [21, 20, 30], [9.5, 20, 30], [0, Infinity, 30]]) {
+    assert.deepEqual(lib.dayTimes(...inputs), [], JSON.stringify(inputs));
+  }
+  for (const count of [-1, 1.5, Infinity, NaN, 367]) {
+    assert.deepEqual(lib.upcomingDays(count), [], String(count));
+  }
+  assert.equal(lib.upcomingDays(366, new Date(2027, 0, 1)).length, 366);
+});
+
+test('valid slots always have finite bounded start/end timestamps', () => {
+  const day = new Date(2027, 3, 12);
+  const now = new Date(2027, 3, 11);
+  for (const time of lib.dayTimes(0, 23, 15)) {
+    for (const duration of [1, 15, 30, 60, 90, 120, 180, 240, 480, 600]) {
+      const slot = lib.buildSlot(day, time, duration, now);
+      assert.ok(slot, time + '/' + duration);
+      assert.equal(slot.end.getTime() - slot.start.getTime(), duration * 60_000);
+      assert.equal(slot.start.getHours(), Number(time.slice(0, 2)));
+      assert.equal(slot.start.getMinutes(), Number(time.slice(3, 5)));
+    }
+  }
+});
+
+test('the nonexistent spring-forward hour is not silently moved', () => {
+  const previous = process.env.TZ;
+  try {
+    process.env.TZ = 'Europe/Paris';
+    const day = new Date(2026, 2, 29);
+    assert.equal(new Date(2026, 2, 29, 2, 30).getHours(), 3, 'DST precondition');
+    assert.equal(lib.buildSlot(day, '02:30', 60, new Date(2026, 2, 28)), null);
+    assert.ok(lib.buildSlot(day, '03:30', 60, new Date(2026, 2, 28)));
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+});

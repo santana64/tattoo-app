@@ -8,25 +8,41 @@ export const DURATIONS_MIN = [60, 120, 180, 240, 360, 480] as const;
 
 /** The next `count` calendar days starting today, at local midnight. */
 export function upcomingDays(count = 21, from = new Date()): Date[] {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 366 || !Number.isFinite(from.getTime())) return [];
   const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   return Array.from({ length: count }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
 }
 
 /** Start times between `firstHour` and `lastHour` (inclusive) every `stepMin` minutes, as "HH:MM". */
 export function dayTimes(firstHour = 9, lastHour = 20, stepMin = 30): string[] {
+  // Guard against a zero/negative step hanging the UI thread or invalid hours.
+  if (![firstHour, lastHour, stepMin].every(Number.isSafeInteger)
+      || firstHour < 0 || lastHour > 23 || lastHour < firstHour || stepMin < 1 || stepMin > 1440) return [];
   const out: string[] = [];
   for (let m = firstHour * 60; m <= lastHour * 60; m += stepMin) {
-    out.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+    out.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
   }
   return out;
 }
 
 /** Combines a local day and "HH:MM" into a start/end pair. Returns null for a slot in the past. */
 export function buildSlot(day: Date, time: string, durationMin: number, now = new Date()): { start: Date; end: Date } | null {
-  const [h, m] = time.split(':').map(Number);
+  // Date silently normalizes 25:61 or a nonexistent DST hour into another slot.
+  if (!Number.isFinite(day?.getTime()) || !Number.isFinite(now?.getTime())
+      || typeof time !== 'string' || !Number.isSafeInteger(durationMin)
+      || durationMin <= 0 || durationMin > 600) return null;
+  const parsed = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
+  if (!parsed) return null;
+  const h = Number(parsed[1]);
+  const m = Number(parsed[2]);
   const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
-  if (Number.isNaN(start.getTime()) || start <= now || durationMin <= 0) return null;
-  return { start, end: new Date(start.getTime() + durationMin * 60_000) };
+  if (!Number.isFinite(start.getTime()) || start <= now
+      || start.getFullYear() !== day.getFullYear()
+      || start.getMonth() !== day.getMonth()
+      || start.getDate() !== day.getDate()
+      || start.getHours() !== h || start.getMinutes() !== m) return null;
+  const end = new Date(start.getTime() + durationMin * 60_000);
+  return Number.isFinite(end.getTime()) ? { start, end } : null;
 }
 
 export function formatDuration(min: number): string {

@@ -31,5 +31,10 @@ export function safeNextPath(next: unknown): string | null {
   if (!/^\/[A-Za-z0-9]/.test(next)) return null;
   if (next.includes('//') || next.includes('\\') ||/[\s<>"'`]/.test(next)) return null;
   if (/^\/(auth|sign-in|welcome|role-select)(\/|\?|$)/.test(next)) return null;
+  // Router implementations may decode escapes again; reject separators,
+  // control bytes and traversal segments before routing to a private screen.
+  if (/%(?:0[0-9a-f]|1[0-9a-f]|2f|5c|7f)/i.test(next)) return null;
+  const pathname = next.split(/[?#]/, 1)[0];
+  if (pathname.split('/').some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment))) return null;
   return next;
-}
+
