@@ -58,6 +58,12 @@ function assessEvidence(manifest) {
         g0.candidate_android_version_code <= g0.max_historical_android_version_code) {
       blockers.push('G0: candidate Android versionCode must exceed every historical distributed build');
     }
+    // EAS appVersionSource=remote: local app.json and a candidate claim alone
+    // cannot authorize a release when the actual remote counter still lags.
+    if (!Number.isSafeInteger(g0.eas_remote_android_version_code_at_audit) ||
+        g0.eas_remote_android_version_code_at_audit < g0.max_historical_android_version_code) {
+      blockers.push('G0: current EAS remote Android version counter has not been reconciled');
+    }
     if (g0.legacy_client_resolution === 'legacy-compatibility-tested' &&
         g0.android_signing_compatibility_verified !== true) {
       blockers.push('G0: Android signing compatibility has not been demonstrated');
@@ -86,6 +92,7 @@ function assessEvidence(manifest) {
   // has been independently inspected and attested.
   const verifiedOperations = {
     G1: ['backup_verified', 'isolated_restore_verified',
+      'storage_offsite_portable_backup_verified',
       'production_schema_drift_checked', 'data_integrity_preserved'],
     G2: ['authenticated_client_artist_tested', 'outsider_rls_tested',
       'deposit_notification_flow_tested'],
