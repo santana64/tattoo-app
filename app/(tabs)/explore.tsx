@@ -169,7 +169,7 @@ function TrendingTile({ post, index }: { post: ExploreTrendingPost; index: numbe
     >
       {(state) => (
         <>
-          <ArtCanvas uri={post.mediaUrl} aspectRatio={4 / 5} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
+          <ArtCanvas uri={post.mediaUrl} accessibilityLabel="" aspectRatio={4 / 5} mark={`N° ${String(index + 1).padStart(2, '0')}`} />
           <TText
             variant="title2"
             serif

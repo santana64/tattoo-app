@@ -61,7 +61,7 @@ function SelectionColumn({ posts, onOpen }: { posts: FeedPost[]; onOpen: (id: st
       accessibilityLabel={`Réalisation de ${post.artistName}${post.artistCity ? `, ${post.artistCity}` : ''}`}
       style={[styles.cell, style, webPointer]}
     >
-      <RevealImage uri={post.mediaUrl} style={StyleSheet.absoluteFill} />
+      <RevealImage uri={post.mediaUrl} accessibilityLabel="" style={StyleSheet.absoluteFill} />
       <View style={styles.cellMark} pointerEvents="none">
         <TText variant="micro" weight="bold" uppercase style={styles.cellMarkText} numberOfLines={1}>
           {`N° ${String(index + 1).padStart(2, '0')} / ${post.artistName}`}
