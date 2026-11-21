@@ -6,12 +6,14 @@
   "gates": {
     "G0": {
       "status": "HOLD",
-      "evidence": [],
+      "evidence": [
+        "docs/INKR_G0_HISTORICAL_APK_SIGNATURE_20261121.md"
+      ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
       "candidate_android_version_code": 1,
       "eas_remote_android_version_code_at_audit": 1,
-      "historical_android_signing_verified": false,
+      "historical_android_signing_verified": true,
       "android_signing_compatibility_verified": false,
       "eas_reviewed": true,
       "play_console_reviewed": false,
@@ -20,7 +22,15 @@
       "web_release_reviewed": false,
       "legacy_client_resolution": "unknown",
       "exclusion_tested_on_copy": false,
-      "compatibility_tested_on_copy": false
+      "compatibility_tested_on_copy": false,
+      "historical_android_apk_version_code_verified": 4,
+      "historical_android_apk_sha256": "a2b04e1a2bfff6cf5385affa7765295ba19ad186196eea4594cbd71d9360ae2b",
+      "historical_apk_certificate_sha256": "6dc3710d2573857e5ec954d5e8fb0ff778b3b2e51035e2b39d2419f318ab3ecf",
+      "staging_candidate_apk_certificate_matches_historical": true,
+      "staging_candidate_apk_signature_valid": true,
+      "eas_remote_android_version_code_readonly_verified": true,
+      "eas_remote_readonly_verified_on": "2026-11-21",
+      "android_real_upgrade_verified": false
     },
     "G1": {
       "status": "HOLD",
