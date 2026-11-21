@@ -29,7 +29,6 @@
     },
     "android": {
       "package": "com.inkr.tattoo",
-      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#121310",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -86,6 +85,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "puccicity",
+    "extra": {
+      "eas": {
+        "projectId": "9e39dea3-25eb-4ff6-9a34-01c410af785c"
+      }
     }
   }
 }
