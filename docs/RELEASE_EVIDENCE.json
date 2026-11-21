@@ -245,7 +245,8 @@
       "status": "HOLD",
       "evidence": [
         "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md",
-        "docs/INKR_G3_WEB_RESPONSIVE_ACCESSIBILITY_20261121.md"
+        "docs/INKR_G3_WEB_RESPONSIVE_ACCESSIBILITY_20261121.md",
+        "docs/INKR_G3_WEB_KEYBOARD_FIX_AND_RECHECK_20261121.md"
       ],
       "ci_6ac997e_green": true,
       "web_browser_6ac997e_green": true,
@@ -258,7 +259,12 @@
       "web_clean_bundle_public_imgs_alt_verified": true,
       "web_legal_links_24px_target_patch_validated": true,
       "physical_device_accessibility_qa_verified": false,
-      "full_web_keyboard_and_screenreader_qa_verified": false
+      "full_web_keyboard_and_screenreader_qa_verified": false,
+      "web_keyboard_20261121_eight_checks_verified": true,
+      "web_signin_legal_keyboard_enter_verified": true,
+      "web_explore_artwork_keyboard_enter_verified": true,
+      "web_responsive_360_768_1440_9_cases_reverified_after_keyboard_fix": true,
+      "web_accessibility_real_screenreader_verified": false
     },
     "G4": {
       "status": "HOLD",
