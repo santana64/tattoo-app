@@ -66,7 +66,8 @@
       "evidence": [
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
-        "docs/INKR_G1_SECOND_HOST_RESTORE_20261121.md"
+        "docs/INKR_G1_SECOND_HOST_RESTORE_20261121.md",
+        "docs/INKR_G1_ONEDRIVE_ENCRYPTED_COPY_INTEGRITY_20261121.md"
       ],
       "sql_backup_verified": true,
       "sql_local_restore_verified": true,
@@ -89,7 +90,13 @@
       "second_host_backup_key_protected_at_rest_verified": true,
       "second_host_source_snapshot_date": "2026-11-17",
       "second_host_restored_at": "2026-11-21",
-      "second_host_cloud_sync_verified": false
+      "second_host_cloud_sync_verified": false,
+      "local_onedrive_two_encrypted_archive_sha256_verified": true,
+      "second_host_encrypted_archive_sha256_reverified": true,
+      "onedrive_personal_account_configured_at_audit": true,
+      "onedrive_sync_client_running_at_audit": true,
+      "independent_cloud_download_readback_verified": false,
+      "last_independent_cloud_backup_sha256_verified": false
     },
     "G2": {
       "status": "HOLD",
@@ -98,7 +105,8 @@
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
         "docs/STAGING_AUTH_QA_20261117.md",
         "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md",
-        "docs/INKR_G2_STAGING_HTTP_DENIALS_CORS_20261121.md"
+        "docs/INKR_G2_STAGING_HTTP_DENIALS_CORS_20261121.md",
+        "docs/INKR_G2_THIRD_REAL_SIGNED_JWT_OUTSIDER_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
@@ -109,7 +117,7 @@
       "staging_real_artist_role_profile_created": true,
       "staging_qa_request_notification_sql_transaction_verified": true,
       "authenticated_client_artist_tested": false,
-      "outsider_rls_tested": false,
+      "outsider_rls_tested": true,
       "deposit_notification_flow_tested": false,
       "staging_signed_jwt_client_artist_backend_verified": true,
       "staging_signed_jwt_backend_passed_assertions": 33,
@@ -128,7 +136,16 @@
       "staging_checkout_cors_foreign_origin_denied": true,
       "staging_checkout_real_web_return_qa_verified": false,
       "staging_standalone_security_seed_function_disabled": true,
-      "staging_sql_rls_public_31_of_31_verified": true
+      "staging_sql_rls_public_31_of_31_verified": true,
+      "third_genuine_gotrue_jwt_16_of_16_verified": true,
+      "third_genuine_jwt_profile_unprivileged_verified": true,
+      "third_genuine_jwt_private_object_signed_url_denied": true,
+      "third_genuine_jwt_private_object_download_denied": true,
+      "third_genuine_jwt_admin_rpc_denial_verified": true,
+      "third_genuine_jwt_global_signout_verified": true,
+      "third_temporary_qa_user_removed_from_staging": true,
+      "third_qa_orphan_profiles_after_cleanup": 0,
+      "three_account_simultaneous_ui_flow_verified": false
     },
     "G3": {
       "status": "HOLD",
