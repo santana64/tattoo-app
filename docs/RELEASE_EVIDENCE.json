@@ -7,12 +7,13 @@
     "G0": {
       "status": "HOLD",
       "evidence": [
-        "docs/INKR_G0_HISTORICAL_APK_SIGNATURE_20261121.md"
+        "docs/INKR_G0_HISTORICAL_APK_SIGNATURE_20261121.md",
+        "docs/INKR_G0_EAS_PREVIEW_V5_20261121.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
       "candidate_android_version_code": 1,
-      "eas_remote_android_version_code_at_audit": 1,
+      "eas_remote_android_version_code_at_audit": 5,
       "historical_android_signing_verified": true,
       "android_signing_compatibility_verified": false,
       "eas_reviewed": true,
@@ -30,7 +31,14 @@
       "staging_candidate_apk_signature_valid": true,
       "eas_remote_android_version_code_readonly_verified": true,
       "eas_remote_readonly_verified_on": "2026-11-21",
-      "android_real_upgrade_verified": false
+      "android_real_upgrade_verified": false,
+      "eas_remote_android_counter_reconciled": true,
+      "eas_preview_build_id": "04ebbd5e-4cc0-4fd5-b4f4-5201e6dc78e6",
+      "eas_preview_build_source_commit": "c0063c9999d80f2c1587fd30daeffad4cebb93d3",
+      "eas_preview_build_version_code": 5,
+      "eas_preview_build_status": "IN_PROGRESS",
+      "eas_preview_build_artifact_verified": false,
+      "eas_preview_build_signature_verified": false
     },
     "G1": {
       "status": "HOLD",
