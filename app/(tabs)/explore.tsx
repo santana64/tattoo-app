@@ -163,6 +163,7 @@ function TrendingTile({ post, index }: { post: ExploreTrendingPost; index: numbe
   return (
     <Pressable
       onPress={() => router.push(`/post/${post.id}`)}
+      {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push(`/post/${post.id}`); } } } : {})}
       accessibilityRole="link"
       accessibilityLabel={`Réalisation de ${post.artistName}`}
       style={(state) => [styles.trendingTile, (state as Hover).pressed && { opacity: 0.85 }, webPointer]}
