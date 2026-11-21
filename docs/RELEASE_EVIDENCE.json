@@ -24,7 +24,11 @@
     },
     "G1": {
       "status": "HOLD",
-      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md", "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md"],
+      "evidence": [
+        "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
+        "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
+        "docs/INKR_G1_SECOND_HOST_RESTORE_20261121.md"
+      ],
       "sql_backup_verified": true,
       "sql_local_restore_verified": true,
       "historical_public_counts_verified": true,
@@ -39,11 +43,22 @@
       "backup_verified": false,
       "isolated_restore_verified": false,
       "production_schema_drift_checked": true,
-      "data_integrity_preserved": false
+      "data_integrity_preserved": false,
+      "second_host_archive_integrity_verified": true,
+      "second_host_independent_sql_restore_verified": true,
+      "second_host_independent_storage_bytes_restore_verified": true,
+      "second_host_backup_key_protected_at_rest_verified": true,
+      "second_host_source_snapshot_date": "2026-11-17",
+      "second_host_restored_at": "2026-11-21",
+      "second_host_cloud_sync_verified": false
     },
     "G2": {
       "status": "HOLD",
-      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md", "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md", "docs/STAGING_AUTH_QA_20261117.md"],
+      "evidence": [
+        "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
+        "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
+        "docs/STAGING_AUTH_QA_20261117.md"
+      ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
       "staging_auth_readonly_harness_ready": true,
@@ -62,7 +77,10 @@
     },
     "G4": {
       "status": "HOLD",
-      "evidence": ["docs/PRODUCTION_CLONE_MIGRATION_20261117.md", "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md"],
+      "evidence": [
+        "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
+        "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md"
+      ],
       "local_sql_transaction_rollback_verified": true,
       "local_all_22_migrations_rollback_verified": true,
       "local_restore_content_fingerprints_verified": true,
