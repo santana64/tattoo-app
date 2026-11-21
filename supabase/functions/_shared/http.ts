@@ -7,6 +7,17 @@
 
 const NATIVE_SCHEME = 'inkr://';
 
+// Exact project/team preview pattern, accepted ONLY by the isolated QA staging project.
+// Never use a broad *.vercel.app wildcard and never enable this in production.
+const STAGING_SUPABASE_URL = 'https://lsewxsdulunuuzmszegm.supabase.co';
+const STAGING_VERCEL_PREVIEW = /^https:\/\/tattoo-app-4gmu-[a-z0-9]+-santana64s-projects\.vercel\.app$/;
+
+export function isAllowedWebOrigin(origin: string): boolean {
+  return allowedOrigins().includes(origin)
+    || (Deno.env.get('SUPABASE_URL') === STAGING_SUPABASE_URL
+      && STAGING_VERCEL_PREVIEW.test(origin));
+}
+
 export function allowedOrigins(): string[] {
   return (Deno.env.get('ALLOWED_ORIGINS') ?? '')
     .split(',')
@@ -21,7 +32,7 @@ export function corsHeaders(req: Request): Record<string, string> {
     Vary: 'Origin',
   };
   const origin = req.headers.get('Origin');
-  if (origin && allowedOrigins().includes(origin)) {
+  if (origin && isAllowedWebOrigin(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
   }
   return headers;
@@ -43,7 +54,7 @@ export function isAllowedReturnUrl(url: unknown): url is string {
     // Plain http is only tolerated for local development.
     const local = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
     if (parsed.protocol !== 'https:' && !(local && parsed.protocol === 'http:')) return false;
-    return allowedOrigins().includes(parsed.origin);
+    return isAllowedWebOrigin(parsed.origin);
   } catch {
     return false;
   }
