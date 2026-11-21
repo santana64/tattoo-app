@@ -96,7 +96,9 @@
       "onedrive_personal_account_configured_at_audit": true,
       "onedrive_sync_client_running_at_audit": true,
       "independent_cloud_download_readback_verified": false,
-      "last_independent_cloud_backup_sha256_verified": false
+      "last_independent_cloud_backup_sha256_verified": false,
+      "second_host_fresh_storage_20261121_restore_verified": true,
+      "fresh_sql_20261121_backup_verified": false
     },
     "G2": {
       "status": "HOLD",
@@ -106,7 +108,8 @@
         "docs/STAGING_AUTH_QA_20261117.md",
         "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md",
         "docs/INKR_G2_STAGING_HTTP_DENIALS_CORS_20261121.md",
-        "docs/INKR_G2_THIRD_REAL_SIGNED_JWT_OUTSIDER_20261121.md"
+        "docs/INKR_G2_THIRD_REAL_SIGNED_JWT_OUTSIDER_20261121.md",
+        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
@@ -116,7 +119,7 @@
       "staging_two_auth_test_accounts_email_confirmed": true,
       "staging_real_artist_role_profile_created": true,
       "staging_qa_request_notification_sql_transaction_verified": true,
-      "authenticated_client_artist_tested": false,
+      "authenticated_client_artist_tested": true,
       "outsider_rls_tested": true,
       "deposit_notification_flow_tested": false,
       "staging_signed_jwt_client_artist_backend_verified": true,
@@ -126,7 +129,7 @@
       "staging_signed_jwt_optional_deposit_verified": true,
       "staging_signed_jwt_anonymous_denial_verified": true,
       "staging_signed_jwt_qa_marker_residue_zero_verified": true,
-      "staging_signed_jwt_real_ui_verified": false,
+      "staging_signed_jwt_real_ui_verified": true,
       "staging_signed_jwt_third_party_authenticated_verified": false,
       "staging_real_http_anon_denials_10_of_10_verified": true,
       "staging_real_http_anon_private_tables_verified": true,
@@ -145,11 +148,20 @@
       "third_genuine_jwt_global_signout_verified": true,
       "third_temporary_qa_user_removed_from_staging": true,
       "third_qa_orphan_profiles_after_cleanup": 0,
-      "three_account_simultaneous_ui_flow_verified": false
+      "three_account_simultaneous_ui_flow_verified": false,
+      "real_web_browser_client_artist_onboarding_verified": true,
+      "real_web_three_private_references_and_cleanup_verified": true,
+      "real_web_request_message_appointment_confirmation_verified": true,
+      "real_web_reopen_reload_sessions_verified": true,
+      "real_web_stripe_test_checkout_opened_verified": true,
+      "real_web_checkout_auto_return_through_cancel_verified": false,
+      "real_web_e2e_evidence_source_commit": "6ac997eb57c32f4d08f7da03e5f8bf6d464249c9"
     },
     "G3": {
       "status": "HOLD",
-      "evidence": []
+      "evidence": [
+        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md"
+      ]
     },
     "G4": {
       "status": "HOLD",
