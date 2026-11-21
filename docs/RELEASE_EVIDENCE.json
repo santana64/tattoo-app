@@ -10,7 +10,9 @@
         "docs/INKR_G0_HISTORICAL_APK_SIGNATURE_20261121.md",
         "docs/INKR_G0_EAS_PREVIEW_V5_20261121.md",
         "docs/INKR_G0_ANDROID_V4_V5_UPGRADE_20261121.md",
-        "docs/INKR_G0_LEGACY_APK_HERMES_DIFFERENTIAL_20261121.md"
+        "docs/INKR_G0_LEGACY_APK_HERMES_DIFFERENTIAL_20261121.md",
+        "docs/INKR_G0_OFFICIAL_EAS_BUILD_INVENTORY_20261121.md",
+        "docs/INKR_G0_EAS_DISTRIBUTION_INVENTORY_20261121.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
@@ -59,7 +61,16 @@
       "legacy_v4_backend_destination_verified": false,
       "legacy_v4_backend_literally_identifiable_in_bundle": false,
       "legacy_v4_business_flow_compatibility_with_v5_verified": false,
-      "legacy_v4_distribution_scope_verified": false
+      "legacy_v4_distribution_scope_verified": false,
+      "eas_official_inventory_android_build_count": 12,
+      "eas_official_inventory_ios_build_count": 0,
+      "eas_official_android_store_profile_v4_build_found": true,
+      "eas_play_console_published_distribution_verified": false,
+      "eas_appstore_connect_distribution_verified": false,
+      "eas_manual_apk_distributions_inventoried": false,
+      "legacy_v4_business_flows_on_restricted_backend_verified": false,
+      "eas_official_submissions_list_checked": true,
+      "eas_official_submissions_recorded_count": 0
     },
     "G1": {
       "status": "HOLD",
@@ -67,7 +78,9 @@
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
         "docs/INKR_G1_SECOND_HOST_RESTORE_20261121.md",
-        "docs/INKR_G1_ONEDRIVE_ENCRYPTED_COPY_INTEGRITY_20261121.md"
+        "docs/INKR_G1_ONEDRIVE_ENCRYPTED_COPY_INTEGRITY_20261121.md",
+        "docs/INKR_G1_NEW_STORAGE_BACKUP_20261121.md",
+        "docs/INKR_G1_FRESH_STORAGE_SECOND_HOST_RESTORE_20261121.md"
       ],
       "sql_backup_verified": true,
       "sql_local_restore_verified": true,
@@ -98,7 +111,18 @@
       "independent_cloud_download_readback_verified": false,
       "last_independent_cloud_backup_sha256_verified": false,
       "second_host_fresh_storage_20261121_restore_verified": true,
-      "fresh_sql_20261121_backup_verified": false
+      "fresh_sql_20261121_backup_verified": false,
+      "fresh_storage_readonly_backup_20261121_verified": true,
+      "fresh_storage_archive_object_count": 3,
+      "fresh_storage_archive_object_bytes": 399767,
+      "fresh_storage_20261121_local_disk_restore_verified": true,
+      "fresh_sql_backup_20261121_verified": false,
+      "independent_onedrive_cloud_download_readback_verified": false,
+      "fresh_storage_portable_aes256gcm_20261121_verified": true,
+      "fresh_storage_independent_second_host_three_objects_restored": true,
+      "fresh_storage_independent_second_host_bytes_verified": 399767,
+      "fresh_storage_private_ciphertext_only_transfer_verified": true,
+      "offsite_retrievable_cloud_copy_verified": false
     },
     "G2": {
       "status": "HOLD",
@@ -109,7 +133,10 @@
         "docs/INKR_G2_SIGNED_JWT_REAL_BUSINESS_FLOW_20261121.md",
         "docs/INKR_G2_STAGING_HTTP_DENIALS_CORS_20261121.md",
         "docs/INKR_G2_THIRD_REAL_SIGNED_JWT_OUTSIDER_20261121.md",
-        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md"
+        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md",
+        "docs/INKR_G2_WEB_E2E_CLIENT_ARTIST_3_PRIVATE_IMAGES_20261121.md",
+        "docs/INKR_G2_STRIPE_TEST_REAL_CHECKOUT_PARTIAL_20261121.md",
+        "docs/INKR_G2_STRIPE_TEST_WEB_AUTORETURN_20261121.md"
       ],
       "simulated_local_client_rpc_verified": true,
       "staging_anonymous_http_rls_verified": true,
@@ -155,20 +182,59 @@
       "real_web_reopen_reload_sessions_verified": true,
       "real_web_stripe_test_checkout_opened_verified": true,
       "real_web_checkout_auto_return_through_cancel_verified": false,
-      "real_web_e2e_evidence_source_commit": "6ac997eb57c32f4d08f7da03e5f8bf6d464249c9"
+      "real_web_e2e_evidence_source_commit": "6ac997eb57c32f4d08f7da03e5f8bf6d464249c9",
+      "real_preview_client_magiclink_auth_ui_verified": true,
+      "real_preview_artist_magiclink_auth_ui_verified": true,
+      "real_preview_client_onboarding_ui_verified": true,
+      "real_preview_artist_onboarding_ui_verified": true,
+      "real_preview_three_private_references_client_upload_verified": true,
+      "real_preview_three_private_references_artist_signed_view_verified": true,
+      "real_preview_artist_request_acceptance_verified": true,
+      "real_preview_two_way_message_web_verified": true,
+      "real_preview_appointment_proposed_and_confirmed_web_verified": true,
+      "real_preview_two_role_browser_session_reopen_reload_verified": true,
+      "real_preview_qa_private_storage_and_business_residue_cleaned": true,
+      "stripe_test_real_signed_artist_checkout_http_200_verified": true,
+      "stripe_test_real_checkout_hosted_ui_opened": true,
+      "stripe_test_checkout_payment_ui_completed_verified": false,
+      "stripe_test_live_premium_after_reconnect_verified": false,
+      "stripe_test_live_ui_cancellation_verified": false,
+      "authenticated_android_ios_business_flows_verified": false,
+      "stripe_test_actual_ui_fictitious_card_checkout_confirmed": true,
+      "stripe_test_exact_preview_https_auto_return_verified": true,
+      "stripe_test_webhook_activated_premium_verified": true,
+      "stripe_test_premium_survived_web_reload_verified": true,
+      "stripe_test_api_cancellation_verified": true,
+      "stripe_test_backend_normal_after_cancel_verified": true,
+      "stripe_test_free_tier_ui_after_cancel_web_reload_verified": true,
+      "stripe_test_premium_after_fresh_goTrue_relogin_verified": false
     },
     "G3": {
       "status": "HOLD",
       "evidence": [
-        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md"
-      ]
+        "docs/INKR_G2_REAL_WEB_QA_COUNTERAUDIT_20261121.md",
+        "docs/INKR_G3_WEB_RESPONSIVE_ACCESSIBILITY_20261121.md"
+      ],
+      "ci_6ac997e_green": true,
+      "web_browser_6ac997e_green": true,
+      "android_emulator_public_6ac997e_green": true,
+      "ios_simulator_public_6ac997e_green": true,
+      "native_authenticated_full_business_qa_verified": false,
+      "accessibility_multi_platform_complete_verified": false,
+      "web_responsive_360_768_1440_public_3_routes_verified": true,
+      "web_nine_responsive_public_combinations_verified": true,
+      "web_clean_bundle_public_imgs_alt_verified": true,
+      "web_legal_links_24px_target_patch_validated": true,
+      "physical_device_accessibility_qa_verified": false,
+      "full_web_keyboard_and_screenreader_qa_verified": false
     },
     "G4": {
       "status": "HOLD",
       "evidence": [
         "docs/PRODUCTION_CLONE_MIGRATION_20261117.md",
         "docs/INKR_RELEASE_REMAINING_AUDIT_20261117.md",
-        "docs/INKR_G4_REAL_SNAPSHOT_MIGRATION_ROLLBACK_20261121.md"
+        "docs/INKR_G4_REAL_SNAPSHOT_MIGRATION_ROLLBACK_20261121.md",
+        "docs/INKR_G4_MULTI_SERVICE_ROLLBACK_PREP_20261121.md"
       ],
       "local_sql_transaction_rollback_verified": true,
       "local_all_22_migrations_rollback_verified": true,
@@ -183,13 +249,23 @@
       "historical_production_snapshot_disposable_postgres_cleanup_verified": true,
       "historical_production_snapshot_real_auth_user_count_preserved": true,
       "historical_production_snapshot_storage_object_metadata_preserved": true,
-      "full_supabase_services_rollback_verified": false
+      "full_supabase_services_rollback_verified": false,
+      "real_snapshot_sql_migration_transaction_rollback_verified": true,
+      "current_prod_edge_function_inventory_compared_with_staging": true,
+      "all_services_hosted_rollback_rehearsed": false
     },
     "G5": {
       "status": "HOLD",
-      "evidence": [],
+      "evidence": [
+        "docs/INKR_RELEASE_GATE_FINAL_AUDIT_20261121.md",
+        "docs/INKR_G5_RELEASE_DECISION_PREPARATION_20261121.md"
+      ],
       "owner_approval": false,
-      "approval_reference": ""
+      "approval_reference": "",
+      "release_evidence_consolidated_20261121": true,
+      "production_approval_granted": false,
+      "merge_authorized": false,
+      "all_six_release_gate_audit_documents_prepared": true
     }
   }
 }
