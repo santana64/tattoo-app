@@ -33,13 +33,19 @@ async function scenario(engineName, browser, viewport) {
   });
   const page = await context.newPage();
   const pageErrors = [];
+  const consoleErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 400));
+  });
   try {
     const response = await page.goto(base + '/', { waitUntil: 'domcontentloaded', timeout: 45000 });
     assert.equal(response && response.status(), 200, id + ': web root must respond HTTP 200');
+    // SSR and Expo's loading shell can populate body.innerText before React
+    // renders the actual public UI. Wait for app-specific content, not bytes.
     await page.waitForFunction(
-      () => (document.body && document.body.innerText && document.body.innerText.trim().length > 70),
-      null, { timeout: 45000 },
+      () => !!document.body && /INKR|Mara Test|Découvrir|tatouage/i.test(document.body.innerText || ''),
+      null, { timeout: 60000 },
     );
     const metrics = await page.evaluate(() => ({
       width: innerWidth,
@@ -78,7 +84,15 @@ async function scenario(engineName, browser, viewport) {
     assert.deepEqual(pageErrors, [], id + ': uncaught JS exceptions');
     results.push({ id, status: 'PASS', ...metrics, pageErrors: 0 });
   } catch (error) {
-    results.push({ id, status: 'FAIL', error: String(error), pageErrors });
+    const diagnostic = await page.evaluate(() => ({
+      url: location.pathname,
+      visibleText: (document.body?.innerText || '').slice(0, 1600),
+      rootElementCount: document.querySelectorAll('#root, [data-reactroot]').length,
+      documentReadyState: document.readyState,
+    })).catch((err) => ({ diagnosticError: String(err) }));
+    const record = { id, status: 'FAIL', error: String(error), pageErrors, consoleErrors: consoleErrors.slice(0, 20), diagnostic };
+    results.push(record);
+    fs.writeFileSync(path.join(out, id + '-diagnostic.json'), JSON.stringify(record, null, 2) + '\n');
     await page.screenshot({ path: path.join(out, id + '-failure.png'), fullPage: false }).catch(() => {});
     throw error;
   } finally {
