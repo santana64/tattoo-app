@@ -1,0 +1,64 @@
+name: INKR Web Browser Staging QA (No Production)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/web-browser-qa.yml
+      - scripts/ci/web-staging-browser-qa.cjs
+      - app/**
+      - components/**
+      - lib/**
+      - store/**
+      - hooks/**
+      - package.json
+      - package-lock.json
+      - app.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-public-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      EXPO_PUBLIC_SUPABASE_URL: https://lsewxsdulunuuzmszegm.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_1OXzm4QAsvKFAC2Kc2oQVw_G7qpS9Fq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install isolated browser QA runner (no lockfile modification)
+        run: npm install --no-save --package-lock=false playwright@1.58.0
+      - name: Install Chromium Firefox and WebKit browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Build actual staging web client
+        run: npm run build:web
+      - name: Serve web export locally
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p web-qa-evidence
+          python3 -m http.server 4173 --directory dist > web-qa-evidence/http-server.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::Exported INKR web server failed to start."
+          exit 1
+      - name: Test public navigation and layout across 3 engines x 3 widths
+        run: node scripts/ci/web-staging-browser-qa.cjs
+      - name: Upload browser QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkr-web-browser-staging
+          path: web-qa-evidence/
+          retention-days: 3
+          if-no-files-found: ignore
