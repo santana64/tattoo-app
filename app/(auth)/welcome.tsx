@@ -205,11 +205,11 @@ export default function WelcomeScreen() {
 
               <View style={styles.legalRow}>
                 <TText variant="caption" color="onInkMuted">En continuant, vous acceptez les </TText>
-                <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" style={webPointer}>
+                <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" accessibilityLabel="CGU" hitSlop={8} style={[webPointer, styles.legalLink]} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/terms'); } } } : {})}>
                   <TText variant="caption" color="onInk" style={styles.underline}>CGU</TText>
                 </Pressable>
                 <TText variant="caption" color="onInkMuted"> et la </TText>
-                <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" style={webPointer}>
+                <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" accessibilityLabel="politique de confidentialité" hitSlop={8} style={[webPointer, styles.legalLink]} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/privacy-policy'); } } } : {})}>
                   <TText variant="caption" color="onInk" style={styles.underline}>politique de confidentialité</TText>
                 </Pressable>
                 <TText variant="caption" color="onInkMuted">.</TText>
@@ -264,6 +264,7 @@ const styles = StyleSheet.create({
 
   legalRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: Spacing.md },
   underline: { textDecorationLine: 'underline' },
+  legalLink: { minHeight: 24, justifyContent: 'center' as const },
 
   // Right column (wide only)
   visualWrap: { flex: 45, minWidth: 0 },
