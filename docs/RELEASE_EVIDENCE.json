@@ -9,7 +9,8 @@
       "evidence": [
         "docs/INKR_G0_HISTORICAL_APK_SIGNATURE_20261121.md",
         "docs/INKR_G0_EAS_PREVIEW_V5_20261121.md",
-        "docs/INKR_G0_ANDROID_V4_V5_UPGRADE_20261121.md"
+        "docs/INKR_G0_ANDROID_V4_V5_UPGRADE_20261121.md",
+        "docs/INKR_G0_LEGACY_APK_HERMES_DIFFERENTIAL_20261121.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
@@ -51,7 +52,14 @@
       "android_upgrade_screenshot_reviewed": true,
       "android_upgrade_fatal_exceptions_observed": 0,
       "android_upgrade_app_private_data_verified": false,
-      "android_upgrade_legacy_business_flows_verified": false
+      "android_upgrade_legacy_business_flows_verified": false,
+      "legacy_v4_actual_apk_hermes_static_reviewed": true,
+      "legacy_v4_rpc_string_differential_reviewed": true,
+      "legacy_v4_new_booking_rpc_names_absent_in_compiled_strings": true,
+      "legacy_v4_backend_destination_verified": false,
+      "legacy_v4_backend_literally_identifiable_in_bundle": false,
+      "legacy_v4_business_flow_compatibility_with_v5_verified": false,
+      "legacy_v4_distribution_scope_verified": false
     },
     "G1": {
       "status": "HOLD",
