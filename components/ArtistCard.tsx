@@ -77,7 +77,7 @@ function Plate({ uri, name, size, aspectRatio, mark, style }: {
   style?: React.ComponentProps<typeof View>['style'];
 }) {
   return (
-    <ArtCanvas uri={uri} aspectRatio={aspectRatio} mark={mark} style={style}>
+    <ArtCanvas uri={uri} aspectRatio={aspectRatio} mark={mark} accessibilityLabel="" style={style}>
       {!uri && <ArtPlaceholder name={name} size={size} />}
     </ArtCanvas>
   );
@@ -284,14 +284,14 @@ export function ArtistCard({ artist, isSaved = false, onSave, index, variant = '
               <View style={[styles.mosaic, isWide && styles.mosaicWide]}>
                 <View style={[styles.mosaicLead, side.length === 0 && { flex: 1 }]}>
                   {lead ? (
-                    <RevealImage uri={lead} style={StyleSheet.absoluteFill} />
+                    <RevealImage uri={lead} accessibilityLabel="" style={StyleSheet.absoluteFill} />
                   ) : <ArtPlaceholder name={artist.blaze} size={72} />}
                 </View>
                 {side.length > 0 && (
                   <View style={styles.mosaicSide}>
                     {side.map((uri) => (
                       <View key={uri} style={styles.mosaicCell}>
-                        <RevealImage uri={uri} style={StyleSheet.absoluteFill} />
+                        <RevealImage uri={uri} accessibilityLabel="" style={StyleSheet.absoluteFill} />
                       </View>
                     ))}
                   </View>

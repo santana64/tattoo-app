@@ -23,6 +23,34 @@ async function visibleAndEnabled(locator) {
     && await locator.isEnabled().catch(() => false);
 }
 
+async function assertAccessiblePublicContent(page, id, section) {
+  // DOM-level regression guard, not a substitute for screen-reader or WCAG audits.
+  const audit = await page.evaluate(() => {
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      return el.getClientRects().length > 0
+        && style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && !el.closest('[aria-hidden="true"]');
+    };
+    const imgs = [...document.querySelectorAll('img')].filter(visible);
+    const controls = [...document.querySelectorAll('button,[role="button"],a[href],[role="link"]')].filter(visible);
+    const name = (el) => (el.getAttribute('aria-label') || el.getAttribute('title')
+      || el.innerText || el.getAttribute('aria-labelledby') || '').trim();
+    return {
+      language: document.documentElement.lang,
+      images: imgs.length,
+      missingAlt: imgs.filter((el) => !el.hasAttribute('alt')).length,
+      controls: controls.length,
+      unnamedControls: controls.filter((el) => !name(el)).length,
+    };
+  });
+  assert.equal(audit.language, 'fr', id + '/' + section + ': page language must be French');
+  assert.equal(audit.missingAlt, 0, id + '/' + section + ': every visible image needs alt, including alt="" for decorative images');
+  assert.equal(audit.unnamedControls, 0, id + '/' + section + ': every visible interactive control needs an accessible name');
+  return audit;
+}
+
 async function scenario(engineName, browser, viewport) {
   const id = engineName + '-' + viewport.name;
   const context = await browser.newContext({
@@ -60,6 +88,7 @@ async function scenario(engineName, browser, viewport) {
     assert.equal(metrics.recognizable, true, id + ': no INKR public content');
     assert.ok(metrics.focusables > 0, id + ': no keyboard-focusable control');
     assert.ok(metrics.scrollWidth <= metrics.width + 8, id + ': horizontal page overflow');
+    const a11yHome = await assertAccessiblePublicContent(page, id, 'home');
     await page.screenshot({ path: path.join(out, id + '-home.png'), fullPage: false });
 
     let navigated = false;
@@ -77,15 +106,17 @@ async function scenario(engineName, browser, viewport) {
     assert.ok(navigated, id + ': no visible public Explore navigation');
     await page.getByText(/02\s*\/\s*Découvrir/i).first().waitFor({ state: 'visible', timeout: 45000 });
     await page.getByText(/2\s+artistes/i).first().waitFor({ state: 'visible', timeout: 45000 });
+    const a11yExplore = await assertAccessiblePublicContent(page, id, 'explore');
     await page.screenshot({ path: path.join(out, id + '-explore.png'), fullPage: false });
 
     const signIn = page.getByText('Se connecter', { exact: true }).first();
     assert.ok(await visibleAndEnabled(signIn), id + ': sign-in navigation unavailable');
     await signIn.click({ timeout: 12000 });
     await page.getByText(/Entrez dans/i).first().waitFor({ state: 'visible', timeout: 45000 });
+    const a11ySignin = await assertAccessiblePublicContent(page, id, 'sign-in');
     await page.screenshot({ path: path.join(out, id + '-signin.png'), fullPage: false });
     assert.deepEqual(pageErrors, [], id + ': uncaught JS exceptions');
-    results.push({ id, status: 'PASS', ...metrics, pageErrors: 0 });
+    results.push({ id, status: 'PASS', ...metrics, pageErrors: 0, a11y: { home: a11yHome, explore: a11yExplore, signIn: a11ySignin } });
   } catch (error) {
     const diagnostic = await page.evaluate(() => ({
       url: location.pathname,

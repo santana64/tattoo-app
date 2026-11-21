@@ -168,7 +168,7 @@ export function PostCard({
           {isVideo ? (
             post.thumbnailUrl ? (
               <>
-                <RevealImage uri={post.thumbnailUrl} style={StyleSheet.absoluteFill} fallback={<VideoPlaceholder compact={isHalf} />} />
+                <RevealImage uri={post.thumbnailUrl} accessibilityLabel="" style={StyleSheet.absoluteFill} fallback={<VideoPlaceholder compact={isHalf} />} />
                 <PlayBadge compact={isHalf} />
               </>
             ) : (
@@ -180,6 +180,7 @@ export function PostCard({
           ) : (
             <RevealImage
               uri={post.mediaUrl}
+              accessibilityLabel=""
               style={StyleSheet.absoluteFill}
               fallback={<ArtPlaceholder name={post.artistName} size={isHalf ? 40 : 72} />}
             />
