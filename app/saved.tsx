@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, ScrollView, Platform } from 'react-native';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
