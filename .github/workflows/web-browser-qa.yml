@@ -20,7 +20,9 @@ permissions:
 
 jobs:
   browser-public-qa:
-    runs-on: ubuntu-latest
+    # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest currently resolves
+    # to Ubuntu 26.04 on GitHub Actions, which causes browser installation to fail.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CI: "1"
@@ -35,9 +37,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Install isolated browser QA runner (no lockfile modification)
-        run: npm install --no-save --package-lock=false playwright@1.58.0
+        run: npm install --prefix "$RUNNER_TEMP/inkr-qa-runner" --no-save --package-lock=false playwright@1.58.0
       - name: Install Chromium Firefox and WebKit browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: "$RUNNER_TEMP/inkr-qa-runner/node_modules/.bin/playwright" install --with-deps chromium firefox webkit
       - name: Build actual staging web client
         run: npm run build:web
       - name: Serve web export locally
@@ -53,6 +55,8 @@ jobs:
           echo "::error::Exported INKR web server failed to start."
           exit 1
       - name: Test public navigation and layout across 3 engines x 3 widths
+        env:
+          NODE_PATH: ${{ runner.temp }}/inkr-qa-runner/node_modules
         run: node scripts/ci/web-staging-browser-qa.cjs
       - name: Upload browser QA evidence
         if: always()
