@@ -1,0 +1,69 @@
+# Public staging-only navigation. No accounts, payments, or backend writes.
+# Unlike a process-liveness smoke, this must see and interact with real UI.
+appId: com.inkr.tattoo
+tags:
+  - native-smoke
+---
+- launchApp:
+    clearState: true
+# React Native groups ArtistChip children into one accessible Pressable label:
+# "Mara Test, <booking status>". Maestro matches the *full* label as regex;
+# the former exact "Mara Test" selector failed although the artist was visibly
+# rendered in pre- and post-Maestro screenshots. Match the composite label,
+# retain the real staging-data assertion, and require actual tab navigation.
+- extendedWaitUntil:
+    visible: ".*Mara Test.*"
+    timeout: 60000
+- tapOn:
+    text: ".*Rechercher.*"
+- extendedWaitUntil:
+    visible: ".*02 / DÉCOUVRIR.*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: ".*2 ARTISTES.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Se connecter.*"
+- extendedWaitUntil:
+    visible: ".*Entrez dans.*"
+    timeout: 30000
+
+# Native sign-in mode switching must not crash Fabric/Reanimated.
+# No OTP is requested and no user account is created.
+- tapOn:
+    text: ".*Mot de passe oublié.*Recevoir un lien de connexion.*"
+- extendedWaitUntil:
+    visible: ".*Utiliser plutôt un mot de passe.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Utiliser plutôt un mot de passe.*"
+- extendedWaitUntil:
+    visible: ".*Mot de passe oublié.*Recevoir un lien de connexion.*"
+    timeout: 30000
+
+# Exercise native navigation to the legal modal from the real login screen.
+- scrollUntilVisible:
+    element:
+      text: ".*CGU.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: ".*CGU.*"
+- extendedWaitUntil:
+    visible: ".*Objet.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Retour.*"
+- extendedWaitUntil:
+    visible: ".*Entrez dans.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: ".*politique de confidentialité.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: ".*politique de confidentialité.*"
+- extendedWaitUntil:
+    visible: ".*Responsable du traitement.*"
+    timeout: 30000

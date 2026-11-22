@@ -57,11 +57,12 @@ function SelectionColumn({ posts, onOpen }: { posts: FeedPost[]; onOpen: (id: st
     <Pressable
       key={post.id}
       onPress={() => onOpen(post.id)}
+      {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); onOpen(post.id); } } } : {})}
       accessibilityRole="link"
       accessibilityLabel={`Réalisation de ${post.artistName}${post.artistCity ? `, ${post.artistCity}` : ''}`}
       style={[styles.cell, style, webPointer]}
     >
-      <RevealImage uri={post.mediaUrl} style={StyleSheet.absoluteFill} />
+      <RevealImage uri={post.mediaUrl} accessibilityLabel="" style={StyleSheet.absoluteFill} />
       <View style={styles.cellMark} pointerEvents="none">
         <TText variant="micro" weight="bold" uppercase style={styles.cellMarkText} numberOfLines={1}>
           {`N° ${String(index + 1).padStart(2, '0')} / ${post.artistName}`}
@@ -205,11 +206,11 @@ export default function WelcomeScreen() {
 
               <View style={styles.legalRow}>
                 <TText variant="caption" color="onInkMuted">En continuant, vous acceptez les </TText>
-                <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" style={webPointer}>
+                <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" accessibilityLabel="CGU" hitSlop={8} style={[webPointer, styles.legalLink]} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/terms'); } } } : {})}>
                   <TText variant="caption" color="onInk" style={styles.underline}>CGU</TText>
                 </Pressable>
                 <TText variant="caption" color="onInkMuted"> et la </TText>
-                <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" style={webPointer}>
+                <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" accessibilityLabel="politique de confidentialité" hitSlop={8} style={[webPointer, styles.legalLink]} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/privacy-policy'); } } } : {})}>
                   <TText variant="caption" color="onInk" style={styles.underline}>politique de confidentialité</TText>
                 </Pressable>
                 <TText variant="caption" color="onInkMuted">.</TText>
@@ -264,6 +265,7 @@ const styles = StyleSheet.create({
 
   legalRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: Spacing.md },
   underline: { textDecorationLine: 'underline' },
+  legalLink: { minHeight: 24, justifyContent: 'center' as const },
 
   // Right column (wide only)
   visualWrap: { flex: 45, minWidth: 0 },

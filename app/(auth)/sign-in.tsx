@@ -422,11 +422,11 @@ export default function SignInScreen() {
       {/* Legal */}
       <View style={styles.legalRow}>
         <TText variant="caption" color="tertiary">En continuant, vous acceptez les </TText>
-        <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" hitSlop={8}>
+        <Pressable onPress={() => router.push('/legal/terms')} accessibilityRole="link" accessibilityLabel="CGU" hitSlop={8} style={styles.legalLink} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/terms'); } } } : {})}>
           <TText variant="caption" color="secondary" style={styles.underline}>CGU</TText>
         </Pressable>
         <TText variant="caption" color="tertiary"> et la </TText>
-        <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" hitSlop={8}>
+        <Pressable onPress={() => router.push('/legal/privacy-policy')} accessibilityRole="link" accessibilityLabel="politique de confidentialité" hitSlop={8} style={styles.legalLink} {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push('/legal/privacy-policy'); } } } : {})}>
           <TText variant="caption" color="secondary" style={styles.underline}>politique de confidentialité</TText>
         </Pressable>
         <TText variant="caption" color="tertiary">.</TText>
@@ -530,6 +530,8 @@ const styles = StyleSheet.create({
 
   altLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', marginTop: Spacing['2xs'] },
   underline: { textDecorationLine: 'underline' },
+  // 24px minimum visual hit target (plus 8px hitSlop), including on Web.
+  legalLink: { minHeight: 24, justifyContent: 'center' as const },
 
   dividerRow: {
     flexDirection: 'row',

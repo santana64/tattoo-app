@@ -1,0 +1,27 @@
+# INKR V5.1 — revalidation ciblée Stripe TEST / G0 / G1 (21 novembre 2026)
+
+**Périmètre :** PR #3 `codex/inkr-v5-1-optional-deposits`; prévisualisation Vercel et Supabase staging `lsewxsdulunuuzmszegm`, archives privées conservées sur les deux ordinateurs de QA. **Aucun paiement LIVE et aucune mutation Supabase production.** Statut G0–G5 : `HOLD`.
+
+## Stripe TEST — distinguer preuve ancienne et nouvelle tentative
+
+- Campagne précédente : `docs/INKR_G2_STRIPE_TEST_WEB_AUTORETURN_20261121.md` et rapport privé `g2-actual-web-stripe-20261121.json`. **PASS ciblé** sur Checkout ouvert par clic réel, paiement fictif, navigation automatique jusqu'à `/settings/subscription?checkout=success`, Premium après webhook et après reload, résiliation Stripe TEST par API et retour SQL au plan gratuit. L'ensemble restait `HOLD` sur le second e-mail OTP pour une véritable *reconnexion dans la même campagne*.
+- Relecture de la session QA via Playwright, cette fois sur la preview à SHA `6ac997e` : `HTTP 200`, page `/settings/subscription`, session Supabase existante, bouton `Passer à Premium`, état Premium absent et non redirigé vers la connexion : **PASS, compte actuellement gratuit**.
+- Nouvelle tentative de contrôle : clic UI, fonction Edge Checkout HTTP 200, session Stripe **TEST**, `mode=subscription`, `livemode=false`, `amount_total=1900` centimes EUR, URLs HTTPS exactes de succès et d'annulation, vérifiées dans le compte sandbox distinct `acct_1Ubxk0BIelrUrSJe`. Aucun numéro de carte réelle et aucun paiement LIVE. La tentative a été **arrêtée avant soumission du paiement** lorsque le mécanisme d'approbation de la recette n'a pas pu être enclenché ; elle ne constitue donc pas un nouveau PASS du cycle complet. Le processus de navigation a été arrêté et le fichier local temporaire contenant l'ID de Checkout effacé. La session Stripe TEST non payée pourra expirer selon Stripe.
+- **Manquant :** deuxième magic-link reçu et consommé dans la *même* campagne après succès du Checkout, Premium constaté après connexion indépendante, puis annulation et affichage gratuit dans cette même session. Ne pas amalgamer des observations de campagnes distinctes.
+
+## G0 — preuve de refus du contrat d'écriture historique
+
+- Le binaire réel Android v4 a été inspecté par le rapport `INKR_G0_LEGACY_APK_HERMES_DIFFERENTIAL_20261121.md`; ses chaînes Hermes ne contiennent pas les nouveaux noms de RPC d'agenda V5. Ce constat **ne prouve pas** le graphe d'appel ni le backend réellement ciblé.
+- Test SQL en lecture seule sur Supabase staging : `has_table_privilege('authenticated','public.appointments','UPDATE') = false` et `INSERT = false`. Les nouvelles RPC `respond_to_appointment`, `propose_appointment`, `cancel_appointment`, `complete_appointment` sont présentes, exécutables pour `authenticated`, avec paramètres inspectés.
+- Test HTTP négatif exécuté avec un **vrai JWT artiste QA** depuis `pucci` : `PATCH /rest/v1/appointments` ciblant exclusivement un UUID inexistant, sans aucune ligne existante visée. Résultat **HTTP 403 / SQLSTATE 42501**, statut `pass=true`. Rapport privé : `%LOCALAPPDATA%\\INKR-QA\\clone\\g0-legacy-direct-update-denial-20261121.json`.
+- Interprétation : une ancienne version qui envoie directement des UPDATE vers `appointments` **échoue** contre le contrat V5. Cela ne démontre pas que **chaque** APK v4 utilise réellement cette écriture. Ne pas rétablir ces droits : tester la véritable v4 sur une copie backend ou mettre en place une transition/mise à jour obligatoire et vérifier les canaux de distribution.
+
+## G1 — reprise réexécutée sur deuxième machine
+
+- **Storage du 21/11/2026**, sur `BOOK-OOU94V899O` : `Restore-INKR-BOOK-FreshStorage-20261121.cjs` a revérifié l'authentification AES-GCM, déchiffré l'archive fraîche, puis physiquement restauré **3/3 fichiers** représentant **399 767 octets**. Rapport : `PASS_INDEPENDENT_HOST_FRESH_STORAGE_3_OBJECT_RESTORE`, `temporaryPlaintextRemoved=true`, `productionTouched=false`.
+- **SQL du 17/11/2026**, toujours sur `BOOK` : `Decrypt-INKR-SQL-OnBOOK-20261121.cjs` a déchiffré l'archive portable avec empreinte et taille contrôlées (566 146 octets), puis `Restore-INKR-SQL-OnBOOK-20261121.ps1` a restauré une base PostgreSQL 17.12 éphémère sur `127.0.0.1:55449` : **36 tables public, 2 rendez-vous, 4 demandes, 7 utilisateurs Auth, 3 métadonnées Storage, 8 buckets**, empreinte des rendez-vous `a5139386f5dfd60a76965d7240d38160` identique à l'attendu. Résultat `PASS_INDEPENDENT_SECOND_HOST_SQL_RESTORE`; PostgreSQL arrêté, travail SQL en clair supprimé (`plaintext_work_removed=true`). Horodatage final local : **21/11/2026 à 22:04:46 (+01:00)**.
+- **Limites :** ces deux restaurations ne portent pas sur une sauvegarde SQL complète datée du jour. Aucune lecture depuis **OneDrive cloud** indépendante n'a été effectuée et aucune reprise multi-service hébergée n'a été démontrée. Le compte Windows actuel n'avait aucun `pgpass.conf` disponible; la procédure de `pg_dump` exige un mot de passe de base de données saisi localement sans l'exposer au dépôt, à la conversation ou aux outils de logs.
+
+## Décision
+
+**G0 HOLD** (anciens clients et distribution pas certifiés), **G1 HOLD** (SQL actuel et cloud hors site manquants), **G2 HOLD** (reconnexion Stripe dans une seule campagne encore manquante), **G3–G5 HOLD**. Ne pas fusionner la PR, appliquer les migrations à production ou soumettre de build au store sur la base de ces seuls tests.

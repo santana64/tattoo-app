@@ -1,12 +1,9 @@
-import React, { useEffect } from 'react';
-import { Tabs } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import React from 'react';
+import { Tabs, useRouter } from 'expo-router';
+import { Platform, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShell } from '@/hooks/useContentDimensions';
-import Animated, {
-  useSharedValue, useAnimatedStyle,
-} from 'react-native-reanimated';
 import { useAuthStore } from '@/store/auth-store';
 import { useRequestStore } from '@/store/request-store';
 import { Colors, Fonts } from '@/constants/theme';
@@ -18,18 +15,6 @@ function TabIcon({ name, color, focused, badge }: {
   focused: boolean;
   badge?: number;
 }) {
-  const progress = useSharedValue(focused ? 1 : 0);
-
-  useEffect(() => {
-    // Tabs are peers used constantly: no transition on the marker.
-    progress.value = focused ? 1 : 0;
-  }, [focused, progress]);
-
-  const dotStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ scaleX: 0.4 + progress.value * 0.6 }],
-  }));
-
   return (
     <View style={styles.iconContainer}>
       <Ionicons
@@ -37,7 +22,7 @@ function TabIcon({ name, color, focused, badge }: {
         size={22}
         color={focused ? '#FFFFFF' : color}
       />
-      <Animated.View style={[styles.activeBar, dotStyle]} />
+      <View style={[styles.activeBar, !focused && styles.inactiveBar]} />
       {!!badge && badge > 0 && (
         <View style={styles.badge} accessibilityLabel={`${badge} nouvelles demandes`}>
           <TText variant="micro" tabular style={{ fontSize: 9, lineHeight: 12, color: '#FFFFFF', letterSpacing: 0 }}>
@@ -50,6 +35,7 @@ function TabIcon({ name, color, focused, badge }: {
 }
 
 export default function TabLayout() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   // Artist requests are already scoped to the signed-in artist by the store.
   const requests = useRequestStore((s) => s.requests);
@@ -71,7 +57,11 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      // Keep inactive Android tab screens attached while Fabric/Reanimated flush
+      // pending mounts. This avoids screen detach/reparent races on navigation.
+      detachInactiveScreens={Platform.OS !== 'android'}
       screenOptions={{
+        freezeOnBlur: false,
         headerShown: false,
         tabBarHideOnKeyboard: true,
         tabBarStyle: hasSidebar ? { display: 'none' } : {
@@ -158,6 +148,16 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="profile"
+        listeners={{
+          tabPress: (event) => {
+            if (!isVisitor) return;
+            // Avoid mounting the private profile tab only to redirect it in
+            // RootLayout's auth effect. On Android Fabric this double route
+            // transition can reparent an already mounted native child.
+            event.preventDefault();
+            router.push('/(auth)/sign-in');
+          },
+        }}
         options={{
           title: isVisitor ? 'Se connecter' : 'Compte',
           tabBarAccessibilityLabel: isVisitor ? 'Se connecter ou créer un compte' : 'Compte',
@@ -180,6 +180,9 @@ const styles = StyleSheet.create({
     top: -8,
     width: 22, height: 2,
     backgroundColor: Colors.flame,
+  },
+  inactiveBar: {
+    opacity: 0,
   },
   tabBarBorder: {
     position: 'absolute',

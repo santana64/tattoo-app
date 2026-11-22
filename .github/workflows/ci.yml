@@ -23,12 +23,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Reject newly introduced critical vulnerabilities without forcing Expo SDK upgrades.
+      - run: npm audit --omit=dev --audit-level=critical
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       # Expo static rendering imports the Supabase client during build. These
       # reserved, non-routable values exercise the bundle without live data.
       - run: npm run build:web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+      # Compile real native entrypoints too: web export cannot detect missing
+      # React Native storage modules or platform-resolution regressions.
+      - name: Export Android and iOS bundles
+        run: |
+          npx expo export --platform android --output-dir dist-android --clear
+          npx expo export --platform ios --output-dir dist-ios --clear
         env:
           EXPO_PUBLIC_SUPABASE_URL: https://supabase.invalid
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder

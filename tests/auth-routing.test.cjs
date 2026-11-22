@@ -63,3 +63,16 @@ test('a brand-new account chooses client or artist before any onboarding', () =>
   assert.equal(authRedirect(['(auth)', 'role-select'], true, fresh), null);
   assert.equal(authRedirect(['(onboarding)', 'client', 'step2'], true, fresh), null);
 });
+
+test('return paths reject encoded separators, control bytes and traversal', () => {
+  for (const encoded of ['%2f', '%2F', '%5c', '%5C', '%00', '%0a', '%0D', '%1f', '%7f']) {
+    assert.equal(safeNextPath('/artist/' + encoded + 'evil.example'), null, encoded);
+    assert.equal(safeNextPath('/saved?next=' + encoded + 'evil.example'), null, encoded);
+  }
+  for (const segment of ['.', '..', '%2e', '%2E', '%2e%2e', '.%2e', '%2E.', '%2e%2E']) {
+    assert.equal(safeNextPath('/artist/' + segment + '/1'), null, segment);
+  }
+  for (const valid of ['/artist/123?style=Fine%20Line', '/request/new?artistId=abc', '/saved?tab=liked']) {
+    assert.equal(safeNextPath(valid), valid);
+  }
+});

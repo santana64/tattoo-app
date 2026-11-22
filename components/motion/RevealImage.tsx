@@ -1,9 +1,13 @@
 import React from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { Image, ImageContentFit } from 'expo-image';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, useReducedMotion } from 'react-native-reanimated';
 import { Colors } from '@/constants/theme';
 import { EASE_OUT, MotionDuration } from './tokens';
+
+// Android Fabric can reparent text during image loads inside virtualized artist cards.
+// Keep the native image stable while preserving animated reveals on Web/iOS.
+const ImageSurface = Platform.OS === 'android' ? View : Animated.View;
 
 interface RevealImageProps {
   uri?: string | null;
@@ -33,17 +37,17 @@ export function RevealImage({ uri, style, contentFit = 'cover', accessibilityLab
   return (
     <View style={[styles.frame, style]}>
       {showFallback ? fallback : (
-        <Animated.View style={[StyleSheet.absoluteFill, anim]}>
+        <ImageSurface style={[StyleSheet.absoluteFill, Platform.OS !== 'android' && anim]}>
           <Image
             source={{ uri }}
             style={StyleSheet.absoluteFill}
             contentFit={contentFit}
             cachePolicy="memory-disk"
             accessibilityLabel={accessibilityLabel}
-            onLoad={() => progress.set(withTiming(1, { duration: reduced ? 150 : MotionDuration.reveal, easing: EASE_OUT }))}
+            onLoad={() => { if (Platform.OS !== 'android') progress.set(withTiming(1, { duration: reduced ? 150 : MotionDuration.reveal, easing: EASE_OUT })); }}
             onError={() => setFailed(true)}
           />
-        </Animated.View>
+        </ImageSurface>
       )}
     </View>
   );

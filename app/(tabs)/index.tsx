@@ -5,6 +5,7 @@ import {
   RefreshControl,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useContentDimensions, useShell } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -520,6 +521,9 @@ export default function FeedScreen() {
         </ScrollView>
       ) : (
         <Animated.FlatList
+          // Avoid Fabric's ReactClippingViewManager reparenting mounted cells
+          // when changing tabs on Android; Explore already disables clipping.
+          removeClippedSubviews={Platform.OS === 'android' ? false : undefined}
           data={rows}
           keyExtractor={(row) => `${cols}:${row.key}`}
           renderItem={renderRow}

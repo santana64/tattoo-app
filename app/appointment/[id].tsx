@@ -21,6 +21,7 @@ import { DetailRow, InkPanel, Kicker, PageWrap, StatusDot, TextLink, type Status
 import { StatusTimeline, type TimelineStep } from '@/components/RequestCard';
 import { BottomSheet, GlassSurface } from '@/components/motion';
 import { SlotPicker } from '@/components/booking/SlotPicker';
+import { DepositSection } from '@/components/booking/DepositSection';
 import { exportCalendar, openInGoogleCalendar } from '@/components/booking/calendar-export';
 import { cancellationNotice, noticeDeadline } from '@/components/booking/booking-copy';
 import { useAuthStore } from '@/store/auth-store';
@@ -487,6 +488,10 @@ export default function AppointmentScreen() {
     </Section>
   ) : null;
 
+  const depositSection = (
+    <DepositSection appointmentId={appointment.id} appointmentStatus={appointment.status} upcoming={upcoming} isArtist={!!isArtist} />
+  );
+
   const healed = (
     <View style={styles.healed}>
       <HealedPhotoCard
@@ -520,6 +525,7 @@ export default function AppointmentScreen() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 {timelineSection}
                 {notesSection}
+                {depositSection}
                 {healed}
               </View>
               <View style={{ width: SIDE_W }}>
@@ -531,6 +537,7 @@ export default function AppointmentScreen() {
             <>
               {timelineSection}
               {notesSection}
+              {depositSection}
               {healed}
               {calendarSection}
               {manageSection}

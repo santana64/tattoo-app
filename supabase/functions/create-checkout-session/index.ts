@@ -7,14 +7,12 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import Stripe from 'https://esm.sh/stripe@13.10.0?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { bearerToken, corsHeaders, isAllowedReturnUrl, json } from '../_shared/http.ts';
+import { resolveCheckoutReturnUrls } from '../_shared/checkout-return-urls.ts';
 
-// Stripe only accepts https return URLs. Without one from an allowed web
-// origin, the session returns through the payment-return function, which
-// forwards to the app's inkr:// deep link.
+// Native clients omit Web return URLs and use this fixed HTTPS bridge to
+// the app's inkr:// deep link. Invalid explicit Web URLs are rejected.
 const bridgeUrl = (target: string) =>
   `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/payment-return?target=${encodeURIComponent(target)}`;
-const isWebReturnUrl = (url: unknown): url is string =>
-  isAllowedReturnUrl(url) && /^https?:\/\//i.test(url);
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(req) });
@@ -54,12 +52,9 @@ serve(async (req) => {
 
     // Return URLs come from the client: only the app itself is accepted, so a
     // crafted request cannot turn Stripe's redirect into an open redirect.
-    const successUrl = isWebReturnUrl(body.successUrl)
-      ? body.successUrl
-      : bridgeUrl('settings/subscription?checkout=success');
-    const cancelUrl = isWebReturnUrl(body.cancelUrl)
-      ? body.cancelUrl
-      : bridgeUrl('settings/subscription?checkout=cancelled');
+    const returnUrls = resolveCheckoutReturnUrls(body, isAllowedReturnUrl, bridgeUrl);
+    if (!returnUrls) return json(req, { error: 'invalid_return_urls' }, 400);
+    const { successUrl, cancelUrl } = returnUrls;
 
     const { data: artist } = await supabase
       .from('artists')

@@ -1,4 +1,5 @@
 import Head from 'expo-router/head';
+import { Platform } from 'react-native';
 import { usePathname } from 'expo-router';
 import { absoluteUrl, OG_IMAGE_PATH, SITE_NAME } from '@/lib/site';
 
@@ -17,6 +18,10 @@ interface SeoProps {
  */
 export function Seo({ title, description, indexable = true, image, type = 'website' }: SeoProps) {
   const pathname = usePathname();
+  // SEO metadata only has meaning in the web document. Rendering expo-router/head
+  // on native invokes Apple Handoff without a configured handoff origin and
+  // causes a blocking production alert on iOS.
+  if (Platform.OS !== 'web') return null;
   const url = absoluteUrl(pathname === '/' ? '' : pathname);
   const card = image || absoluteUrl(OG_IMAGE_PATH);
 

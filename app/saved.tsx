@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, ScrollView, Platform } from 'react-native';
 import { useContentDimensions } from '@/hooks/useContentDimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -38,6 +38,7 @@ function WorkTile({ post, width, index }: { post: FeedPost; width: number; index
     <View style={{ width }}>
       <PressableScale
         onPress={() => router.push(isVideo ? `/reels/${post.id}` : `/post/${post.id}`)}
+        {...(Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => { if (['Enter', ' ', 'Spacebar'].includes(event.key)) { event.preventDefault(); router.push(isVideo ? `/reels/${post.id}` : `/post/${post.id}`); } } } : {})}
         accessibilityRole="link"
         accessibilityLabel={`Réalisation de ${post.artistName}${post.caption ? ` : ${post.caption}` : ''}`}
       >
@@ -47,6 +48,7 @@ function WorkTile({ post, width, index }: { post: FeedPost; width: number; index
           ) : (
             <RevealImage
               uri={post.mediaUrl}
+              accessibilityLabel=""
               style={StyleSheet.absoluteFill}
               fallback={<ArtPlaceholder name={post.artistName} size={40} />}
             />

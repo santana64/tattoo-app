@@ -1,0 +1,38 @@
+// CI-only Gradle init script. Applied to root and included builds BEFORE their
+// settings and project scripts are evaluated, avoiding Gradle Plugin Portal's
+// implicit redirects to Maven Central on shared GitHub runner IP addresses.
+//
+// Maven Central mirror: https://docs.cloud.google.com/docs/buildpacks/java
+// Failure mode: https://central.sonatype.org/faq/429-error/
+// Existing mavenCentral() and plugin repositories remain as fallback.
+
+def centralMirrorUrl = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+def prependMirror = { repositories ->
+    if (repositories.findByName('INKR CI Maven Central mirror') == null) {
+        repositories.maven {
+            name = 'INKR CI Maven Central mirror'
+            url = uri(centralMirrorUrl)
+        }
+    }
+}
+
+gradle.beforeSettings { settings ->
+    // Plugins in included builds can use an implicit Plugin Portal that sends
+    // transitive artifacts straight to Maven Central. Put the mirror before it.
+    def pluginRepos = settings.pluginManagement.repositories
+    pluginRepos.google()
+    prependMirror(pluginRepos)
+    pluginRepos.mavenCentral()
+    pluginRepos.gradlePluginPortal()
+
+    prependMirror(settings.buildscript.repositories)
+    prependMirror(settings.dependencyResolutionManagement.repositories)
+}
+
+gradle.beforeProject { project ->
+    prependMirror(project.buildscript.repositories)
+    prependMirror(project.repositories)
+}
+
+println 'INKR CI: Maven Central mirror active for plugin, settings and project repositories'
