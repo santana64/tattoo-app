@@ -27,3 +27,43 @@ tags:
 - extendedWaitUntil:
     visible: ".*Entrez dans.*"
     timeout: 30000
+
+# Native sign-in mode switching must not crash Fabric/Reanimated.
+# No OTP is requested and no user account is created.
+- tapOn:
+    text: ".*Mot de passe oublié.*Recevoir un lien de connexion.*"
+- extendedWaitUntil:
+    visible: ".*Utiliser plutôt un mot de passe.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Utiliser plutôt un mot de passe.*"
+- extendedWaitUntil:
+    visible: ".*Mot de passe oublié.*Recevoir un lien de connexion.*"
+    timeout: 30000
+
+# Exercise native navigation to the legal modal from the real login screen.
+- scrollUntilVisible:
+    element:
+      text: ".*CGU.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: ".*CGU.*"
+- extendedWaitUntil:
+    visible: ".*Objet.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Retour.*"
+- extendedWaitUntil:
+    visible: ".*Entrez dans.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: ".*politique de confidentialité.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    text: ".*politique de confidentialité.*"
+- extendedWaitUntil:
+    visible: ".*Responsable du traitement.*"
+    timeout: 30000
