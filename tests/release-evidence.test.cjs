@@ -19,6 +19,11 @@ const allGo = () => {
   g0.web_release_reviewed = true;
   g0.legacy_client_resolution = 'legacy-exclusion-tested';
   g0.exclusion_tested_on_copy = true;
+  g0.legacy_v4_ota_disabled_verified = true;
+  g0.legacy_v4_signed_binary_delivery_verified = true;
+  g0.legacy_v4_all_recipients_upgraded_verified = true;
+  g0.legacy_v4_release_order_before_restrictive_migrations_verified = true;
+  g0.legacy_v4_no_insecure_permission_fallback_verified = true;
   g0.candidate_android_version_code = 5;
   g0.eas_remote_android_version_code_at_audit = 4;
   g0.android_signing_compatibility_verified = true;
@@ -78,6 +83,29 @@ test('legacy exclusion must have been exercised on a copy', () => {
   const value = allGo();
   value.gates.G0.exclusion_tested_on_copy = false;
   assert.ok(assessEvidence(value).blockers.some((line) => line.includes('exclusion not demonstrated')));
+});
+
+test('G0 rejects a forced-update claim unless signed v5 delivery and v4 adoption are proven', () => {
+  for (const field of [
+    'legacy_v4_ota_disabled_verified',
+    'legacy_v4_signed_binary_delivery_verified',
+    'legacy_v4_all_recipients_upgraded_verified',
+    'legacy_v4_release_order_before_restrictive_migrations_verified',
+    'legacy_v4_no_insecure_permission_fallback_verified',
+  ]) {
+    const value = allGo();
+    value.gates.G0[field] = false;
+    assert.ok(assessEvidence(value).blockers.some((line) => line.includes(field)), field);
+  }
+});
+
+test('G0 rejects no-legacy-installations claim without a distribution attestation', () => {
+  const value = allGo();
+  value.gates.G0.legacy_client_resolution = 'no-legacy-installations-attested';
+  value.gates.G0.legacy_zero_installed_clients_attested = false;
+  assert.ok(assessEvidence(value).blockers.some((line) => line.includes('absence of installed legacy clients')));
+  value.gates.G0.legacy_zero_installed_clients_attested = true;
+  assert.equal(assessEvidence(value).ready, true);
 });
 
 test('G0 cannot pass with an Android build number below the historical v4 baseline', () => {
