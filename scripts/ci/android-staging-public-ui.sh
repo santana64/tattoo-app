@@ -119,6 +119,25 @@ fi
 adb shell dumpsys activity activities > "$OUT/after-sign-in-tap-activity.txt" 2>/dev/null || true
 wait_for_text "Entrez dans" sign_in
 
+# Exercise both legal routes via genuine Android intent delivery, without
+# an authenticated session or backend mutation. Read the installed native
+# accessibility tree, not a WebView or mock screen.
+for spec in 'terms|Objet' 'privacy-policy|Responsable du traitement'; do
+  route="${spec%%|*}"
+  expected="${spec#*|}"
+  adb shell am start -W -a android.intent.action.VIEW \
+    -d "inkr://legal/$route" "$PACKAGE" > "$OUT/legal-$route-intent.txt"
+  if ! grep -Eq 'com\.inkr\.tattoo|Status: ok' "$OUT/legal-$route-intent.txt"; then
+    echo "::error::Native legal route intent failed for $route."
+    exit 1
+  fi
+  wait_for_text "$expected" "legal_$route"
+  assert_app_alive "legal_$route"
+  adb shell input keyevent KEYCODE_BACK
+  wait_for_text "Entrez dans" "legal_${route}_back"
+  assert_app_alive "legal_${route}_back"
+done
+
 # Verify Android URI intent delivery to the actual callback screen using
 # a synthetic provider error: no OTP, JWT, password, or backend mutation.
 adb shell am start -W -a android.intent.action.VIEW \
