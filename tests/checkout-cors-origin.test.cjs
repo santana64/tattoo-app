@@ -19,6 +19,7 @@ function load(projectUrl, origins = '') {
 }
 
 const preview = 'https://tattoo-app-4gmu-po0g25qat-santana64s-projects.vercel.app';
+const deploymentPreview = 'https://tattoo-pirq8ggyg-santana64s-projects.vercel.app';
 const stagingUrl = 'https://lsewxsdulunuuzmszegm.supabase.co';
 const productionUrl = 'https://jxmefklkixzzdceeorcg.supabase.co';
 const req = (origin) => ({ headers: { get: (name) => name === 'Origin' ? origin : null } });
@@ -26,10 +27,18 @@ const req = (origin) => ({ headers: { get: (name) => name === 'Origin' ? origin 
 test('staging QA accepts only the exact Vercel project/team preview origin', () => {
   const http = load(stagingUrl);
   assert.equal(http.isAllowedWebOrigin(preview), true);
+  assert.equal(http.isAllowedWebOrigin(deploymentPreview), true);
+  assert.equal(http.corsHeaders(req(deploymentPreview))['Access-Control-Allow-Origin'], deploymentPreview);
+  assert.equal(http.isAllowedReturnUrl(deploymentPreview + '/settings/subscription?checkout=success'), true);
   assert.equal(http.corsHeaders(req(preview))['Access-Control-Allow-Origin'], preview);
   assert.equal(http.isAllowedReturnUrl(preview + '/settings/subscription?checkout=success'), true);
   for (const origin of [
     'https://evil.vercel.app',
+    'https://tattoo-evilattacker-santana64s-projects.vercel.app',
+    'https://tattoo-pirq8ggyg-santana64s-projects.vercel.app.evil.test',
+    'http://tattoo-pirq8ggyg-santana64s-projects.vercel.app',
+    'https://tattoo-pirq8ggyg-attacker-projects.vercel.app',
+    'https://tattoo-pirq8ggyg-santana64s-projects.vercel.app:8443',
     'https://tattoo-app-4gmu-abc-other-team.vercel.app',
     'https://tattoo-app-4gmu-abc-santana64s-projects.vercel.app.evil.test',
     'http://tattoo-app-4gmu-po0g25qat-santana64s-projects.vercel.app',
@@ -42,6 +51,8 @@ test('staging QA accepts only the exact Vercel project/team preview origin', () 
 test('preview exception cannot authorize a production checkout', () => {
   const http = load(productionUrl);
   assert.equal(http.isAllowedWebOrigin(preview), false);
+  assert.equal(http.isAllowedWebOrigin(deploymentPreview), false);
+  assert.equal(http.isAllowedReturnUrl(deploymentPreview + '/settings/subscription?checkout=success'), false);
   assert.equal(http.isAllowedReturnUrl(preview + '/settings/subscription?checkout=success'), false);
   assert.equal(http.corsHeaders(req(preview))['Access-Control-Allow-Origin'], undefined);
 });
