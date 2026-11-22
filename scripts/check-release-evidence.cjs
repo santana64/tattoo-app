@@ -85,6 +85,27 @@ function assessEvidence(manifest) {
         g0.compatibility_tested_on_copy !== true) {
       blockers.push('G0: legacy compatibility not demonstrated on a copy');
     }
+
+    // Android v4 has expo.modules.updates.ENABLED=false: it cannot be
+    // rescued by publishing an EAS OTA update after restrictive SQL changes.
+    // "Legacy exclusion" is only a safe release path when an independent
+    // distribution audit proves every affected install has received a signed
+    // newer binary BEFORE the old backend contract is removed.
+    if (g0.legacy_client_resolution === 'legacy-exclusion-tested') {
+      for (const field of [
+        'legacy_v4_ota_disabled_verified',
+        'legacy_v4_signed_binary_delivery_verified',
+        'legacy_v4_all_recipients_upgraded_verified',
+        'legacy_v4_release_order_before_restrictive_migrations_verified',
+        'legacy_v4_no_insecure_permission_fallback_verified',
+      ]) {
+        if (g0[field] !== true) blockers.push('G0: ' + field + ' not verified');
+      }
+    }
+    if (g0.legacy_client_resolution === 'no-legacy-installations-attested' &&
+        g0.legacy_zero_installed_clients_attested !== true) {
+      blockers.push('G0: absence of installed legacy clients not attested');
+    }
   }
 
   // A linked document alone cannot certify a backup, real-role QA or a
