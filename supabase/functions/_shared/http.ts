@@ -11,11 +11,14 @@ const NATIVE_SCHEME = 'inkr://';
 // Never use a broad *.vercel.app wildcard and never enable this in production.
 const STAGING_SUPABASE_URL = 'https://lsewxsdulunuuzmszegm.supabase.co';
 const STAGING_VERCEL_PREVIEW = /^https:\/\/tattoo-app-4gmu-[a-z0-9]+-santana64s-projects\.vercel\.app$/;
+// Current Vercel deployment URLs are tattoo-<9 alphanumeric chars>-santana64s-projects.vercel.app.
+// Restrict this exception to the exact INKR staging project, not to production.
+const STAGING_VERCEL_DEPLOYMENT = /^https:\/\/tattoo-[a-z0-9]{9}-santana64s-projects\.vercel\.app$/;
 
 export function isAllowedWebOrigin(origin: string): boolean {
   return allowedOrigins().includes(origin)
     || (Deno.env.get('SUPABASE_URL') === STAGING_SUPABASE_URL
-      && STAGING_VERCEL_PREVIEW.test(origin));
+      && (STAGING_VERCEL_PREVIEW.test(origin) || STAGING_VERCEL_DEPLOYMENT.test(origin)));
 }
 
 export function allowedOrigins(): string[] {
