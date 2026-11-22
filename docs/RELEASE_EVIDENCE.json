@@ -14,7 +14,8 @@
         "docs/INKR_G0_OFFICIAL_EAS_BUILD_INVENTORY_20261121.md",
         "docs/INKR_G0_EAS_DISTRIBUTION_INVENTORY_20261121.md",
         "docs/INKR_PRIORITY_STRIPE_LEGACY_RECOVERY_REVALIDATION_20261121.md",
-        "docs/INKR_G0_G1_G2_FRESH_LOGIN_AND_PRE_CUTOVER_20261121.md"
+        "docs/INKR_G0_G1_G2_FRESH_LOGIN_AND_PRE_CUTOVER_20261121.md",
+        "docs/INKR_G0_ANDROID_LEGACY_REVALIDATION_20261122.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
@@ -78,7 +79,12 @@
       "staging_legacy_style_direct_update_sqlstate": "42501",
       "prod_staging_appointments_insert_permission_delta_verified": true,
       "prod_staging_appointments_update_permission_delta_verified": true,
-      "historical_v4_business_flow_compatibility_verified": false
+      "historical_v4_business_flow_compatibility_verified": false,
+      "historical_v4_20261122_hermes_bytecode_disassembly_inspected": true,
+      "historical_v4_20261122_staging_direct_appointment_write_403_verified": true,
+      "historical_v4_20261122_eas_store_build_not_proof_of_distribution": true,
+      "historical_v4_20261122_actual_business_flow_compatibility_verified": false,
+      "historical_v4_20261122_manual_play_distribution_inventoried": false
     },
     "G1": {
       "status": "HOLD",
