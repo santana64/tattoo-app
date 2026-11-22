@@ -16,7 +16,8 @@
         "docs/INKR_PRIORITY_STRIPE_LEGACY_RECOVERY_REVALIDATION_20261121.md",
         "docs/INKR_G0_G1_G2_FRESH_LOGIN_AND_PRE_CUTOVER_20261121.md",
         "docs/INKR_G0_ANDROID_LEGACY_REVALIDATION_20261122.md",
-        "docs/INKR_G0_V4_MANDATORY_UPDATE_CUTOVER_20261122.md"
+        "docs/INKR_G0_V4_MANDATORY_UPDATE_CUTOVER_20261122.md",
+        "docs/INKR_G0_OWNER_DISTRIBUTION_ATTESTATION_20261122.md"
       ],
       "historical_android_builds": 10,
       "max_historical_android_version_code": 4,
@@ -100,7 +101,9 @@
       "historical_v4_20261122_fresh_isolated_uid_preserved": true,
       "historical_v4_20261122_fresh_isolated_firstInstallTime_preserved": true,
       "historical_v4_20261122_private_local_data_preservation_verified": false,
-      "historical_v4_20261122_legacy_api_business_flow_verified": false
+      "historical_v4_20261122_legacy_api_business_flow_verified": false,
+      "owner_declares_no_google_play_publication_20261122": true,
+      "owner_declares_no_apk_sent_to_other_people_20261122": true
     },
     "G1": {
       "status": "HOLD",
